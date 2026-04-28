@@ -1,0 +1,29 @@
+{
+  "name": "propertyapp",
+  "version": "0.1.0",
+  "description": "Aplikacja do zarzadzania wynajmem nieruchomosci - rozliczenia, najemcy, raporty",
+  "private": true,
+  "main": "src/server.js",
+  "type": "commonjs",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "migrate": "node scripts/migrate.js",
+    "seed": "node scripts/seed.js",
+    "import": "node scripts/import-excel.js \"./ROZLICZENIA Z NAJEMCAMI.xlsx\"",
+    "import:dryrun": "node scripts/import-excel-dryrun.js \"./ROZLICZENIA Z NAJEMCAMI.xlsx\"",
+    "backup": "node scripts/backup.js",
+    "smoke": "node scripts/smoke-test.js",
+    "setup": "npm run migrate && npm run seed && npm run import"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.5.0",
+    "express": "^4.21.1",
+    "multer": "^1.4.5-lts.1",
+    "xlsx": "^0.18.5",
+    "zod": "^3.23.8",
+    "pdfkit": "^0.15.1",
+    "morgan": "^1.10.0"
+  }
+}
