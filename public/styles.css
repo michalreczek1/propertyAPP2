@@ -211,7 +211,7 @@ html { height: 100%; }
 .gc:hover { border-color: var(--border-bright); }
 
 /* ── KPI ── */
-.kpi-strip { display: grid; grid-template-columns: minmax(260px, 2fr) repeat(4, minmax(145px, 1fr)); gap: 12px; }
+.kpi-strip { display: grid; grid-template-columns: minmax(260px, 2fr) repeat(5, minmax(145px, 1fr)); gap: 12px; }
 .kpi-strip-4 { grid-template-columns: minmax(260px, 2fr) repeat(3, minmax(145px, 1fr)); }
 .kpi-strip-3 { grid-template-columns: minmax(260px, 2fr) repeat(2, minmax(145px, 1fr)); }
 .kpi-strip-flat-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
@@ -655,7 +655,7 @@ select.slim { font-size: 12.5px; padding: 6px 10px; border: 1px solid var(--bord
 /* Responsive */
 @media (max-width: 1280px) {
   .kpi-strip { grid-template-columns: minmax(230px, 2fr) repeat(3, minmax(135px, 1fr)); }
-  .kpi-strip > .kpi-sm:nth-child(5) { display: none; }
+  .kpi-strip > .kpi-sm:nth-child(6) { display: none; }
   .udc-stats { grid-template-columns: repeat(3, minmax(0,1fr)); }
   .pay-grid { grid-template-columns: 1fr; }
   .tenant-bento { grid-template-columns: 1fr; }
@@ -669,7 +669,7 @@ select.slim { font-size: 12.5px; padding: 6px 10px; border: 1px solid var(--bord
 }
 @media (max-width: 900px) {
   .kpi-strip, .kpi-strip-flat-5, .kpi-strip-flat-4 { grid-template-columns: 1fr 1fr; }
-  .kpi-strip > .kpi-sm:nth-child(5) { display: flex; }
+  .kpi-strip > .kpi-sm:nth-child(6) { display: flex; }
   .kanban { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: 1fr; }
   .sum-grid, .sum-grid-5 { grid-template-columns: repeat(2, 1fr); }

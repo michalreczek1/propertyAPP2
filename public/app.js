@@ -364,6 +364,9 @@ async function renderDashboard(root) {
   const d = await Api.get(`/dashboard?period=${State.period}`);
   const r = d.revenue, e = d.expenses, t = d.tax, occ = d.occupancy;
   const owner = d.net_for_owner;
+  const mediaCosts = (e.by_category || [])
+    .filter(row => ['prad', 'internet'].includes(row.category))
+    .reduce((sum, row) => sum + (row.total || 0), 0);
   const noPayments = !d.current_payments || d.current_payments.length === 0;
   const paidCount = (d.current_payments || []).filter(p => p.status === 'paid').length;
   const pendingCount = (d.current_payments || []).filter(p => p.status !== 'paid').length;
@@ -398,6 +401,12 @@ async function renderDashboard(root) {
         <div class="ks-label">Media w przychodach</div>
         <div class="ks-val">${fmtPLN(r.media)}<span class="ks-unit">PLN</span></div>
         <div class="ks-delta delta-n">z zatwierdzonych</div>
+      </div>
+      <div class="kpi-sm">
+        <div class="ks-icon ki-r"><svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
+        <div class="ks-label">Media w kosztach</div>
+        <div class="ks-val">${fmtPLN(mediaCosts)}<span class="ks-unit">PLN</span></div>
+        <div class="ks-delta delta-n">prąd + internet</div>
       </div>
       <div class="kpi-sm">
         <div class="ks-icon ki-v"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg></div>
