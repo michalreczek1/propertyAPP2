@@ -2051,7 +2051,7 @@ async function renderSettings(root) {
         <div class="form-row"><label>NIP</label><input name="company.nip" value="${escapeHtml(s['company.nip']||'')}"></div>
         <div class="form-row full"><label>Adres</label><input name="company.address" value="${escapeHtml(s['company.address']||'')}"></div>
         <div class="form-row"><label>Stawka ryczałtu [%]</label><input name="tax.rate" type="number" step="0.01" value="${escapeHtml(s['tax.rate']||'8.5')}"></div>
-        <div class="form-row"><label>Kościelna (mies. PLN)</label><input name="tax.koscielna" type="number" step="0.01" value="${escapeHtml(s['tax.koscielna']||'0')}"></div>
+        <div class="form-row"><label>Dodatkowy podatek mies. [PLN]</label><input name="tax.koscielna" type="number" step="0.01" value="${escapeHtml(s['tax.koscielna']||'0')}"></div>
         <div class="form-row"><label>Waluta</label><input name="currency" value="${escapeHtml(s['currency']||'PLN')}"></div>
         <div class="form-row"><label>Locale</label><input name="locale" value="${escapeHtml(s['locale']||'pl-PL')}"></div>
       </form>

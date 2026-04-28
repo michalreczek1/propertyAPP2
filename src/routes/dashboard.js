@@ -2,6 +2,7 @@
 const router = require('express').Router();
 const db = require('../db');
 const { currentPeriod, previousPeriod, periodLabel } = require('../utils/period');
+const { computeTaxAmounts } = require('../utils/tax');
 
 function getNum(key, fallback = 0) {
   const r = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
@@ -17,16 +18,7 @@ function computeTax(rentPaid) {
   // - kwotę podatku zaokrągla się do pełnych zł
   const rate = getNum('tax.rate', 8.5);
   const koscielna = getNum('tax.koscielna', 0);
-  const base = Math.round(rentPaid || 0);
-  const podatek = Math.round(base * rate / 100);
-  const podatek_koscielna = Math.round(koscielna);
-  return {
-    podatek,
-    podatek_koscielna,
-    podatek_suma: podatek + podatek_koscielna,
-    rate,
-    base,
-  };
+  return computeTaxAmounts(rentPaid, rate, koscielna);
 }
 
 router.get('/', (req, res) => {
@@ -151,16 +143,19 @@ router.get('/', (req, res) => {
         WHEN status='partial' THEN total_paid ELSE 0 END) FROM payments WHERE period = m.p), 0) AS revenue,
       COALESCE((SELECT SUM(media_amount) FROM payments WHERE period = m.p AND status='paid'), 0) AS media,
       COALESCE((SELECT SUM(amount) FROM expenses WHERE strftime('%Y-%m', date) = m.p), 0) AS expenses,
-      ROUND(ROUND(COALESCE((SELECT SUM(CASE
+      ROUND(COALESCE((SELECT SUM(CASE
         WHEN status='paid'    THEN rent_amount
         WHEN status='partial' THEN
           CASE WHEN (rent_amount + media_amount + other_amount) > 0
             THEN total_paid * rent_amount * 1.0 / (rent_amount + media_amount + other_amount)
             ELSE 0 END
-        ELSE 0 END) FROM payments WHERE period = m.p), 0)) * ? / 100.0) + ROUND(?) AS tax
+        ELSE 0 END) FROM payments WHERE period = m.p), 0)) AS rent_paid
     FROM months m
     ORDER BY m.p
-  `).all(period + '-01', period, taxRate, taxKoscielna);
+  `).all(period + '-01', period).map(row => ({
+    ...row,
+    tax: computeTaxAmounts(row.rent_paid || 0, taxRate, taxKoscielna).podatek_suma,
+  }));
 
   // Podatek liczony od zatwierdzonego CZYNSZU (rent_amount), nie od mediów.
   const paid = sumCurrent.paid || 0;

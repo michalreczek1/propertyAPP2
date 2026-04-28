@@ -2,6 +2,7 @@
 const router = require('express').Router();
 const db = require('../db');
 const { currentPeriod, periodLabel } = require('../utils/period');
+const { computeTaxAmounts } = require('../utils/tax');
 
 function getNum(key, fallback = 0) {
   const r = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
@@ -63,21 +64,18 @@ router.get('/', (req, res) => {
   const sumRevenue = properties.reduce((s, p) => s + p.revenue, 0);
   const sumRentPaid = properties.reduce((s, p) => s + (p.rent_paid || 0), 0);
   const sumExpenses = properties.reduce((s, p) => s + p.expenses, 0);
-  const baseTax = Math.round(sumRentPaid);
-  const podatek = Math.round(baseTax * taxRate / 100);
-  const podatekKoscielna = Math.round(taxKoscielna);
-  const podatekSuma = podatek + podatekKoscielna;
+  const tax = computeTaxAmounts(sumRentPaid, taxRate, taxKoscielna);
   const totals = {
     revenue: sumRevenue,
     rent_paid: sumRentPaid,
-    tax_base: baseTax,
+    tax_base: tax.base,
     expected_revenue: properties.reduce((s, p) => s + p.expected_revenue, 0),
     expenses: sumExpenses,
-    tax: podatek,
-    tax_koscielna: podatekKoscielna,
-    tax_total: podatekSuma,
+    tax: tax.podatek,
+    tax_koscielna: tax.podatek_koscielna,
+    tax_total: tax.podatek_suma,
     tax_rate: taxRate,
-    net: +(sumRevenue - sumExpenses - podatekSuma).toFixed(2),
+    net: +(sumRevenue - sumExpenses - tax.podatek_suma).toFixed(2),
   };
   totals.margin = totals.revenue ? totals.net / totals.revenue : 0;
 
@@ -120,16 +118,19 @@ router.get('/', (req, res) => {
         WHEN status='paid'    THEN (rent_amount + media_amount + other_amount)
         WHEN status='partial' THEN total_paid ELSE 0 END) FROM payments WHERE period = m.p), 0) AS revenue,
       COALESCE((SELECT SUM(amount) FROM expenses WHERE strftime('%Y-%m', date) = m.p), 0) AS expenses,
-      ROUND(ROUND(COALESCE((SELECT SUM(CASE
+      ROUND(COALESCE((SELECT SUM(CASE
         WHEN status='paid'    THEN rent_amount
         WHEN status='partial' THEN
           CASE WHEN (rent_amount + media_amount + other_amount) > 0
             THEN total_paid * rent_amount * 1.0 / (rent_amount + media_amount + other_amount)
             ELSE 0 END
-        ELSE 0 END) FROM payments WHERE period = m.p), 0)) * ? / 100.0) + ROUND(?) AS tax
+        ELSE 0 END) FROM payments WHERE period = m.p), 0)) AS rent_paid
     FROM months m
     ORDER BY m.p
-  `).all(period + '-01', period, taxRate, taxKoscielna);
+  `).all(period + '-01', period).map(row => ({
+    ...row,
+    tax: computeTaxAmounts(row.rent_paid || 0, taxRate, taxKoscielna).podatek_suma,
+  }));
 
   res.json({
     period,

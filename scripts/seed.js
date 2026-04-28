@@ -34,7 +34,7 @@ const settings = {
   'company.address': '',
   'company.nip':     '',
   'tax.rate':        '8.5',
-  'tax.koscielna':   '182.75',
+  'tax.koscielna':   '0',
   'currency':        'PLN',
   'locale':          'pl-PL',
   'app.title':       'PropertyApp',
