@@ -14,6 +14,7 @@
     "import": "node scripts/import-excel.js \"./ROZLICZENIA Z NAJEMCAMI.xlsx\"",
     "import:dryrun": "node scripts/import-excel-dryrun.js \"./ROZLICZENIA Z NAJEMCAMI.xlsx\"",
     "backup": "node scripts/backup.js",
+    "seed:fixed-expenses-2026": "node scripts/seed-fixed-expenses-2026.js",
     "smoke": "node scripts/smoke-test.js",
     "setup": "npm run migrate && npm run seed && npm run import"
   },
