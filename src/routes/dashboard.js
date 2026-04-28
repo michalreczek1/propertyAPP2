@@ -3,6 +3,7 @@ const router = require('express').Router();
 const db = require('../db');
 const { currentPeriod, previousPeriod, periodLabel } = require('../utils/period');
 const { computeTaxAmounts } = require('../utils/tax');
+const { getOwnerCosts, appendOwnerCostCategories } = require('../utils/owner-costs');
 
 function getNum(key, fallback = 0) {
   const r = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
@@ -79,10 +80,13 @@ router.get('/', (req, res) => {
     SELECT category, SUM(amount) AS total
     FROM expenses WHERE strftime('%Y-%m', date) = ? GROUP BY category
   `).all(period);
-  const expensesTotal = expensesByCat.reduce((s, r) => s + (r.total || 0), 0);
+  const ownerCosts = getOwnerCosts(db);
+  const expensesByCatWithOwner = appendOwnerCostCategories(expensesByCat, ownerCosts);
+  const expensesTotal = expensesByCatWithOwner.reduce((s, r) => s + (r.total || 0), 0);
   const expensesPrev = db.prepare(`
     SELECT SUM(amount) AS total FROM expenses WHERE strftime('%Y-%m', date) = ?
   `).get(prev || '').total || 0;
+  const expensesPrevTotal = expensesPrev + ownerCosts.total;
 
   // Status lokali
   const occupancy = db.prepare(`
@@ -154,6 +158,7 @@ router.get('/', (req, res) => {
     ORDER BY m.p
   `).all(period + '-01', period).map(row => ({
     ...row,
+    expenses: (row.expenses || 0) + ownerCosts.total,
     tax: computeTaxAmounts(row.rent_paid || 0, taxRate, taxKoscielna).podatek_suma,
   }));
 
@@ -181,8 +186,9 @@ router.get('/', (req, res) => {
     },
     expenses: {
       total: expensesTotal,
-      delta_vs_prev: expensesPrev ? (expensesTotal - expensesPrev) / expensesPrev : 0,
-      by_category: expensesByCat,
+      recurring_owner: ownerCosts,
+      delta_vs_prev: expensesPrevTotal ? (expensesTotal - expensesPrevTotal) / expensesPrevTotal : 0,
+      by_category: expensesByCatWithOwner,
     },
     tax,
     net_for_owner: +(paid - expensesTotal - tax.podatek_suma).toFixed(2),

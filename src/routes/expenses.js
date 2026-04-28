@@ -7,7 +7,7 @@ const { validate } = require('../middleware/validate');
 const ExpenseSchema = z.object({
   property_id: z.coerce.number().int().positive().nullable().optional(),
   unit_id: z.coerce.number().int().positive().nullable().optional(),
-  category: z.enum(['czynsz','prad','internet','remonty','doplata','inne']),
+  category: z.enum(['czynsz','prad','internet','remonty','doplata','zarzadzanie','kredyt','inne']),
   amount: z.coerce.number(),
   date: z.string(),
   description: z.string().nullable().optional(),

@@ -3,6 +3,7 @@ const router = require('express').Router();
 const db = require('../db');
 const { currentPeriod, periodLabel } = require('../utils/period');
 const { computeTaxAmounts } = require('../utils/tax');
+const { getOwnerCosts, ownerCostsForProperty, appendOwnerCostCategories } = require('../utils/owner-costs');
 
 function getNum(key, fallback = 0) {
   const r = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
@@ -15,6 +16,7 @@ router.get('/', (req, res) => {
   const period = req.query.period || currentPeriod();
   const taxRate = getNum('tax.rate', 8.5);
   const taxKoscielna = getNum('tax.koscielna', 0);
+  const ownerCosts = getOwnerCosts(db);
 
   // Per nieruchomość — przychód = zatwierdzone wpłaty + osobno suma czynszu (do podatku)
   const properties = db.prepare(`
@@ -54,7 +56,9 @@ router.get('/', (req, res) => {
     ORDER BY p.name
   `).all(period, period, period, period);
   // Polskie zaokrąglenie podatkowe (Art. 63 § 1 Ord. pod.): podstawa i kwota → pełne zł
+  const propertyCount = properties.length || 1;
   for (const p of properties) {
+    p.expenses = +(p.expenses + ownerCostsForProperty(ownerCosts, p.name, propertyCount)).toFixed(2);
     const baseP = Math.round(p.rent_paid || 0);
     p.tax = Math.round(baseP * taxRate / 100);
     p.net = +(p.revenue - p.expenses - p.tax).toFixed(2);
@@ -104,6 +108,7 @@ router.get('/', (req, res) => {
     FROM expenses WHERE strftime('%Y-%m', date) = ?
     GROUP BY category ORDER BY total DESC
   `).all(period);
+  const costsByCategoryWithOwner = appendOwnerCostCategories(costsByCategory, ownerCosts);
 
   // 12-miesięczny wykres — przychód = zatwierdzone wpłaty, podatek liczony dynamicznie
   const chart = db.prepare(`
@@ -129,6 +134,7 @@ router.get('/', (req, res) => {
     ORDER BY m.p
   `).all(period + '-01', period).map(row => ({
     ...row,
+    expenses: (row.expenses || 0) + ownerCosts.total,
     tax: computeTaxAmounts(row.rent_paid || 0, taxRate, taxKoscielna).podatek_suma,
   }));
 
@@ -138,7 +144,8 @@ router.get('/', (req, res) => {
     properties,
     totals,
     per_unit: perUnit,
-    costs_by_category: costsByCategory,
+    costs_by_category: costsByCategoryWithOwner,
+    owner_costs: ownerCosts,
     chart_12m: chart,
   });
 });

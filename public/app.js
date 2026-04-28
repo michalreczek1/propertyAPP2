@@ -86,6 +86,18 @@ function fmtDateShort(d) {
   if (isNaN(dt)) return d;
   return `${String(dt.getDate()).padStart(2,'0')}.${String(dt.getMonth()+1).padStart(2,'0')}`;
 }
+function costCategoryLabel(category) {
+  return ({
+    czynsz: 'Czynsz',
+    prad: 'Prąd',
+    internet: 'Internet',
+    remonty: 'Remonty',
+    doplata: 'Dopłata do czynszu',
+    zarzadzanie: 'Zarządzanie',
+    kredyt: 'Kredyt',
+    inne: 'Inne',
+  })[category] || category;
+}
 function avatarInitial(name) { return name ? name.trim().slice(0,1).toUpperCase() : '?'; }
 function colorForName(name) {
   if (!name) return AV_PALETTE[0];
@@ -365,7 +377,7 @@ async function renderDashboard(root) {
   const r = d.revenue, e = d.expenses, t = d.tax, occ = d.occupancy;
   const owner = d.net_for_owner;
   const mediaCosts = (e.by_category || [])
-    .filter(row => ['prad', 'internet'].includes(row.category))
+    .filter(row => ['czynsz', 'prad', 'internet'].includes(row.category))
     .reduce((sum, row) => sum + (row.total || 0), 0);
   const noPayments = !d.current_payments || d.current_payments.length === 0;
   const paidCount = (d.current_payments || []).filter(p => p.status === 'paid').length;
@@ -404,9 +416,9 @@ async function renderDashboard(root) {
       </div>
       <div class="kpi-sm">
         <div class="ks-icon ki-r"><svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
-        <div class="ks-label">Media w kosztach</div>
+        <div class="ks-label">Media + czynsz w kosztach</div>
         <div class="ks-val">${fmtPLN(mediaCosts)}<span class="ks-unit">PLN</span></div>
-        <div class="ks-delta delta-n">prąd + internet</div>
+        <div class="ks-delta delta-n">czynsz + prąd + internet</div>
       </div>
       <div class="kpi-sm">
         <div class="ks-icon ki-v"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg></div>
@@ -1666,7 +1678,7 @@ async function renderReports(root) {
               const color = palette[i % palette.length];
               return `<div class="cost-row">
                 <div class="cr-dot" style="background:${color}"></div>
-                <div class="cr-label">${escapeHtml(c.category)}</div>
+                <div class="cr-label">${escapeHtml(costCategoryLabel(c.category))}</div>
                 <div class="cr-pct">${(pct*100).toFixed(0)}%</div>
                 <div class="cr-bar-wrap"><div class="cr-bar-fill" style="width:${pct*100}%;background:${color}"></div></div>
                 <div class="cr-val">${fmtPLN(c.total)} zł</div>
@@ -1752,9 +1764,9 @@ async function renderExpenses(root) {
   ]);
 
   const total = expenses.reduce((s, e) => s + (e.amount||0), 0);
-  const CATS = ['all','czynsz','prad','internet','remonty','doplata','inne'];
-  const CAT_LABELS = { all:'Wszystkie', czynsz:'Czynsz', prad:'Prąd', internet:'Internet', remonty:'Remonty', doplata:'Dopłata do czynszu', inne:'Inne' };
-  const CAT_COLORS = { czynsz:'#8b5cf6', prad:'#f59e0b', internet:'#06b6d4', remonty:'#f43f5e', doplata:'#10b981', inne:'#5a5a8a' };
+  const CATS = ['all','czynsz','prad','internet','remonty','doplata','zarzadzanie','kredyt','inne'];
+  const CAT_LABELS = { all:'Wszystkie', czynsz:'Czynsz', prad:'Prąd', internet:'Internet', remonty:'Remonty', doplata:'Dopłata do czynszu', zarzadzanie:'Zarządzanie', kredyt:'Kredyt', inne:'Inne' };
+  const CAT_COLORS = { czynsz:'#8b5cf6', prad:'#f59e0b', internet:'#06b6d4', remonty:'#f43f5e', doplata:'#10b981', zarzadzanie:'#a78bfa', kredyt:'#fb7185', inne:'#5a5a8a' };
 
   const year = State.period.slice(0,4);
   const yearExpenses = await Api.get(`/expenses?from=${year}-01-01&to=${year}-12-31`).catch(() => []);
@@ -1858,7 +1870,8 @@ window.editExpense = async function(id) {
       { name:'category', label:'Kategoria', type:'select', options:[
         {value:'czynsz',label:'Czynsz'},{value:'prad',label:'Prąd'},
         {value:'internet',label:'Internet'},{value:'remonty',label:'Remonty'},
-        {value:'doplata',label:'Dopłata do czynszu'},{value:'inne',label:'Inne'},
+        {value:'doplata',label:'Dopłata do czynszu'},{value:'zarzadzanie',label:'Zarządzanie'},
+        {value:'kredyt',label:'Kredyt'},{value:'inne',label:'Inne'},
       ]},
       { name:'property_id', label:'Nieruchomość', type:'select', options: [{value:'',label:'—'}, ...props.map(p => ({value:p.id, label:p.name}))] },
       { name:'unit_id', label:'Lokal', type:'select', options: [{value:'',label:'—'}, ...units.map(u => ({value:u.id, label:`${u.property_name} · ${u.name}`}))] },
@@ -2061,6 +2074,9 @@ async function renderSettings(root) {
         <div class="form-row full"><label>Adres</label><input name="company.address" value="${escapeHtml(s['company.address']||'')}"></div>
         <div class="form-row"><label>Stawka ryczałtu [%]</label><input name="tax.rate" type="number" step="0.01" value="${escapeHtml(s['tax.rate']||'8.5')}"></div>
         <div class="form-row"><label>Dodatkowy podatek mies. [PLN]</label><input name="tax.koscielna" type="number" step="0.01" value="${escapeHtml(s['tax.koscielna']||'0')}"></div>
+        <div class="form-row"><label>Zarządzanie / mies. [PLN]</label><input name="cost.management.monthly" type="number" step="0.01" value="${escapeHtml(s['cost.management.monthly']||'500')}"></div>
+        <div class="form-row"><label>Rata kredytu Kościelna / mies. [PLN]</label><input name="cost.mortgage.koscielna.monthly" type="number" step="0.01" value="${escapeHtml(s['cost.mortgage.koscielna.monthly']||'0')}"></div>
+        <div class="form-row"><label>Rata kredytu Chrobrego / mies. [PLN]</label><input name="cost.mortgage.chrobrego.monthly" type="number" step="0.01" value="${escapeHtml(s['cost.mortgage.chrobrego.monthly']||'0')}"></div>
         <div class="form-row"><label>Waluta</label><input name="currency" value="${escapeHtml(s['currency']||'PLN')}"></div>
         <div class="form-row"><label>Locale</label><input name="locale" value="${escapeHtml(s['locale']||'pl-PL')}"></div>
       </form>

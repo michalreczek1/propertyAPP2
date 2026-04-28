@@ -4,6 +4,7 @@ const PDFDocument = require('pdfkit');
 const db = require('../db');
 const { currentPeriod, periodLabel } = require('../utils/period');
 const { fmtPLN } = require('../utils/money');
+const { getOwnerCosts } = require('../utils/owner-costs');
 
 function csvEscape(v) {
   if (v == null) return '';
@@ -59,6 +60,8 @@ router.get('/report.pdf', (req, res) => {
   const expensesTotal = db.prepare(`
     SELECT COALESCE(SUM(amount), 0) AS t FROM expenses WHERE strftime('%Y-%m', date) = ?
   `).get(period).t;
+  const ownerCosts = getOwnerCosts(db);
+  const totalCosts = expensesTotal + ownerCosts.total;
 
   const summary = db.prepare(`SELECT * FROM monthly_summary WHERE period = ?`).get(period);
 
@@ -85,13 +88,15 @@ router.get('/report.pdf', (req, res) => {
   doc.text(`  – Czynsze: ${fmtPLN(totals.rent)} PLN`);
   doc.text(`  – Media (zaliczki): ${fmtPLN(totals.media)} PLN`);
   doc.text(`  – Inne: ${fmtPLN(totals.other)} PLN`);
-  doc.text(`Koszty: ${fmtPLN(expensesTotal)} PLN`);
+  doc.text(`Koszty: ${fmtPLN(totalCosts)} PLN`);
+  if (ownerCosts.management) doc.text(`  – Zarządzanie: ${fmtPLN(ownerCosts.management)} PLN`);
+  if (ownerCosts.mortgage_total) doc.text(`  – Kredyty: ${fmtPLN(ownerCosts.mortgage_total)} PLN`);
   if (summary) {
     doc.text(`Podatek (ryczałt): ${fmtPLN(summary.podatek || 0)} PLN`);
     doc.text(`Podatek (kościelna): ${fmtPLN(summary.podatek_koscielna || 0)} PLN`);
     doc.text(`Podatek razem: ${fmtPLN(summary.podatek_suma || 0)} PLN`);
   }
-  doc.text(`Netto dla właściciela: ${fmtPLN(totals.gross - expensesTotal - (summary ? summary.podatek_suma || 0 : 0))} PLN`, { underline: true });
+  doc.text(`Netto dla właściciela: ${fmtPLN(totals.gross - totalCosts - (summary ? summary.podatek_suma || 0 : 0))} PLN`, { underline: true });
   doc.moveDown();
 
   doc.fontSize(14).text('Per nieruchomość');
