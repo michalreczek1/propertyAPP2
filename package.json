@@ -20,7 +20,7 @@
     "smoke": "node scripts/smoke-test.js",
     "test:finance": "node scripts/finance-regression-test.js",
     "test:ui": "playwright test",
-    "setup": "npm run migrate && npm run seed && npm run import"
+    "setup": "npm run migrate && npm run seed"
   },
   "dependencies": {
     "better-sqlite3": "^11.5.0",

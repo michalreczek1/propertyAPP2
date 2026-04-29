@@ -54,7 +54,7 @@ router.post('/excel', upload.single('file'), async (req, res, next) => {
     if ((req.body && req.body.confirm) !== 'IMPORT_EXCEL') {
       return res.status(400).json({ error: 'missing_import_confirmation' });
     }
-    const result = runImport(filePath, { quiet: true });
+    const result = runImport(filePath, { quiet: true, allowWrite: true });
     res.json(result);
   } catch (e) {
     next(e);

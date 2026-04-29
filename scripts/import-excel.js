@@ -343,6 +343,9 @@ function importMonthSection(matrix, headerRowIdx, period, log) {
 // ── główna funkcja ──────────────────────────────────
 function runImport(filePath, opts = {}) {
   const log = opts.quiet ? () => {} : (...a) => console.log(...a);
+  if (!opts.allowWrite && process.env.ENABLE_EXCEL_IMPORT !== '1') {
+    throw new Error('Import XLSX zapisuje dane i jest domyślnie zablokowany. Ustaw ENABLE_EXCEL_IMPORT=1 tylko na czas kontrolowanego importu.');
+  }
   if (!fs.existsSync(filePath)) throw new Error('Plik nie istnieje: ' + filePath);
   const wb = XLSX.readFile(filePath);
 
