@@ -13,14 +13,18 @@
     "dev": "node --watch src/server.js",
     "migrate": "node scripts/migrate.js",
     "seed": "node scripts/seed.js",
+    "seed:defaults": "node scripts/seed.js",
     "import": "node scripts/import-excel.js \"./ROZLICZENIA Z NAJEMCAMI.xlsx\"",
     "import:dryrun": "node scripts/import-excel-dryrun.js \"./ROZLICZENIA Z NAJEMCAMI.xlsx\"",
     "backup": "node scripts/backup.js",
     "seed:fixed-expenses-2026": "node scripts/seed-fixed-expenses-2026.js",
     "smoke": "node scripts/smoke-test.js",
     "test:finance": "node scripts/finance-regression-test.js",
+    "test:seed-safety": "node scripts/seed-safety-test.js",
     "test:ui": "playwright test",
-    "setup": "npm run migrate && npm run seed"
+    "migrate:prod": "npm run migrate",
+    "setup": "npm run migrate && npm run seed",
+    "setup:dev": "npm run migrate && npm run seed"
   },
   "dependencies": {
     "better-sqlite3": "^11.5.0",

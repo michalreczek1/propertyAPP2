@@ -6,8 +6,8 @@
  *  - lokale/pokoje
  *  - domyślne ustawienia (firma, podatek)
  *
- * Idempotentny — UPSERT po name/code.
- * Seed NIE nadpisuje danych jeśli nieruchomość już istnieje (na wypadek re-deploy).
+ * Idempotentny — uzupełnia tylko brakujące rekordy.
+ * Seed NIE nadpisuje istniejących nieruchomości, lokali, ustawień ani kosztów cyklicznych.
  */
 const db = require('../src/db');
 
@@ -56,9 +56,6 @@ const insertUnit = db.prepare(`
   INSERT INTO units (property_id, name, code, base_rent, base_media, status)
   VALUES (?, ?, ?, ?, ?, 'rented')
 `);
-const updateUnit = db.prepare(`
-  UPDATE units SET name=COALESCE(name, ?), base_rent=COALESCE(base_rent, ?), base_media=COALESCE(base_media, ?) WHERE id=?
-`);
 
 const upsertSetting = db.prepare(`
   INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
@@ -77,7 +74,7 @@ const tx = db.transaction(() => {
     if (!prop) continue;
     const existing = findUnit.get(prop.id, u.code);
     if (existing) {
-      updateUnit.run(u.name, u.base_rent, u.base_media, existing.id);
+      continue;
     } else {
       insertUnit.run(prop.id, u.name, u.code, u.base_rent, u.base_media);
     }
