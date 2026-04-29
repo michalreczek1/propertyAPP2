@@ -1690,10 +1690,10 @@ async function renderReports(root) {
     </div>
 
     <div class="gc">
-      <div class="ch"><div><div class="ch-title">Szczegół per lokal</div><div class="ch-sub">${escapeHtml(r.period_label)} · ${r.per_unit.length} pozycji</div></div></div>
+      <div class="ch"><div><div class="ch-title">Szczegół per lokal</div><div class="ch-sub">${escapeHtml(r.period_label)} · ${r.per_unit.length} pozycji · koszty bezpośrednie + alokowane</div></div></div>
       <div style="overflow-x:auto">
         <table class="t">
-          <thead><tr><th>#</th><th>Lokal</th><th>Najemca</th><th>Czynsz</th><th>Media</th><th>Inne</th><th>Razem</th><th>Wpłacono</th><th>Koszty</th><th>Status</th><th>Marża</th></tr></thead>
+          <thead><tr><th>#</th><th>Lokal</th><th>Najemca</th><th>Czynsz</th><th>Media</th><th>Inne</th><th>Razem</th><th>Wpłacono</th><th>Koszty (bezp. + alok.)</th><th>Status</th><th>Marża</th></tr></thead>
           <tbody>${r.per_unit.map((u, i) => {
             const st = STATUS_CHIP[u.status] || { cls:'chip-n', label:'—' };
             const rev = (u.status === 'paid' ? u.gross : (u.status === 'partial' ? u.total_paid : 0)) || 0;
@@ -1708,7 +1708,7 @@ async function renderReports(root) {
               <td class="mono${u.other_amount?'-a':'-m'}">${u.other_amount?fmtPLN(u.other_amount)+' zł':'—'}</td>
               <td class="mono-e">${fmtPLN(u.gross)} zł</td>
               <td class="mono">${fmtPLN(u.total_paid)} zł</td>
-              <td class="mono${u.expenses?'-r':'-m'}">${u.expenses?fmtPLN(u.expenses)+' zł':'—'}</td>
+              <td class="mono${u.expenses?'-r':'-m'}" title="Bezpośrednie: ${fmtPLN(u.direct_expenses||0)} zł · alokowane: ${fmtPLN(u.allocated_expenses||0)} zł">${u.expenses?fmtPLN(u.expenses)+' zł':'—'}</td>
               <td><span class="chip ${st.cls}">${st.label}</span></td>
               <td><div style="font-size:12px;font-weight:600;color:var(--${mc})">${(margin*100).toFixed(1)}%</div><div class="margin-bar"><div class="margin-fill" style="width:${Math.max(0,Math.min(100,margin*100))}%;background:var(--${mc})"></div></div></td>
             </tr>`;

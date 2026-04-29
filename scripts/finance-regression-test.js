@@ -144,6 +144,15 @@ near(april.tax.podatek_suma, 536, 'April tax');
 near(april.net_for_owner, 1754.46, 'April net');
 near(april.properties.reduce((sum, p) => sum + p.tax, 0), april.totals.tax_total, 'Property taxes sum to total tax');
 near(april.costs_by_category.reduce((sum, row) => sum + row.total, 0), april.expenses.total, 'Cost categories sum to expenses');
+near(april.per_unit.reduce((sum, row) => sum + row.expenses, 0), april.expenses.total, 'Per-unit allocated expenses sum to total expenses');
+const aprilKr = april.per_unit.find(row => row.unit_code === 'KR');
+near(aprilKr.direct_expenses, 0, 'KR has no direct unit expenses');
+near(aprilKr.allocated_expenses, 1065.54, 'KR gets property and owner costs allocated');
+const aprilChrobregoAllocated = april.per_unit
+  .filter(row => row.property_name.includes('Chrobrego'))
+  .map(row => row.allocated_expenses)
+  .sort((a, b) => b - a);
+assert.deepEqual(aprilChrobregoAllocated, [872.34, 872.34, 872.33, 872.33, 872.33, 872.33], 'Chrobrego property and owner costs are allocated across rooms with cent remainder');
 
 const may = monthlyFinanceSummary(db, '2026-05');
 near(may.revenue.gross, 0, 'May pending revenue is zero');

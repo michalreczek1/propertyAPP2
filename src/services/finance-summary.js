@@ -54,6 +54,18 @@ function allocateRounded(total, rows, weightKey) {
   return raw.map(row => row.floor);
 }
 
+function allocateMoneyEvenly(total, count) {
+  const safeCount = Math.max(1, count || 1);
+  const cents = Math.round((Number(total) || 0) * 100);
+  const base = Math.floor(cents / safeCount);
+  let remainder = cents - (base * safeCount);
+  return Array.from({ length: safeCount }, () => {
+    const value = base + (remainder > 0 ? 1 : 0);
+    if (remainder > 0) remainder -= 1;
+    return value / 100;
+  });
+}
+
 function monthListUntil(period, count = 12) {
   const parsed = parsePeriod(period);
   if (!parsed) return [];
@@ -185,10 +197,23 @@ function perUnitForPeriod(db, period, ownerCosts) {
   `).all(period, period, period);
 
   const propertyCount = new Set(rows.map(row => row.property_id)).size || 1;
+  const rowsByProperty = new Map();
+  for (const row of rows) {
+    const key = row.property_id;
+    if (!rowsByProperty.has(key)) rowsByProperty.set(key, []);
+    rowsByProperty.get(key).push(row);
+  }
+
+  const allocatedByUnit = new Map();
+  for (const propertyRows of rowsByProperty.values()) {
+    const first = propertyRows[0];
+    const ownerForProperty = ownerCostsForProperty(ownerCosts, first.property_name, propertyCount, first.property_id);
+    const shares = allocateMoneyEvenly((first.property_expenses || 0) + ownerForProperty, propertyRows.length);
+    propertyRows.forEach((row, index) => allocatedByUnit.set(row.unit_id, shares[index] || 0));
+  }
+
   return rows.map(row => {
-    const propertyUnits = Math.max(1, row.property_units || 1);
-    const ownerForProperty = ownerCostsForProperty(ownerCosts, row.property_name, propertyCount, row.property_id);
-    const allocated = round2(((row.property_expenses || 0) + ownerForProperty) / propertyUnits);
+    const allocated = allocatedByUnit.get(row.unit_id) || 0;
     return {
       ...row,
       allocated_expenses: allocated,
