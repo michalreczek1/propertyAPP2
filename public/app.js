@@ -1765,6 +1765,14 @@ async function renderExpenses(root) {
   ]);
 
   const total = expenses.reduce((s, e) => s + (e.amount||0), 0);
+  const dash = await Api.get(`/dashboard?period=${State.period}`).catch(() => null);
+  const revenue = dash && dash.revenue ? (dash.revenue.gross || 0) : 0;
+  const tax = dash && dash.tax ? (dash.tax.podatek_suma || 0) : 0;
+  const burdenTotal = total + tax;
+  const afterCosts = +(revenue - total).toFixed(2);
+  const net = dash && Number.isFinite(Number(dash.net_for_owner))
+    ? dash.net_for_owner
+    : +(afterCosts - tax).toFixed(2);
   const CATS = ['all','czynsz','prad','internet','remonty','doplata','zarzadzanie','kredyt','inne'];
   const CAT_LABELS = { all:'Wszystkie', czynsz:'Czynsz', prad:'Prąd', internet:'Internet', remonty:'Remonty', doplata:'Dopłata do czynszu', zarzadzanie:'Zarządzanie', kredyt:'Kredyt', inne:'Inne' };
   const CAT_COLORS = { czynsz:'#8b5cf6', prad:'#f59e0b', internet:'#06b6d4', remonty:'#f43f5e', doplata:'#10b981', zarzadzanie:'#a78bfa', kredyt:'#fb7185', inne:'#5a5a8a' };
@@ -1783,6 +1791,17 @@ async function renderExpenses(root) {
      <button class="tb-btn tb-primary" id="btn-add-exp"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Dodaj koszt</button>`);
 
   root.innerHTML = `
+    <div class="gc">
+      <div class="ch"><div><div class="ch-title">Obciążenia miesiąca</div><div class="ch-sub">${escapeHtml(periodLabel(State.period))} · koszty + podatek</div></div></div>
+      <div class="sum-grid sum-grid-5">
+        <div class="sum-cell"><div class="sc-lbl">Przychód</div><div class="sc-val">${fmtPLN(revenue)}<span class="sc-unit"> PLN</span></div><div class="sc-delta delta-n">zatwierdzone wpłaty</div></div>
+        <div class="sum-cell"><div class="sc-lbl">Koszty</div><div class="sc-val">${fmtPLN(total)}<span class="sc-unit"> PLN</span></div><div class="sc-delta delta-n">bez podatku</div></div>
+        <div class="sum-cell"><div class="sc-lbl">Podatek</div><div class="sc-val">${fmtPLN(tax)}<span class="sc-unit"> PLN</span></div><div class="sc-delta delta-n">wyliczony z czynszu</div></div>
+        <div class="sum-cell"><div class="sc-lbl">Razem obciążenia</div><div class="sc-val">${fmtPLN(burdenTotal)}<span class="sc-unit"> PLN</span></div><div class="sc-delta delta-n">koszty + podatek</div></div>
+        <div class="sum-cell"><div class="sc-lbl">Netto</div><div class="sc-val">${fmtPLN(net)}<span class="sc-unit"> PLN</span></div><div class="sc-delta ${net>=0?'delta-up':'delta-dn'}">po wszystkim</div></div>
+      </div>
+    </div>
+
     <div class="gc">
       <div class="ch"><div><div class="ch-title">Koszty miesięczne — ${escapeHtml(year)}</div><div class="ch-sub">Suma roczna: ${fmtPLN(yearTotal)} zł · ${yearExpenses.length} wpisów</div></div>
         <div class="legend">
