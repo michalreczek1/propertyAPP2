@@ -92,6 +92,14 @@ test('payments table becomes readable cards on phone width', async ({ page, requ
   try {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/#platnosci');
+    await expect(page.locator('#mobile-nav')).toBeVisible();
+    await expect(page.locator('#mobile-nav .mobile-nav-item.act')).toContainText('Płatności');
+
+    await page.locator('#mobile-nav .mobile-nav-item[data-view="raporty"]').click();
+    await expect(page).toHaveURL(/#raporty$/);
+    await expect(page.locator('#mobile-nav .mobile-nav-item.act')).toContainText('Raporty');
+
+    await page.locator('#mobile-nav .mobile-nav-item[data-view="platnosci"]').click();
     await expect(page.getByText(fixture.name).first()).toBeVisible();
 
     const table = page.locator('table.t-responsive').first();

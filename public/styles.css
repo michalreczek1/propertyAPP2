@@ -139,6 +139,59 @@ html { height: 100%; }
 .rail-user-role { font-size: 11px; color: var(--t3); white-space: nowrap; opacity: 0; transition: opacity 0.15s; }
 .rail:hover .rail-user-name, .rail:hover .rail-user-role { opacity: 1; }
 
+/* ── MOBILE NAV ── */
+.mobile-nav {
+  display: none;
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 900;
+  padding: 7px 10px calc(7px + env(safe-area-inset-bottom));
+  background: rgba(7,7,20,0.88);
+  border-top: 1px solid var(--border);
+  backdrop-filter: blur(18px);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  gap: 4px;
+}
+.mobile-nav::-webkit-scrollbar { display: none; }
+.mobile-nav-item {
+  min-width: 72px;
+  height: 52px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--t3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.mobile-nav-item svg {
+  width: 17px;
+  height: 17px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.8;
+}
+.mobile-nav-item span {
+  max-width: 68px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.mobile-nav-item.act {
+  background: var(--violet-l);
+  border-color: rgba(139,92,246,0.28);
+  color: var(--violet);
+}
+
 /* ── WORKSPACE ── */
 .workspace { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 
@@ -761,9 +814,10 @@ select.slim { font-size: 12.5px; padding: 6px 10px; border: 1px solid var(--bord
 @media (max-width: 720px) {
   .topbar-search { display: none; }
   .topbar { padding: 0 16px; }
-  .content { padding: 14px 16px; }
+  .content { padding: 14px 16px calc(82px + env(safe-area-inset-bottom)); }
   .rail { width: 0; }
   .rail:hover { width: 220px; }
+  .mobile-nav { display: flex; }
 }
 @media (max-width: 560px) {
   .topbar { height: auto; min-height: 56px; padding: 10px 12px; align-items: flex-start; flex-direction: column; gap: 8px; }

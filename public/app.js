@@ -310,7 +310,7 @@ function navigate(v) { location.hash = v; }
 
 async function render() {
   const v = currentView();
-  document.querySelectorAll('#nav .nav-item').forEach(it => it.classList.toggle('act', it.dataset.view === v));
+  syncNavState(v);
   // destroy charts
   for (const k of Object.keys(State.charts)) { try { State.charts[k].destroy(); } catch {} delete State.charts[k]; }
   const root = document.getElementById('view-root');
@@ -324,6 +324,36 @@ async function render() {
   }
   enhanceResponsiveTables(root);
   refreshNavBadges();
+}
+
+function syncNavState(view = currentView()) {
+  document.querySelectorAll('#nav .nav-item, #mobile-nav .mobile-nav-item').forEach(it => {
+    it.classList.toggle('act', it.dataset.view === view);
+  });
+}
+
+function createMobileNav() {
+  if (document.getElementById('mobile-nav')) return;
+  const sourceItems = Array.from(document.querySelectorAll('#nav .nav-item'));
+  const mobile = document.createElement('nav');
+  mobile.id = 'mobile-nav';
+  mobile.className = 'mobile-nav';
+  mobile.setAttribute('aria-label', 'Nawigacja mobilna');
+  mobile.innerHTML = sourceItems.map(item => {
+    const view = item.dataset.view;
+    const label = item.querySelector('.nav-label')?.textContent?.trim() || VIEW_TITLES[view] || view;
+    const icon = item.querySelector('svg')?.outerHTML || '';
+    return `
+      <button class="mobile-nav-item" type="button" data-view="${escapeHtml(view)}" aria-label="${escapeHtml(label)}">
+        ${icon}
+        <span>${escapeHtml(label)}</span>
+      </button>`;
+  }).join('');
+  document.body.appendChild(mobile);
+  mobile.querySelectorAll('.mobile-nav-item').forEach(item => {
+    item.onclick = () => navigate(item.dataset.view);
+  });
+  syncNavState();
 }
 
 function responsiveHeaderLabel(text, index, total) {
@@ -2213,6 +2243,7 @@ function init() {
   document.querySelectorAll('#nav .nav-item').forEach(it => {
     it.onclick = () => navigate(it.dataset.view);
   });
+  createMobileNav();
   window.addEventListener('hashchange', render);
   if (!location.hash) location.hash = 'dashboard';
   render();
