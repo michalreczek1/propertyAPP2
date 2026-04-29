@@ -410,7 +410,7 @@ async function renderDashboard(root) {
       </div>
       <div class="kpi-sm">
         <div class="ks-icon ki-c"><svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
-        <div class="ks-label">Media w przychodach</div>
+        <div class="ks-label">Media + czynsz w przychodach</div>
         <div class="ks-val">${fmtPLN(r.media)}<span class="ks-unit">PLN</span></div>
         <div class="ks-delta delta-n">z zatwierdzonych</div>
       </div>
