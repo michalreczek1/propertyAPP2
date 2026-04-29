@@ -319,6 +319,86 @@ html { height: 100%; }
 .mono-a { font-family: var(--mono); font-size: 12px; color: var(--amber); font-weight: 600; white-space: nowrap; }
 .mono-m { font-family: var(--mono); font-size: 11px; color: var(--t4); white-space: nowrap; }
 
+@media (max-width: 900px) {
+  .t th { padding: 9px 12px; }
+  .t td { padding: 10px 12px; }
+}
+
+@media (max-width: 720px) {
+  .t-responsive {
+    display: block;
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .t-responsive thead,
+  .t-responsive tfoot { display: none; }
+  .t-responsive tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px;
+  }
+  .t-responsive tr {
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.025);
+    overflow: hidden;
+  }
+  .t-responsive tbody tr:hover td { background: transparent; }
+  .t-responsive td {
+    display: grid;
+    grid-template-columns: minmax(82px, 36%) minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    width: 100%;
+    padding: 9px 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.045);
+  }
+  .t-responsive td:last-child { border-bottom: none; }
+  .t-responsive td::before {
+    content: attr(data-label);
+    min-width: 0;
+    color: var(--t4);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+  }
+  .t-responsive td[data-label=""] {
+    display: block;
+  }
+  .t-responsive td[data-label=""]::before {
+    display: none;
+  }
+  .t-responsive td > * {
+    min-width: 0;
+  }
+  .t-responsive .t-tenant {
+    justify-content: flex-end;
+    text-align: right;
+  }
+  .t-responsive .chip,
+  .t-responsive .icon-btn {
+    justify-self: end;
+  }
+  .t-responsive .mono,
+  .t-responsive .mono-e,
+  .t-responsive .mono-r,
+  .t-responsive .mono-a,
+  .t-responsive .mono-m {
+    justify-self: end;
+    text-align: right;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .t-responsive .av {
+    display: none;
+  }
+}
+
 /* ── ICON BUTTONS ── */
 .icon-btn { width: 28px; height: 28px; border-radius: 7px; background: transparent; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--t4); transition: all 0.12s; }
 .icon-btn:hover { background: var(--surface-hover); color: var(--t2); border-color: var(--border-bright); }

@@ -322,7 +322,36 @@ async function render() {
     console.error(e);
     root.innerHTML = `<div class="gc"><div style="padding:22px;color:var(--rose)">Błąd: ${escapeHtml(e.message)}</div></div>`;
   }
+  enhanceResponsiveTables(root);
   refreshNavBadges();
+}
+
+function responsiveHeaderLabel(text, index, total) {
+  const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+  if (normalized === '✓') return 'Wpłata';
+  if (!normalized && index === total - 1) return 'Akcje';
+  return normalized;
+}
+
+function enhanceResponsiveTables(scope = document) {
+  scope.querySelectorAll('table.t').forEach(table => {
+    const headers = Array.from(table.querySelectorAll('thead th')).map((th, i, arr) =>
+      responsiveHeaderLabel(th.textContent, i, arr.length)
+    );
+    if (!headers.length) return;
+    table.classList.add('t-responsive');
+
+    table.querySelectorAll('tbody tr').forEach(row => {
+      Array.from(row.children).forEach((cell, i) => {
+        if (cell.tagName !== 'TD') return;
+        if (cell.colSpan > 1) {
+          cell.dataset.label = '';
+          return;
+        }
+        if (!cell.dataset.label) cell.dataset.label = headers[i] || '';
+      });
+    });
+  });
 }
 
 function refreshNavBadges() {
