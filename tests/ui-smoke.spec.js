@@ -21,3 +21,10 @@ test('reports page exposes consistent finance cards', async ({ page }) => {
   await expect(page.getByText('Łączne koszty')).toBeVisible();
   await expect(page.getByText('Podatek (ryczałt)')).toBeVisible();
 });
+
+test('settings exposes guarded excel import controls', async ({ page }) => {
+  await page.goto('/#ustawienia');
+  await expect(page.getByText('Import danych z Excela')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sprawdź import' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Importuj zapis' })).toBeDisabled();
+});

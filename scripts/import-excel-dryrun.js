@@ -175,17 +175,19 @@ function importMonthSection(matrix, headerRowIdx, period) {
   return { ok:true, period, tenants, summary };
 }
 
-function run(filePath, filter) {
+function run(filePath, filter, opts = {}) {
+  const quiet = !!opts.quiet;
+  const log = (...args) => { if (!quiet) console.log(...args); };
   if (!fs.existsSync(filePath)) throw new Error('Brak pliku: ' + filePath);
   const wb = XLSX.readFile(filePath);
 
-  const stats = { sheets:0, periods:0, payments:0, summaries:0, missingHdr:0 };
+  const stats = { sheets:0, periods:0, payments:0, summaries:0, missingHdr:0, partialPayments:0, unpaidPayments:0 };
   const allFindings = [];
 
   for (const sheetName of wb.SheetNames) {
     const matrix = sheetToMatrix(wb.Sheets[sheetName]);
     stats.sheets++;
-    console.log(`\n══ Arkusz "${sheetName}" — ${matrix.length} wierszy`);
+    log(`\n══ Arkusz "${sheetName}" — ${matrix.length} wierszy`);
 
     for (let r = 0; r < matrix.length; r++) {
       const row = matrix[r] || [];
@@ -198,35 +200,52 @@ function run(filePath, filter) {
       const result = importMonthSection(matrix, r, parsed.period);
       if (!result.ok) {
         stats.missingHdr++;
-        console.log(`  ✗ ${parsed.period} (wiersz ${r}): ${result.reason}`);
+        log(`  ✗ ${parsed.period} (wiersz ${r}): ${result.reason}`);
         continue;
       }
       stats.periods++;
       stats.payments += result.tenants.length;
+      stats.partialPayments += result.tenants.filter(t => (t.total || 0) > 0 && (t.total || 0) < ((t.rent || 0) + (t.media || 0))).length;
+      stats.unpaidPayments += result.tenants.filter(t => !(t.total > 0)).length;
       if (result.summary) stats.summaries++;
       allFindings.push(result);
 
-      console.log(`  • ${parsed.period}: ${result.tenants.length} najemców` +
+      log(`  • ${parsed.period}: ${result.tenants.length} najemców` +
         (result.summary ? `, summary OK (czynsz=${result.summary.czynsz_total}, dla_mnie=${result.summary.dla_mnie}, total=${result.summary.total}, podatek=${result.summary.podatek})` : ', BEZ summary'));
       for (const t of result.tenants) {
-        console.log(`      P${t.roomNo}  ${t.name.padEnd(15)}  due=${t.due ?? '–'}  rent=${t.rent ?? 0}  media=${t.media ?? 0}  total=${t.total ?? 0}`);
+        log(`      P${t.roomNo}  ${t.name.padEnd(15)}  due=${t.due ?? '–'}  rent=${t.rent ?? 0}  media=${t.media ?? 0}  total=${t.total ?? 0}`);
       }
     }
   }
 
-  console.log('\n══════ Podsumowanie DRY-RUN ══════');
-  console.log(`  Arkuszy:          ${stats.sheets}`);
-  console.log(`  Okresów:          ${stats.periods}`);
-  console.log(`  Płatności (rzędy):${stats.payments}`);
-  console.log(`  Sum miesięcznych: ${stats.summaries}`);
-  console.log(`  Pominiętych (no_table_header): ${stats.missingHdr}`);
+  log('\n══════ Podsumowanie DRY-RUN ══════');
+  log(`  Arkuszy:          ${stats.sheets}`);
+  log(`  Okresów:          ${stats.periods}`);
+  log(`  Płatności (rzędy):${stats.payments}`);
+  log(`  Sum miesięcznych: ${stats.summaries}`);
+  log(`  Pominiętych (no_table_header): ${stats.missingHdr}`);
 
   // sanity: unikalne najemcy w pliku
   const namesSet = new Set();
   for (const f of allFindings) for (const t of f.tenants) namesSet.add(t.name);
-  console.log(`  Unikalnych najemców: ${namesSet.size}`);
-  console.log(`  Lista: ${[...namesSet].join(', ')}`);
-  return stats;
+  const names = [...namesSet].sort((a, b) => a.localeCompare(b, 'pl'));
+  log(`  Unikalnych najemców: ${namesSet.size}`);
+  log(`  Lista: ${names.join(', ')}`);
+  return {
+    ...stats,
+    uniqueTenants: names.length,
+    tenants: names,
+    periods: allFindings.map(f => ({
+      period: f.period,
+      payments: f.tenants.length,
+      partialPayments: f.tenants.filter(t => (t.total || 0) > 0 && (t.total || 0) < ((t.rent || 0) + (t.media || 0))).length,
+      unpaidPayments: f.tenants.filter(t => !(t.total > 0)).length,
+      hasSummary: !!f.summary,
+      rentTotal: f.tenants.reduce((s, t) => s + (t.rent || 0), 0),
+      mediaTotal: f.tenants.reduce((s, t) => s + (t.media || 0), 0),
+      paidTotal: f.tenants.reduce((s, t) => s + (t.total || 0), 0),
+    })),
+  };
 }
 
 if (require.main === module) {
@@ -234,14 +253,6 @@ if (require.main === module) {
   const filter = process.argv[3] || null;
   try { run(file, filter); }
   catch (e) { console.error('Błąd:', e.message); process.exit(1); }
-}
-
-module.exports = { run };
-process.exit(1); }
-}
-
-module.exports = { run };
-process.exit(1); }
 }
 
 module.exports = { run };

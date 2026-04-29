@@ -2083,7 +2083,10 @@ async function uploadDocDialog() {
 
 // ═══════════════════════ USTAWIENIA ═══════════════════════
 async function renderSettings(root) {
-  const s = await Api.get('/settings');
+  const [s, importStatus] = await Promise.all([
+    Api.get('/settings'),
+    Api.get('/import/status').catch(() => ({ excel_import_enabled: false, dry_run_enabled: true })),
+  ]);
   setTopbar(VIEW_TITLES.ustawienia, 'Dane firmy, podatki, preferencje',
     `<button class="tb-btn tb-primary" id="set-save"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Zapisz</button>`);
 
@@ -2109,8 +2112,14 @@ async function renderSettings(root) {
       <div class="ch"><div><div class="ch-title">Import danych z Excela</div><div class="ch-sub">ROZLICZENIA Z NAJEMCAMI.xlsx</div></div></div>
       <div style="padding:20px 24px">
         <input type="file" id="xlsx-file" accept=".xlsx,.xls" style="margin-bottom:12px;color:var(--t2)">
-        <div><button class="tb-btn tb-primary" id="btn-do-import">Importuj</button></div>
-        <div style="margin-top:10px;font-size:11px;color:var(--t4)">Idempotentny — re-import nadpisuje istniejące rzędy po (period, unit_id).</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="tb-btn tb-ghost" id="btn-import-preview">Sprawdź import</button>
+          <button class="tb-btn tb-primary" id="btn-do-import" ${importStatus.excel_import_enabled ? '' : 'disabled title="Import zapisu jest zablokowany na serwerze"'}>Importuj zapis</button>
+        </div>
+        <div id="import-preview" style="margin-top:12px;font-size:12px;color:var(--t3)"></div>
+        <div style="margin-top:10px;font-size:11px;color:var(--t4)">
+          Najpierw uruchom sprawdzenie. Zapis importu ${importStatus.excel_import_enabled ? 'jest włączony' : 'jest zablokowany'} po stronie API.
+        </div>
       </div>
     </div>
 
@@ -2129,16 +2138,39 @@ async function renderSettings(root) {
     try { await Api.put('/settings', out); toast('Zapisano'); }
     catch (e) { toast(e.message, 'err'); }
   };
+  document.getElementById('btn-import-preview').onclick = () => previewExcelImport(document.getElementById('xlsx-file').files[0]);
   document.getElementById('btn-do-import').onclick = () => doExcelImport(document.getElementById('xlsx-file').files[0]);
   fetch('/health').then(r => r.json()).then(j => {
     document.getElementById('dbinfo').textContent = `DB: ${j.db} (${j.tables} tabel)`;
   }).catch(() => {});
 }
 
+async function previewExcelImport(file) {
+  if (!file) return toast('Wybierz plik xlsx', 'err');
+  const fd = new FormData();
+  fd.append('file', file);
+  const target = document.getElementById('import-preview');
+  target.textContent = 'Sprawdzam plik…';
+  try {
+    const r = await Api.upload('/import/excel/dry-run', fd);
+    const sample = (r.periods || []).slice(0, 6).map(p => `${p.period}: ${p.payments} wpłat`).join(' · ');
+    target.innerHTML = `
+      <div><b>Dry-run OK:</b> ${r.periods?.length || r.periods_count || r.periods || 0} okresów, ${r.payments || 0} płatności, ${r.uniqueTenants || 0} najemców.</div>
+      <div>Częściowe: ${r.partialPayments || 0}, bez wpłat: ${r.unpaidPayments || 0}, pominięte nagłówki: ${r.missingHdr || 0}.</div>
+      ${sample ? `<div style="margin-top:4px;color:var(--t4)">${escapeHtml(sample)}</div>` : ''}
+    `;
+    toast('Dry-run importu OK');
+  } catch (e) {
+    target.textContent = '';
+    toast(e.message, 'err');
+  }
+}
+
 async function doExcelImport(file) {
   if (!file) return toast('Wybierz plik xlsx', 'err');
   const fd = new FormData();
   fd.append('file', file);
+  fd.append('confirm', 'IMPORT_EXCEL');
   toast('Importuję…', 'info', 1500);
   try {
     const r = await Api.upload('/import/excel', fd);

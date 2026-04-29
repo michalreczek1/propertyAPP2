@@ -107,6 +107,7 @@ async function main() {
     '/api/tasks',
     '/api/documents',
     '/api/settings',
+    '/api/import/status',
   ]) {
     await check(`GET  ${p}`, async () => {
       const r = await api('GET', p);
