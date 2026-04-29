@@ -104,6 +104,23 @@ async function main() {
   const api = await fetch(base + '/api/dashboard', { headers: { Cookie: cookie } });
   expect(api.ok, `authenticated API failed: ${api.status}`);
 
+  const users = await fetch(base + '/api/admin/users', { headers: { Cookie: cookie } });
+  expect(users.ok, `admin users list failed: ${users.status}`);
+
+  const createUser = await fetch(base + '/api/admin/users', {
+    method: 'POST',
+    headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'tester', display_name: 'Tester', role: 'user', password: 'secret-pass-2' }),
+  });
+  expect(createUser.status === 201, `admin create user failed: ${createUser.status}`);
+
+  const editUser = await fetch(base + `/api/admin/users/${(await createUser.json()).id}`, {
+    method: 'PUT',
+    headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ active: false }),
+  });
+  expect(editUser.ok, `admin edit user failed: ${editUser.status}`);
+
   const logout = await fetch(base + '/api/auth/logout', {
     method: 'POST',
     headers: { Cookie: cookie },

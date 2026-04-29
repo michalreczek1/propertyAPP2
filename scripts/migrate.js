@@ -4,18 +4,59 @@
  * Tworzy schemat bazy SQLite. Idempotentne (CREATE IF NOT EXISTS).
  * Bezpieczne do wielokrotnego uruchamiania.
  */
+const fs = require('fs');
+const path = require('path');
 const db = require('../src/db');
 
+function loadEnvFile(file) {
+  if (!fs.existsSync(file)) return;
+  let content;
+  try {
+    content = fs.readFileSync(file, 'utf8');
+  } catch (err) {
+    if (err && err.code === 'EACCES') return;
+    throw err;
+  }
+  for (const line of content.split(/\r?\n/)) {
+    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)=(.*)\s*$/);
+    if (!m || process.env[m[1]]) continue;
+    let value = m[2].trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    process.env[m[1]] = value;
+  }
+}
+
+loadEnvFile(path.join(__dirname, '..', '.env'));
+loadEnvFile('/etc/propertyapp/auth.env');
+
 const SCHEMA = `
+-- ── APP USERS ───────────────────────────────────────
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL UNIQUE,
+  display_name TEXT,
+  role TEXT NOT NULL DEFAULT 'user',
+  password_hash TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  last_login_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_users_active ON users(active);
+
 -- ── PROPERTIES ───────────────────────────────────────
 CREATE TABLE IF NOT EXISTS properties (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_user_id INTEGER,
   name TEXT NOT NULL UNIQUE,
   address TEXT,
   district TEXT,
   type TEXT DEFAULT 'mieszkanie',
   notes TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL
 );
 
 -- ── UNITS (lokale/pokoje) ────────────────────────────
@@ -203,6 +244,38 @@ CREATE UNIQUE INDEX IF NOT EXISTS uniq_recurring_costs_open
 `;
 
 db.exec(SCHEMA);
+
+function columnExists(table, column) {
+  return db.prepare(`PRAGMA table_info(${table})`).all().some(row => row.name === column);
+}
+
+function ensureLegacyColumns() {
+  if (!columnExists('properties', 'owner_user_id')) {
+    db.prepare('ALTER TABLE properties ADD COLUMN owner_user_id INTEGER').run();
+  }
+}
+
+function backfillAdminUser() {
+  const existing = db.prepare('SELECT 1 FROM users LIMIT 1').get();
+  if (existing) return;
+  const username = process.env.APP_AUTH_USER || 'michal';
+  const passwordHash = process.env.APP_AUTH_PASSWORD_HASH;
+  if (!passwordHash) return;
+  db.prepare(`
+    INSERT INTO users(username, display_name, role, password_hash, active)
+    VALUES (?, ?, 'admin', ?, 1)
+  `).run(username, 'Property Manager', passwordHash);
+}
+
+function backfillPropertyOwner() {
+  const admin = db.prepare("SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").get();
+  if (!admin) return;
+  db.prepare('UPDATE properties SET owner_user_id = ? WHERE owner_user_id IS NULL').run(admin.id);
+}
+
+ensureLegacyColumns();
+backfillAdminUser();
+backfillPropertyOwner();
 
 function numSetting(key, fallback = 0) {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);

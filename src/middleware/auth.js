@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const db = require('../db');
 
 const COOKIE_NAME = 'propertyapp_session';
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -21,12 +22,52 @@ function getConfig() {
   const username = process.env.APP_AUTH_USER || '';
   const passwordHash = process.env.APP_AUTH_PASSWORD_HASH || '';
   const sessionSecret = process.env.APP_SESSION_SECRET || '';
-  const configured = Boolean(username && passwordHash && sessionSecret);
+  const configured = Boolean(sessionSecret && ((username && passwordHash) || hasDbUsers()));
   const envFlag = process.env.APP_AUTH_ENABLED;
   const enabled = explicitlyDisabled(envFlag)
     ? false
     : (truthy(envFlag) || process.env.NODE_ENV === 'production' || configured);
   return { enabled, configured, username, passwordHash, sessionSecret };
+}
+
+function tableExists(name) {
+  return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?").get(name);
+}
+
+function hasDbUsers() {
+  if (!tableExists('users')) return false;
+  return !!db.prepare('SELECT 1 FROM users LIMIT 1').get();
+}
+
+function publicUser(row) {
+  if (!row) return null;
+  return {
+    id: row.id || null,
+    username: row.username,
+    display_name: row.display_name || row.username,
+    role: row.role || 'user',
+    active: row.active !== 0,
+  };
+}
+
+function getDbUserByUsername(username) {
+  if (!tableExists('users')) return null;
+  return db.prepare(`
+    SELECT id, username, display_name, role, password_hash, active
+    FROM users
+    WHERE LOWER(username) = LOWER(?)
+    LIMIT 1
+  `).get(username);
+}
+
+function getDbUserById(id) {
+  if (!tableExists('users') || !id) return null;
+  return db.prepare(`
+    SELECT id, username, display_name, role, active
+    FROM users
+    WHERE id = ?
+    LIMIT 1
+  `).get(id);
 }
 
 function parseCookies(header) {
@@ -55,9 +96,16 @@ function safeEqual(a, b) {
   return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
-function createToken(username, secret) {
+function createToken(user, secret) {
   const now = Date.now();
-  const payload = base64url(JSON.stringify({ u: username, iat: now, exp: now + SESSION_TTL_MS }));
+  const payload = base64url(JSON.stringify({
+    id: user.id || null,
+    u: user.username,
+    role: user.role || 'user',
+    name: user.display_name || user.username,
+    iat: now,
+    exp: now + SESSION_TTL_MS,
+  }));
   return `${payload}.${sign(payload, secret)}`;
 }
 
@@ -122,10 +170,17 @@ function authStatus(req) {
   if (!config.configured) return { enabled: true, configured: false, user: null };
   const cookies = parseCookies(req.headers.cookie);
   const session = verifyToken(cookies[COOKIE_NAME], config.sessionSecret);
+  let user = null;
+  if (session && session.id) {
+    const row = getDbUserById(session.id);
+    if (row && row.active !== 0) user = publicUser(row);
+  } else if (session && session.u && session.u === config.username) {
+    user = { username: session.u, display_name: session.name || session.u, role: session.role || 'admin' };
+  }
   return {
     enabled: true,
     configured: true,
-    user: session ? { username: session.u, expires_at: new Date(session.exp).toISOString() } : null,
+    user: user ? { ...user, expires_at: new Date(session.exp).toISOString() } : null,
   };
 }
 
@@ -139,6 +194,13 @@ function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'unauthorized' });
   }
   req.user = status.user;
+  next();
+}
+
+function requireAdmin(req, res, next) {
+  if (!req.user || req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'admin_required' });
+  }
   next();
 }
 
@@ -208,15 +270,21 @@ function installAuth(app) {
     const config = getConfig();
     if (!config.enabled) return res.json({ ok: true, disabled: true });
     if (!config.configured) return res.status(503).json({ error: 'auth_not_configured' });
-    const username = String(req.body && req.body.username || '');
+    const username = String(req.body && req.body.username || '').trim();
     const password = String(req.body && req.body.password || '');
     if (!checkRateLimit(req, username)) return res.status(429).json({ error: 'too_many_attempts' });
-    const validUser = username === config.username;
-    const validPass = validUser && await bcrypt.compare(password, config.passwordHash);
-    if (!validPass) return res.status(401).json({ error: 'invalid_credentials' });
+    let user = null;
+    const dbUser = getDbUserByUsername(username);
+    if (dbUser && dbUser.active !== 0 && await bcrypt.compare(password, dbUser.password_hash)) {
+      db.prepare('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?').run(dbUser.id);
+      user = publicUser(dbUser);
+    } else if (!dbUser && username === config.username && await bcrypt.compare(password, config.passwordHash)) {
+      user = { id: null, username, display_name: username, role: 'admin' };
+    }
+    if (!user) return res.status(401).json({ error: 'invalid_credentials' });
     resetRateLimit(req, username);
-    setSessionCookie(req, res, createToken(username, config.sessionSecret));
-    res.json({ ok: true, user: { username } });
+    setSessionCookie(req, res, createToken(user, config.sessionSecret));
+    res.json({ ok: true, user });
   });
   app.post('/api/auth/logout', (req, res) => {
     clearSessionCookie(req, res);
@@ -231,4 +299,5 @@ module.exports = {
   installAuth,
   loginPage,
   requireAuth,
+  requireAdmin,
 };

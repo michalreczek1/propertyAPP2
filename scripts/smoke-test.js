@@ -107,6 +107,7 @@ async function main() {
     '/api/tasks',
     '/api/documents',
     '/api/settings',
+    '/api/settings/owner-costs',
     '/api/import/status',
   ]) {
     await check(`GET  ${p}`, async () => {

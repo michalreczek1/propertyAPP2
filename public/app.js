@@ -38,6 +38,7 @@ const State = {
   contractsStatus: 'all',
   tenantsStatus: 'active',
   tenantsQ: '',
+  auth: null,
 };
 
 function currentPeriodISO() {
@@ -131,6 +132,10 @@ function emptyState(msg, sub) {
   return `<div class="empty"><div class="empty-title">${escapeHtml(msg||'')}</div>${sub?`<div class="empty-sub">${escapeHtml(sub)}</div>`:''}</div>`;
 }
 function spinner() { return `<div style="padding:32px;text-align:center"><span class="spinner"></span></div>`; }
+function roleLabel(role) { return role === 'admin' ? 'Administrator' : 'Użytkownik'; }
+function initials(name) {
+  return String(name || 'PM').trim().split(/\s+/).slice(0, 2).map(x => x[0]).join('').toUpperCase() || 'PM';
+}
 
 // ─── API ────────────────────────────────────────────────────────────
 const Api = {
@@ -272,6 +277,10 @@ function setTopbar(title, sub, actions) {
     </button>
     <button class="tb-btn tb-ghost" data-period="+1" title="Następny miesiąc">›</button>
     ${actions || ''}
+    <button class="tb-btn tb-ghost" id="account-btn" title="Konto">
+      <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      Konto
+    </button>
     <button class="tb-btn tb-ghost" id="logout-btn" title="Wyloguj">
       <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
       Wyloguj
@@ -280,6 +289,7 @@ function setTopbar(title, sub, actions) {
     b.onclick = () => { State.period = shiftPeriod(State.period, +b.dataset.period); render(); };
   });
   right.querySelector('#period-btn').onclick = () => openPeriodPicker();
+  right.querySelector('#account-btn').onclick = () => openAccountPanel();
   right.querySelector('#logout-btn').onclick = () => logout();
 }
 
@@ -297,6 +307,117 @@ function openPeriodPicker() {
       State.period = period;
       render();
     },
+  });
+}
+
+async function loadAuth() {
+  try {
+    State.auth = await Api.get('/auth/me');
+    updateAccountTile();
+    return State.auth;
+  } catch {
+    return State.auth;
+  }
+}
+
+function updateAccountTile() {
+  const user = State.auth && State.auth.user;
+  if (!user) return;
+  const name = user.display_name || user.username || 'Property Manager';
+  const avatarEl = document.querySelector('.rail-avatar');
+  const nameEl = document.querySelector('.rail-user-name');
+  const roleEl = document.querySelector('.rail-user-role');
+  if (avatarEl) avatarEl.textContent = initials(name);
+  if (nameEl) nameEl.textContent = name;
+  if (roleEl) roleEl.textContent = roleLabel(user.role);
+}
+
+function userRowHtml(u) {
+  return `
+    <tr>
+      <td><div class="user-cell">${avatar(u.display_name || u.username)}<div><b>${escapeHtml(u.display_name || u.username)}</b><span>${escapeHtml(u.username)}</span></div></div></td>
+      <td>${escapeHtml(roleLabel(u.role))}</td>
+      <td>${u.active ? chip('chip-e', 'Aktywny', true) : chip('chip-r', 'Wyłączony')}</td>
+      <td>${Number(u.properties_count || 0)}</td>
+      <td>${u.last_login_at ? fmtDate(u.last_login_at) : '—'}</td>
+      <td class="ta-r"><button class="icon-btn" data-edit-user="${u.id}" title="Edytuj"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></td>
+    </tr>`;
+}
+
+async function openAccountPanel() {
+  const auth = await loadAuth();
+  const user = auth && auth.user;
+  if (!user) return toast('Sesja wygasła', 'err');
+  const users = user.role === 'admin' ? await Api.get('/admin/users').catch(() => []) : [];
+  const body = `
+    <div class="account-panel">
+      <section class="account-card">
+        <div class="account-head">
+          <div class="rail-avatar account-avatar">${escapeHtml(initials(user.display_name || user.username))}</div>
+          <div>
+            <div class="account-name">${escapeHtml(user.display_name || user.username)}</div>
+            <div class="account-meta">${escapeHtml(user.username)} · ${escapeHtml(roleLabel(user.role))}</div>
+          </div>
+        </div>
+        <form id="password-form" class="form-grid compact">
+          <div class="form-row"><label>Obecne hasło</label><input name="current_password" type="password" autocomplete="current-password"></div>
+          <div class="form-row"><label>Nowe hasło</label><input name="new_password" type="password" autocomplete="new-password"></div>
+        </form>
+        <div class="account-actions">
+          <button class="tb-btn tb-primary" id="save-password">Zmień hasło</button>
+          <button class="tb-btn tb-ghost" id="panel-logout">Wyloguj</button>
+        </div>
+      </section>
+      ${user.role === 'admin' ? `
+      <section class="account-card">
+        <div class="ch inline"><div><div class="ch-title">Użytkownicy</div><div class="ch-sub">konta aplikacji · dostęp do panelu</div></div><button class="tb-btn tb-primary" id="add-user">Dodaj użytkownika</button></div>
+        <div class="table-wrap user-table-wrap"><table class="data-table user-table">
+          <thead><tr><th>Użytkownik</th><th>Rola</th><th>Status</th><th>Nieruch.</th><th>Ostatnio</th><th></th></tr></thead>
+          <tbody>${users.map(userRowHtml).join('') || `<tr><td colspan="6">${emptyState('Brak użytkowników')}</td></tr>`}</tbody>
+        </table></div>
+      </section>` : ''}
+    </div>`;
+  const m = modal({ title: 'Konto i administracja', body, wide: true });
+  m.root.querySelector('#panel-logout').onclick = logout;
+  m.root.querySelector('#save-password').onclick = async () => {
+    const form = m.root.querySelector('#password-form');
+    const payload = Object.fromEntries(new FormData(form).entries());
+    try {
+      await Api.post('/admin/change-password', payload);
+      form.reset();
+      toast('Hasło zmienione');
+    } catch (e) { toast(e.message, 'err'); }
+  };
+  const addBtn = m.root.querySelector('#add-user');
+  if (addBtn) addBtn.onclick = () => editAppUser(null, () => { m.close(); openAccountPanel(); });
+  m.root.querySelectorAll('[data-edit-user]').forEach(btn => {
+    btn.onclick = () => {
+      const found = users.find(x => String(x.id) === String(btn.dataset.editUser));
+      editAppUser(found, () => { m.close(); openAccountPanel(); });
+    };
+  });
+}
+
+function editAppUser(user, onSaved) {
+  const isNew = !user;
+  formModal({
+    title: isNew ? 'Dodaj użytkownika' : 'Edytuj użytkownika',
+    fields: [
+      ...(isNew ? [{ name:'username', label:'Login', required:true, hint:'Litery, cyfry, kropka, myślnik albo podkreślenie.' }] : []),
+      { name:'display_name', label:'Nazwa wyświetlana', default:user && user.display_name, full: !isNew },
+      { name:'role', label:'Rola', type:'select', default:user && user.role || 'user', options:[{value:'user',label:'Użytkownik'},{value:'admin',label:'Administrator'}] },
+      { name:'active', label:'Aktywne konto', type:'checkbox', default:isNew ? true : user.active !== 0 },
+      { name:'password', label:isNew ? 'Hasło' : 'Nowe hasło (opcjonalnie)', type:'password', required:isNew, full:true, hint:'Minimum 8 znaków.' },
+    ],
+    initial: user || {},
+    onSubmit: async (payload) => {
+      if (!isNew && !payload.password) delete payload.password;
+      if (isNew) await Api.post('/admin/users', payload);
+      else await Api.put(`/admin/users/${user.id}`, payload);
+      toast(isNew ? 'Dodano użytkownika' : 'Zapisano użytkownika');
+      if (onSaved) onSaved();
+    },
+    wide: true,
   });
 }
 
@@ -2155,9 +2276,10 @@ async function uploadDocDialog() {
 
 // ═══════════════════════ USTAWIENIA ═══════════════════════
 async function renderSettings(root) {
-  const [s, importStatus] = await Promise.all([
+  const [s, importStatus, ownerCosts] = await Promise.all([
     Api.get('/settings'),
     Api.get('/import/status').catch(() => ({ excel_import_enabled: false, dry_run_enabled: true })),
+    Api.get('/settings/owner-costs').catch(() => ({ valid_from_period: '2026-01', management_monthly: 0, mortgages: [] })),
   ]);
   setTopbar(VIEW_TITLES.ustawienia, 'Dane firmy, podatki, preferencje',
     `<button class="tb-btn tb-primary" id="set-save"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Zapisz</button>`);
@@ -2171,12 +2293,22 @@ async function renderSettings(root) {
         <div class="form-row full"><label>Adres</label><input name="company.address" value="${escapeHtml(s['company.address']||'')}"></div>
         <div class="form-row"><label>Stawka ryczałtu [%]</label><input name="tax.rate" type="number" step="0.01" value="${escapeHtml(s['tax.rate']||'8.5')}"></div>
         <div class="form-row"><label>Dodatkowy podatek mies. [PLN]</label><input name="tax.koscielna" type="number" step="0.01" value="${escapeHtml(s['tax.koscielna']||'0')}"></div>
-        <div class="form-row"><label>Koszty obowiązują od</label><input name="costs.valid_from_period" pattern="\\d{4}-\\d{2}" placeholder="YYYY-MM" value="${escapeHtml(s['costs.valid_from_period']||'2026-01')}"></div>
-        <div class="form-row"><label>Zarządzanie / mies. [PLN]</label><input name="cost.management.monthly" type="number" step="0.01" value="${escapeHtml(s['cost.management.monthly']||'500')}"></div>
-        <div class="form-row"><label>Rata kredytu Kościelna / mies. [PLN]</label><input name="cost.mortgage.koscielna.monthly" type="number" step="0.01" value="${escapeHtml(s['cost.mortgage.koscielna.monthly']||'0')}"></div>
-        <div class="form-row"><label>Rata kredytu Chrobrego / mies. [PLN]</label><input name="cost.mortgage.chrobrego.monthly" type="number" step="0.01" value="${escapeHtml(s['cost.mortgage.chrobrego.monthly']||'0')}"></div>
         <div class="form-row"><label>Waluta</label><input name="currency" value="${escapeHtml(s['currency']||'PLN')}"></div>
         <div class="form-row"><label>Locale</label><input name="locale" value="${escapeHtml(s['locale']||'pl-PL')}"></div>
+      </form>
+    </div>
+
+    <div class="gc">
+      <div class="ch"><div><div class="ch-title">Koszty właściciela</div><div class="ch-sub">zarządzanie i kredyty per nieruchomość</div></div></div>
+      <form id="owner-cost-form" class="form-grid">
+        <div class="form-row"><label>Koszty obowiązują od</label><input name="valid_from_period" pattern="\\d{4}-\\d{2}" placeholder="YYYY-MM" value="${escapeHtml(ownerCosts.valid_from_period || s['costs.valid_from_period'] || '2026-01')}"></div>
+        <div class="form-row"><label>Zarządzanie / mies. [PLN]</label><input name="management_monthly" type="number" step="0.01" value="${escapeHtml(ownerCosts.management_monthly ?? s['cost.management.monthly'] ?? '0')}"></div>
+        ${(ownerCosts.mortgages || []).map(row => `
+          <div class="form-row">
+            <label>Rata kredytu: ${escapeHtml(row.property_name)} [PLN]</label>
+            <input name="mortgage_${row.property_id}" data-property-id="${row.property_id}" type="number" step="0.01" value="${escapeHtml(row.amount ?? 0)}">
+          </div>`).join('')}
+        ${!(ownerCosts.mortgages || []).length ? `<div class="form-row full"><div class="hint">Dodaj nieruchomość, aby przypisać do niej ratę kredytu.</div></div>` : ''}
       </form>
     </div>
 
@@ -2207,7 +2339,21 @@ async function renderSettings(root) {
     const form = document.getElementById('set-form');
     const out = {};
     for (const el of form.elements) if (el.name) out[el.name] = el.value;
-    try { await Api.put('/settings', out); toast('Zapisano'); }
+    const costForm = document.getElementById('owner-cost-form');
+    const mortgages = Array.from(costForm.querySelectorAll('[data-property-id]')).map(el => ({
+      property_id: Number(el.dataset.propertyId),
+      amount: el.value,
+    }));
+    const ownerPayload = {
+      valid_from_period: costForm.elements.valid_from_period.value,
+      management_monthly: costForm.elements.management_monthly.value,
+      mortgages,
+    };
+    try {
+      await Api.put('/settings', out);
+      await Api.put('/settings/owner-costs', ownerPayload);
+      toast('Zapisano');
+    }
     catch (e) { toast(e.message, 'err'); }
   };
   document.getElementById('btn-import-preview').onclick = () => previewExcelImport(document.getElementById('xlsx-file').files[0]);
@@ -2256,6 +2402,9 @@ function init() {
   document.querySelectorAll('#nav .nav-item').forEach(it => {
     it.onclick = () => navigate(it.dataset.view);
   });
+  const footer = document.querySelector('.rail-footer');
+  if (footer) footer.onclick = () => openAccountPanel();
+  loadAuth();
   createMobileNav();
   window.addEventListener('hashchange', render);
   if (!location.hash) location.hash = 'dashboard';

@@ -31,8 +31,9 @@ router.get('/:id', (req, res) => {
 });
 
 router.post('/', validate(PropertySchema), (req, res) => {
-  const r = db.prepare(`INSERT INTO properties (name,address,district,type,notes) VALUES (?,?,?,?,?)`)
-    .run(req.body.name, req.body.address ?? null, req.body.district ?? null, req.body.type ?? 'mieszkanie', req.body.notes ?? null);
+  const ownerId = req.user && req.user.id ? req.user.id : null;
+  const r = db.prepare(`INSERT INTO properties (owner_user_id,name,address,district,type,notes) VALUES (?,?,?,?,?,?)`)
+    .run(ownerId, req.body.name, req.body.address ?? null, req.body.district ?? null, req.body.type ?? 'mieszkanie', req.body.notes ?? null);
   res.status(201).json(db.prepare('SELECT * FROM properties WHERE id = ?').get(r.lastInsertRowid));
 });
 

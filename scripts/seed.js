@@ -36,16 +36,14 @@ const settings = {
   'tax.rate':        '8.5',
   'tax.koscielna':   '0',
   'cost.management.monthly': '500',
-  'cost.mortgage.koscielna.monthly': '0',
-  'cost.mortgage.chrobrego.monthly': '0',
   'currency':        'PLN',
   'locale':          'pl-PL',
   'app.title':       'PropertyApp',
 };
 
 const upsertProperty = db.prepare(`
-  INSERT INTO properties (name, address, district, type)
-  VALUES (@name, @address, @district, @type)
+  INSERT INTO properties (owner_user_id, name, address, district, type)
+  VALUES (@owner_user_id, @name, @address, @district, @type)
   ON CONFLICT(name) DO NOTHING
 `);
 
@@ -68,7 +66,8 @@ const insertRecurringCost = db.prepare(`
 `);
 
 const tx = db.transaction(() => {
-  for (const p of properties) upsertProperty.run(p);
+  const admin = db.prepare("SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").get();
+  for (const p of properties) upsertProperty.run({ ...p, owner_user_id: admin ? admin.id : null });
   for (const u of units) {
     const prop = findProperty.get(u.property);
     if (!prop) continue;

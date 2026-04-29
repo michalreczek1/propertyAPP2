@@ -46,6 +46,7 @@ app.use('/api/expenses',   require('./routes/expenses'));
 app.use('/api/tasks',      require('./routes/tasks'));
 app.use('/api/documents',  require('./routes/documents'));
 app.use('/api/settings',   require('./routes/settings'));
+app.use('/api/admin',      require('./routes/admin'));
 app.use('/api/import',     require('./routes/import'));
 app.use('/api/export',     require('./routes/export'));
 
