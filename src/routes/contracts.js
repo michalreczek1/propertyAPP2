@@ -7,11 +7,11 @@ const { validate } = require('../middleware/validate');
 const ContractSchema = z.object({
   tenant_id: z.coerce.number().int().positive(),
   unit_id: z.coerce.number().int().positive(),
-  start_date: z.string().nullable().optional(),
-  end_date: z.string().nullable().optional(),
-  rent: z.coerce.number().default(0),
-  media_advance: z.coerce.number().default(0),
-  deposit: z.coerce.number().default(0),
+  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  rent: z.coerce.number().min(0).default(0),
+  media_advance: z.coerce.number().min(0).default(0),
+  deposit: z.coerce.number().min(0).default(0),
   pay_by_day: z.coerce.number().int().min(1).max(31).default(31),
   document_path: z.string().nullable().optional(),
   status: z.enum(['active','ended']).default('active'),
@@ -54,17 +54,34 @@ router.get('/:id', (req, res) => {
 
 router.post('/', validate(ContractSchema), (req, res) => {
   const b = req.body;
-  const r = db.prepare(`
-    INSERT INTO contracts (tenant_id,unit_id,start_date,end_date,rent,media_advance,deposit,pay_by_day,document_path,status,notes)
-    VALUES (@tenant_id,@unit_id,@start_date,@end_date,@rent,@media_advance,@deposit,@pay_by_day,@document_path,@status,@notes)
-  `).run({
-    ...b,
-    start_date: b.start_date || null,
-    end_date: b.end_date || null,
-    document_path: b.document_path || null,
-    notes: b.notes || null,
+  const tx = db.transaction(() => {
+    if (b.status === 'active') {
+      const conflict = db.prepare('SELECT id FROM contracts WHERE unit_id = ? AND status = ? LIMIT 1').get(b.unit_id, 'active');
+      if (conflict) {
+        const err = new Error('active_contract_exists_for_unit');
+        err.status = 409;
+        throw err;
+      }
+    }
+    const r = db.prepare(`
+      INSERT INTO contracts (tenant_id,unit_id,start_date,end_date,rent,media_advance,deposit,pay_by_day,document_path,status,notes)
+      VALUES (@tenant_id,@unit_id,@start_date,@end_date,@rent,@media_advance,@deposit,@pay_by_day,@document_path,@status,@notes)
+    `).run({
+      ...b,
+      start_date: b.start_date || null,
+      end_date: b.end_date || null,
+      document_path: b.document_path || null,
+      notes: b.notes || null,
+    });
+    if (b.status === 'active') {
+      db.prepare('UPDATE tenants SET current_unit_id = ?, status = ? WHERE id = ?').run(b.unit_id, 'active', b.tenant_id);
+      db.prepare('UPDATE units SET status = ? WHERE id = ?').run('rented', b.unit_id);
+    }
+    return r.lastInsertRowid;
   });
-  res.status(201).json(db.prepare('SELECT * FROM contracts WHERE id = ?').get(r.lastInsertRowid));
+  let id;
+  try { id = tx(); } catch (err) { return res.status(err.status || 500).json({ error: err.message || 'contract_error' }); }
+  res.status(201).json(db.prepare('SELECT * FROM contracts WHERE id = ?').get(id));
 });
 
 router.put('/:id', validate(ContractSchema.partial()), (req, res) => {
@@ -74,6 +91,15 @@ router.put('/:id', validate(ContractSchema.partial()), (req, res) => {
   const sql = `UPDATE contracts SET ${fields.map(f => `${f}=?`).join(',')} WHERE id = ?`;
   const r = db.prepare(sql).run(...fields.map(f => req.body[f] === '' ? null : req.body[f]), req.params.id);
   if (!r.changes) return res.status(404).json({ error: 'not_found' });
+  const c = db.prepare('SELECT * FROM contracts WHERE id = ?').get(req.params.id);
+  if (c && c.status === 'active') {
+    db.prepare('UPDATE tenants SET current_unit_id = ?, status = ? WHERE id = ?').run(c.unit_id, 'active', c.tenant_id);
+    db.prepare('UPDATE units SET status = ? WHERE id = ?').run('rented', c.unit_id);
+  } else if (c && c.status === 'ended') {
+    db.prepare('UPDATE tenants SET current_unit_id = NULL WHERE id = ? AND current_unit_id = ?').run(c.tenant_id, c.unit_id);
+    const stillActive = db.prepare('SELECT 1 FROM contracts WHERE unit_id = ? AND status = ? LIMIT 1').get(c.unit_id, 'active');
+    if (!stillActive) db.prepare('UPDATE units SET status = ? WHERE id = ?').run('vacant', c.unit_id);
+  }
   res.json(db.prepare('SELECT * FROM contracts WHERE id = ?').get(req.params.id));
 });
 

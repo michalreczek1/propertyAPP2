@@ -7,6 +7,13 @@ const db = require('../db');
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, '..', '..', 'data', 'uploads');
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+const UPLOADS_ROOT = path.resolve(UPLOADS_DIR);
+
+function resolveUploadPath(filePath) {
+  const abs = path.resolve(UPLOADS_ROOT, filePath || '');
+  if (abs !== UPLOADS_ROOT && !abs.startsWith(UPLOADS_ROOT + path.sep)) return null;
+  return abs;
+}
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
@@ -39,7 +46,8 @@ router.get('/:id', (req, res) => {
 router.get('/:id/download', (req, res) => {
   const d = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
   if (!d) return res.status(404).json({ error: 'not_found' });
-  const abs = path.join(UPLOADS_DIR, d.file_path);
+  const abs = resolveUploadPath(d.file_path);
+  if (!abs) return res.status(400).json({ error: 'invalid_file_path' });
   if (!fs.existsSync(abs)) return res.status(404).json({ error: 'file_missing' });
   res.download(abs, d.name);
 });
@@ -65,7 +73,10 @@ router.post('/', upload.single('file'), (req, res) => {
 router.delete('/:id', (req, res) => {
   const d = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
   if (!d) return res.status(404).json({ error: 'not_found' });
-  try { fs.unlinkSync(path.join(UPLOADS_DIR, d.file_path)); } catch { /* ignore missing */ }
+  const abs = resolveUploadPath(d.file_path);
+  if (abs) {
+    try { fs.unlinkSync(abs); } catch { /* ignore missing */ }
+  }
   db.prepare('DELETE FROM documents WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });

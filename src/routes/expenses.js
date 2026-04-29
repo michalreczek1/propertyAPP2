@@ -3,14 +3,14 @@ const router = require('express').Router();
 const { z } = require('zod');
 const db = require('../db');
 const { validate } = require('../middleware/validate');
-const { ownerExpenseRows } = require('../utils/owner-costs');
+const { ownerExpenseRows, getOwnerCosts, appendOwnerCostCategories } = require('../utils/owner-costs');
 
 const ExpenseSchema = z.object({
   property_id: z.coerce.number().int().positive().nullable().optional(),
   unit_id: z.coerce.number().int().positive().nullable().optional(),
   category: z.enum(['czynsz','prad','internet','remonty','doplata','zarzadzanie','kredyt','inne']),
-  amount: z.coerce.number(),
-  date: z.string(),
+  amount: z.coerce.number().min(0),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   description: z.string().nullable().optional(),
   document_path: z.string().nullable().optional(),
 });
@@ -52,13 +52,16 @@ router.get('/', (req, res) => {
 router.get('/by-category', (req, res) => {
   const period = req.query.period;
   if (!period) return res.status(400).json({ error: 'period_required' });
-  const rows = db.prepare(`
+  let rows = db.prepare(`
     SELECT category, SUM(amount) AS total
     FROM expenses
     WHERE strftime('%Y-%m', date) = ?
     GROUP BY category
     ORDER BY total DESC
   `).all(period);
+  if (req.query.include_owner === '1') {
+    rows = appendOwnerCostCategories(rows, getOwnerCosts(db, period));
+  }
   res.json(rows);
 });
 

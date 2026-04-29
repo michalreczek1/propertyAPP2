@@ -46,8 +46,7 @@ const settings = {
 const upsertProperty = db.prepare(`
   INSERT INTO properties (name, address, district, type)
   VALUES (@name, @address, @district, @type)
-  ON CONFLICT(name) DO UPDATE SET
-    address=excluded.address, district=excluded.district, type=excluded.type
+  ON CONFLICT(name) DO NOTHING
 `);
 
 const findProperty = db.prepare('SELECT id FROM properties WHERE name = ?');
@@ -58,12 +57,17 @@ const insertUnit = db.prepare(`
   VALUES (?, ?, ?, ?, ?, 'rented')
 `);
 const updateUnit = db.prepare(`
-  UPDATE units SET name=?, base_rent=?, base_media=? WHERE id=?
+  UPDATE units SET name=COALESCE(name, ?), base_rent=COALESCE(base_rent, ?), base_media=COALESCE(base_media, ?) WHERE id=?
 `);
 
 const upsertSetting = db.prepare(`
   INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
-  ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP
+  ON CONFLICT(key) DO NOTHING
+`);
+
+const insertRecurringCost = db.prepare(`
+  INSERT OR IGNORE INTO recurring_costs(category, property_id, amount, valid_from_period, notes)
+  VALUES (?, ?, ?, '2026-01', ?)
 `);
 
 const tx = db.transaction(() => {
@@ -79,6 +83,11 @@ const tx = db.transaction(() => {
     }
   }
   for (const [k, v] of Object.entries(settings)) upsertSetting.run(k, v);
+  const koscielna = findProperty.get('Kościelna 30/21');
+  const chrobrego = findProperty.get('Os. B. Chrobrego 28/21');
+  insertRecurringCost.run('zarzadzanie', null, 500, 'Seed default owner management cost');
+  if (koscielna) insertRecurringCost.run('kredyt', koscielna.id, 0, 'Seed default mortgage cost');
+  if (chrobrego) insertRecurringCost.run('kredyt', chrobrego.id, 0, 'Seed default mortgage cost');
 });
 
 tx();

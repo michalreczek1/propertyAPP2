@@ -5,7 +5,9 @@
   "private": true,
   "main": "src/server.js",
   "type": "commonjs",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
@@ -16,15 +18,20 @@
     "backup": "node scripts/backup.js",
     "seed:fixed-expenses-2026": "node scripts/seed-fixed-expenses-2026.js",
     "smoke": "node scripts/smoke-test.js",
+    "test:finance": "node scripts/finance-regression-test.js",
+    "test:ui": "playwright test",
     "setup": "npm run migrate && npm run seed && npm run import"
   },
   "dependencies": {
     "better-sqlite3": "^11.5.0",
     "express": "^4.21.1",
+    "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
-    "xlsx": "^0.18.5",
-    "zod": "^3.23.8",
     "pdfkit": "^0.15.1",
-    "morgan": "^1.10.0"
+    "xlsx": "^0.18.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1"
   }
 }

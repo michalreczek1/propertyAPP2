@@ -3,7 +3,7 @@ const router = require('express').Router();
 const { z } = require('zod');
 const db = require('../db');
 const { validate } = require('../middleware/validate');
-const { dueDate, currentPeriod } = require('../utils/period');
+const { dueDate, currentPeriod, todayLocalISO } = require('../utils/period');
 
 const PaymentSchema = z.object({
   period: z.string().regex(/^\d{4}-\d{2}$/),
@@ -12,10 +12,10 @@ const PaymentSchema = z.object({
   due_day: z.coerce.number().int().min(1).max(31).nullable().optional(),
   due_date: z.string().nullable().optional(),
   paid_date: z.string().nullable().optional(),
-  rent_amount: z.coerce.number().default(0),
-  media_amount: z.coerce.number().default(0),
-  other_amount: z.coerce.number().default(0),
-  total_paid: z.coerce.number().default(0),
+  rent_amount: z.coerce.number().min(0).default(0),
+  media_amount: z.coerce.number().min(0).default(0),
+  other_amount: z.coerce.number().min(0).default(0),
+  total_paid: z.coerce.number().min(0).default(0),
   status: z.enum(['paid','pending','overdue','partial']).default('pending'),
   notes: z.string().nullable().optional(),
   source: z.string().default('manual'),
@@ -102,7 +102,7 @@ router.put('/:id', validate(PaymentSchema.partial()), (req, res) => {
 });
 
 router.put('/:id/mark-paid', (req, res) => {
-  const today = (req.body && req.body.paid_date) || new Date().toISOString().slice(0, 10);
+  const today = (req.body && req.body.paid_date) || todayLocalISO();
   const r = db.prepare(`
     UPDATE payments
     SET status='paid', paid_date=?, total_paid=(rent_amount + media_amount + other_amount)
@@ -115,7 +115,7 @@ router.put('/:id/mark-paid', (req, res) => {
 router.put('/:id/toggle-paid', (req, res) => {
   const cur = db.prepare('SELECT * FROM payments WHERE id = ?').get(req.params.id);
   if (!cur) return res.status(404).json({ error: 'not_found' });
-  const today = (req.body && req.body.paid_date) || new Date().toISOString().slice(0, 10);
+  const today = (req.body && req.body.paid_date) || todayLocalISO();
   if (cur.status === 'paid') {
     db.prepare(`UPDATE payments SET status='pending', paid_date=NULL, total_paid=0 WHERE id=?`).run(req.params.id);
   } else {
@@ -128,11 +128,11 @@ router.put('/:id/toggle-paid', (req, res) => {
 router.post('/approve-month', (req, res) => {
   const period = req.body && req.body.period;
   if (!period || !/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'invalid_period' });
-  const today = (req.body && req.body.paid_date) || new Date().toISOString().slice(0, 10);
+  const today = (req.body && req.body.paid_date) || todayLocalISO();
   const r = db.prepare(`
     UPDATE payments
     SET status='paid', paid_date=?, total_paid=(rent_amount + media_amount + other_amount)
-    WHERE period = ? AND status != 'paid'
+    WHERE period = ? AND status IN ('pending','overdue')
   `).run(today, period);
   res.json({ period, updated: r.changes });
 });

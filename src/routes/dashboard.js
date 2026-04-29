@@ -1,92 +1,12 @@
 'use strict';
 const router = require('express').Router();
 const db = require('../db');
-const { currentPeriod, previousPeriod, periodLabel } = require('../utils/period');
-const { computeTaxAmounts } = require('../utils/tax');
-const { getOwnerCosts, appendOwnerCostCategories } = require('../utils/owner-costs');
-
-function getNum(key, fallback = 0) {
-  const r = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-  if (!r || r.value == null || r.value === '') return fallback;
-  const n = Number(r.value);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function computeTax(rentPaid) {
-  // Ryczałt 8,5% liczony WYŁĄCZNIE od czynszu (rent_amount).
-  // Zaokrąglenie zgodnie z Art. 63 § 1 Ordynacji podatkowej:
-  // - podstawę opodatkowania zaokrągla się do pełnych zł (≥50 gr w górę, <50 gr w dół)
-  // - kwotę podatku zaokrągla się do pełnych zł
-  const rate = getNum('tax.rate', 8.5);
-  const koscielna = getNum('tax.koscielna', 0);
-  return computeTaxAmounts(rentPaid, rate, koscielna);
-}
+const { currentPeriod } = require('../utils/period');
+const { monthlyFinanceSummary } = require('../services/finance-summary');
 
 router.get('/', (req, res) => {
   const period = req.query.period || currentPeriod();
-  const prev = previousPeriod(period);
-
-  // Bieżący miesiąc — agregaty z payments.
-  // „Przychód zatwierdzony" = pełna należność gdy status='paid', total_paid gdy 'partial'.
-  const sumCurrent = db.prepare(`
-    SELECT
-      SUM(rent_amount + media_amount + other_amount) AS gross_expected,
-      SUM(rent_amount)  AS rent_expected,
-      SUM(media_amount) AS media_expected,
-      SUM(other_amount) AS other_expected,
-      SUM(CASE
-        WHEN status='paid'    THEN (rent_amount + media_amount + other_amount)
-        WHEN status='partial' THEN total_paid
-        ELSE 0
-      END) AS paid,
-      SUM(CASE
-        WHEN status='paid'    THEN rent_amount
-        WHEN status='partial' THEN
-          CASE WHEN (rent_amount + media_amount + other_amount) > 0
-            THEN total_paid * rent_amount * 1.0 / (rent_amount + media_amount + other_amount)
-            ELSE 0 END
-        ELSE 0
-      END) AS rent_paid,
-      SUM(CASE
-        WHEN status='paid'    THEN media_amount
-        WHEN status='partial' THEN
-          CASE WHEN (rent_amount + media_amount + other_amount) > 0
-            THEN total_paid * media_amount * 1.0 / (rent_amount + media_amount + other_amount)
-            ELSE 0 END
-        ELSE 0
-      END) AS media_paid,
-      COUNT(*) AS count,
-      SUM(CASE WHEN status='paid' THEN 1 ELSE 0 END) AS paid_count,
-      SUM(CASE WHEN status='overdue' THEN 1 ELSE 0 END) AS overdue_count,
-      SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending_count
-    FROM payments
-    WHERE period = ?
-  `).get(period);
-
-  const sumPrev = db.prepare(`
-    SELECT
-      SUM(CASE
-        WHEN status='paid'    THEN (rent_amount + media_amount + other_amount)
-        WHEN status='partial' THEN total_paid
-        ELSE 0
-      END) AS paid,
-      SUM(rent_amount + media_amount + other_amount) AS gross,
-      SUM(media_amount) AS media
-    FROM payments WHERE period = ?
-  `).get(prev || '');
-
-  // Koszty w okresie
-  const expensesByCat = db.prepare(`
-    SELECT category, SUM(amount) AS total
-    FROM expenses WHERE strftime('%Y-%m', date) = ? GROUP BY category
-  `).all(period);
-  const ownerCosts = getOwnerCosts(db);
-  const expensesByCatWithOwner = appendOwnerCostCategories(expensesByCat, ownerCosts);
-  const expensesTotal = expensesByCatWithOwner.reduce((s, r) => s + (r.total || 0), 0);
-  const expensesPrev = db.prepare(`
-    SELECT SUM(amount) AS total FROM expenses WHERE strftime('%Y-%m', date) = ?
-  `).get(prev || '').total || 0;
-  const expensesPrevTotal = expensesPrev + ownerCosts.total;
+  const summary = monthlyFinanceSummary(db, period);
 
   // Status lokali
   const occupancy = db.prepare(`
@@ -131,67 +51,13 @@ router.get('/', (req, res) => {
   `).get().c;
   const openTasks = db.prepare(`SELECT COUNT(*) AS c FROM tasks WHERE status='open'`).get().c;
 
-  // Wykres 12 miesięcy: revenue (zatwierdzone wpłaty), media, podatek liczony OD CZYNSZU.
-  const taxRate = getNum('tax.rate', 8.5);
-  const taxKoscielna = getNum('tax.koscielna', 0);
-  const last12 = db.prepare(`
-    WITH RECURSIVE months(p) AS (
-      SELECT strftime('%Y-%m', DATE(?, '-11 months', 'start of month'))
-      UNION ALL
-      SELECT strftime('%Y-%m', DATE(p || '-01', '+1 month'))
-      FROM months WHERE p < ?
-    )
-    SELECT m.p AS period,
-      COALESCE((SELECT SUM(CASE
-        WHEN status='paid'    THEN (rent_amount + media_amount + other_amount)
-        WHEN status='partial' THEN total_paid ELSE 0 END) FROM payments WHERE period = m.p), 0) AS revenue,
-      COALESCE((SELECT SUM(media_amount) FROM payments WHERE period = m.p AND status='paid'), 0) AS media,
-      COALESCE((SELECT SUM(amount) FROM expenses WHERE strftime('%Y-%m', date) = m.p), 0) AS expenses,
-      ROUND(COALESCE((SELECT SUM(CASE
-        WHEN status='paid'    THEN rent_amount
-        WHEN status='partial' THEN
-          CASE WHEN (rent_amount + media_amount + other_amount) > 0
-            THEN total_paid * rent_amount * 1.0 / (rent_amount + media_amount + other_amount)
-            ELSE 0 END
-        ELSE 0 END) FROM payments WHERE period = m.p), 0)) AS rent_paid
-    FROM months m
-    ORDER BY m.p
-  `).all(period + '-01', period).map(row => ({
-    ...row,
-    expenses: (row.expenses || 0) + ownerCosts.total,
-    tax: computeTaxAmounts(row.rent_paid || 0, taxRate, taxKoscielna).podatek_suma,
-  }));
-
-  // Podatek liczony od zatwierdzonego CZYNSZU (rent_amount), nie od mediów.
-  const paid = sumCurrent.paid || 0;
-  const rentPaid = sumCurrent.rent_paid || 0;
-  const tax = computeTax(rentPaid);
-  const expectedGross = sumCurrent.gross_expected || 0;
-
   res.json({
-    period,
-    period_label: periodLabel(period),
-    revenue: {
-      gross: paid,                                      // przychód = zatwierdzone (czynsz+media+inne)
-      expected: expectedGross,                          // oczekiwany (z harmonogramu)
-      rent: sumCurrent.rent_expected || 0,              // oczekiwany czynsz
-      rent_paid: rentPaid,                              // zatwierdzony czynsz (podstawa podatku)
-      media: sumCurrent.media_paid || 0,                // ZATWIERDZONE media (nie nominał!)
-      media_expected: sumCurrent.media_expected || 0,
-      other: sumCurrent.other_expected || 0,
-      paid,
-      paid_units: sumCurrent.paid_count || 0,
-      total_units: sumCurrent.count || 0,
-      delta_vs_prev: sumPrev.paid ? (paid - sumPrev.paid) / sumPrev.paid : 0,
-    },
-    expenses: {
-      total: expensesTotal,
-      recurring_owner: ownerCosts,
-      delta_vs_prev: expensesPrevTotal ? (expensesTotal - expensesPrevTotal) / expensesPrevTotal : 0,
-      by_category: expensesByCatWithOwner,
-    },
-    tax,
-    net_for_owner: +(paid - expensesTotal - tax.podatek_suma).toFixed(2),
+    period: summary.period,
+    period_label: summary.period_label,
+    revenue: summary.revenue,
+    expenses: summary.expenses,
+    tax: summary.tax,
+    net_for_owner: summary.net_for_owner,
     occupancy,
     units: occUnits,
     current_payments: currentPayments,
@@ -201,7 +67,7 @@ router.get('/', (req, res) => {
       ending_contracts: endingContracts,
       open_tasks: openTasks,
     },
-    chart_12m: last12,
+    chart_12m: summary.chart_12m,
   });
 });
 

@@ -2096,6 +2096,7 @@ async function renderSettings(root) {
         <div class="form-row full"><label>Adres</label><input name="company.address" value="${escapeHtml(s['company.address']||'')}"></div>
         <div class="form-row"><label>Stawka ryczałtu [%]</label><input name="tax.rate" type="number" step="0.01" value="${escapeHtml(s['tax.rate']||'8.5')}"></div>
         <div class="form-row"><label>Dodatkowy podatek mies. [PLN]</label><input name="tax.koscielna" type="number" step="0.01" value="${escapeHtml(s['tax.koscielna']||'0')}"></div>
+        <div class="form-row"><label>Koszty obowiązują od</label><input name="costs.valid_from_period" pattern="\\d{4}-\\d{2}" placeholder="YYYY-MM" value="${escapeHtml(s['costs.valid_from_period']||'2026-01')}"></div>
         <div class="form-row"><label>Zarządzanie / mies. [PLN]</label><input name="cost.management.monthly" type="number" step="0.01" value="${escapeHtml(s['cost.management.monthly']||'500')}"></div>
         <div class="form-row"><label>Rata kredytu Kościelna / mies. [PLN]</label><input name="cost.mortgage.koscielna.monthly" type="number" step="0.01" value="${escapeHtml(s['cost.mortgage.koscielna.monthly']||'0')}"></div>
         <div class="form-row"><label>Rata kredytu Chrobrego / mies. [PLN]</label><input name="cost.mortgage.chrobrego.monthly" type="number" step="0.01" value="${escapeHtml(s['cost.mortgage.chrobrego.monthly']||'0')}"></div>

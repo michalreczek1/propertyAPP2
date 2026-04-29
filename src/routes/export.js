@@ -4,7 +4,7 @@ const PDFDocument = require('pdfkit');
 const db = require('../db');
 const { currentPeriod, periodLabel } = require('../utils/period');
 const { fmtPLN } = require('../utils/money');
-const { getOwnerCosts } = require('../utils/owner-costs');
+const { monthlyFinanceSummary } = require('../services/finance-summary');
 
 function csvEscape(v) {
   if (v == null) return '';
@@ -47,31 +47,8 @@ router.get('/payments.csv', (req, res) => {
 
 router.get('/report.pdf', (req, res) => {
   const period = req.query.period || currentPeriod();
-
-  const totals = db.prepare(`
-    SELECT
-      COALESCE(SUM(rent_amount + media_amount + other_amount), 0) AS gross,
-      COALESCE(SUM(rent_amount), 0) AS rent,
-      COALESCE(SUM(media_amount), 0) AS media,
-      COALESCE(SUM(other_amount), 0) AS other
-    FROM payments WHERE period = ?
-  `).get(period);
-
-  const expensesTotal = db.prepare(`
-    SELECT COALESCE(SUM(amount), 0) AS t FROM expenses WHERE strftime('%Y-%m', date) = ?
-  `).get(period).t;
-  const ownerCosts = getOwnerCosts(db);
-  const totalCosts = expensesTotal + ownerCosts.total;
-
-  const summary = db.prepare(`SELECT * FROM monthly_summary WHERE period = ?`).get(period);
-
-  const properties = db.prepare(`
-    SELECT p.name, p.district,
-      COALESCE((SELECT SUM(pm.rent_amount + pm.media_amount + pm.other_amount)
-                FROM payments pm JOIN units u2 ON u2.id = pm.unit_id
-                WHERE u2.property_id = p.id AND pm.period = ?), 0) AS revenue
-    FROM properties p ORDER BY p.name
-  `).all(period);
+  const summary = monthlyFinanceSummary(db, period);
+  const ownerCosts = summary.owner_costs;
 
   const doc = new PDFDocument({ size: 'A4', margin: 50 });
   res.setHeader('Content-Type', 'application/pdf');
@@ -84,25 +61,24 @@ router.get('/report.pdf', (req, res) => {
   doc.fillColor('#1a1d23');
 
   doc.fontSize(14).text('Podsumowanie');
-  doc.fontSize(11).text(`Przychód brutto: ${fmtPLN(totals.gross)} PLN`);
-  doc.text(`  – Czynsze: ${fmtPLN(totals.rent)} PLN`);
-  doc.text(`  – Media (zaliczki): ${fmtPLN(totals.media)} PLN`);
-  doc.text(`  – Inne: ${fmtPLN(totals.other)} PLN`);
-  doc.text(`Koszty: ${fmtPLN(totalCosts)} PLN`);
+  doc.fontSize(11).text(`Przychód zatwierdzony: ${fmtPLN(summary.revenue.gross)} PLN`);
+  doc.text(`  – Czynsz zatwierdzony: ${fmtPLN(summary.revenue.rent_paid)} PLN`);
+  doc.text(`  – Media + czynsz w przychodach: ${fmtPLN(summary.revenue.media)} PLN`);
+  doc.text(`  – Inne zatwierdzone: ${fmtPLN(summary.revenue.other_paid || 0)} PLN`);
+  doc.text(`Oczekiwany przychód: ${fmtPLN(summary.revenue.expected)} PLN`);
+  doc.text(`Koszty: ${fmtPLN(summary.expenses.total)} PLN`);
   if (ownerCosts.management) doc.text(`  – Zarządzanie: ${fmtPLN(ownerCosts.management)} PLN`);
   if (ownerCosts.mortgage_total) doc.text(`  – Kredyty: ${fmtPLN(ownerCosts.mortgage_total)} PLN`);
-  if (summary) {
-    doc.text(`Podatek (ryczałt): ${fmtPLN(summary.podatek || 0)} PLN`);
-    doc.text(`Podatek (kościelna): ${fmtPLN(summary.podatek_koscielna || 0)} PLN`);
-    doc.text(`Podatek razem: ${fmtPLN(summary.podatek_suma || 0)} PLN`);
-  }
-  doc.text(`Netto dla właściciela: ${fmtPLN(totals.gross - totalCosts - (summary ? summary.podatek_suma || 0 : 0))} PLN`, { underline: true });
+  doc.text(`Podatek (ryczałt): ${fmtPLN(summary.tax.podatek || 0)} PLN`);
+  if (summary.tax.podatek_koscielna) doc.text(`Podatek dodatkowy: ${fmtPLN(summary.tax.podatek_koscielna)} PLN`);
+  doc.text(`Podatek razem: ${fmtPLN(summary.tax.podatek_suma || 0)} PLN`);
+  doc.text(`Netto dla właściciela: ${fmtPLN(summary.net_for_owner)} PLN`, { underline: true });
   doc.moveDown();
 
   doc.fontSize(14).text('Per nieruchomość');
   doc.fontSize(11);
-  for (const p of properties) {
-    doc.text(`• ${p.name} (${p.district || '—'}): ${fmtPLN(p.revenue)} PLN`);
+  for (const p of summary.properties) {
+    doc.text(`• ${p.name} (${p.district || '—'}): przychód ${fmtPLN(p.revenue)} PLN, koszty ${fmtPLN(p.expenses)} PLN, podatek ${fmtPLN(p.tax)} PLN, netto ${fmtPLN(p.net)} PLN`);
   }
 
   doc.end();

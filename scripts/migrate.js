@@ -178,8 +178,59 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ── RECURRING OWNER COSTS ────────────────────────────
+CREATE TABLE IF NOT EXISTS recurring_costs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  category TEXT NOT NULL,          -- zarzadzanie|kredyt
+  property_id INTEGER,
+  amount REAL NOT NULL DEFAULT 0,
+  valid_from_period TEXT NOT NULL,
+  valid_to_period TEXT,
+  active INTEGER DEFAULT 1,
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_recurring_costs_period
+  ON recurring_costs(valid_from_period, valid_to_period, active);
+CREATE INDEX IF NOT EXISTS idx_recurring_costs_property
+  ON recurring_costs(property_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_recurring_costs_open
+  ON recurring_costs(category, COALESCE(property_id, 0), valid_from_period)
+  WHERE active = 1;
 `;
 
 db.exec(SCHEMA);
+
+function numSetting(key, fallback = 0) {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+  if (!row || row.value == null || row.value === '') return fallback;
+  const n = Number(row.value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function backfillRecurringCosts() {
+  const hasRows = db.prepare('SELECT 1 FROM recurring_costs LIMIT 1').get();
+  if (hasRows) return;
+  const validFrom = '2026-01';
+  const management = numSetting('cost.management.monthly', 0);
+  const koscielna = numSetting('cost.mortgage.koscielna.monthly', 0);
+  const chrobrego = numSetting('cost.mortgage.chrobrego.monthly', 0);
+  const propByName = db.prepare('SELECT id, name FROM properties').all();
+  const findProp = (fragment) => propByName.find(p => String(p.name || '').toLowerCase().includes(fragment));
+  const koscielnaProp = findProp('kościelna') || findProp('koscielna');
+  const chrobregoProp = findProp('chrobrego');
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO recurring_costs(category, property_id, amount, valid_from_period, notes)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  if (management) insert.run('zarzadzanie', null, management, validFrom, 'Backfill from settings');
+  if (koscielna && koscielnaProp) insert.run('kredyt', koscielnaProp.id, koscielna, validFrom, 'Backfill from settings');
+  if (chrobrego && chrobregoProp) insert.run('kredyt', chrobregoProp.id, chrobrego, validFrom, 'Backfill from settings');
+}
+
+backfillRecurringCosts();
 console.log('✓ Schemat bazy gotowy:', db.name);
 console.log('  Tabele:', db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map(r => r.name).join(', '));

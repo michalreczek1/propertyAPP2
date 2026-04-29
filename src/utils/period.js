@@ -59,6 +59,11 @@ function currentPeriod() {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 }
 
+function todayLocalISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
 function previousPeriod(period) {
   const p = parsePeriod(period); if (!p) return null;
   const d = new Date(p.year, p.month - 2, 1);
@@ -74,4 +79,5 @@ module.exports = {
   PL_MONTHS, normalize,
   parsePolishMonthYear, parsePeriod,
   dueDate, currentPeriod, previousPeriod, periodLabel,
+  todayLocalISO,
 };

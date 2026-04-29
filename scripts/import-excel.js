@@ -109,17 +109,21 @@ function findUnit(propertyName, code) {
   `).get(propertyName, code);
 }
 
-// W projekcie Excela numer 1..6 = pokoje P1..P6. Mapowanie do property:
-// - P1, P2, P3, P5, P6 → "Słoneczna 5"
-// - P4 → "Lipowa 8"
-// (mockup też tak ma; możesz to zmienić w "Ustawienia → mapping" potem)
+// W aktualnej bazie pokoje P1..P6 sa w nieruchomosci "Os. B. Chrobrego 28/21".
 function unitForRoomNo(roomNo) {
   const code = `P${roomNo}`;
-  if (roomNo === 4) return findUnit('Lipowa 8', code);
-  return findUnit('Słoneczna 5', code);
+  return findUnit('Os. B. Chrobrego 28/21', code);
 }
 
-function unitForMarek() { return findUnit('Królewska 12', 'KR'); }
+function unitForMarek() { return findUnit('Kościelna 30/21', 'KR'); }
+
+function paymentStatus(totalPaid, expectedTotal) {
+  const paid = Number(totalPaid) || 0;
+  const expected = Number(expectedTotal) || 0;
+  if (paid <= 0) return 'pending';
+  if (expected > 0 && paid < expected) return 'partial';
+  return 'paid';
+}
 
 const upsertPayment = db.prepare(`
   INSERT INTO payments (period, tenant_id, unit_id, due_day, due_date, paid_date,
@@ -238,7 +242,7 @@ function importMonthSection(matrix, headerRowIdx, period, log) {
       media_amount: media || 0,
       other_amount: 0,
       total_paid: total || 0,
-      status: total && total > 0 ? 'paid' : 'pending',
+      status: paymentStatus(total, (rent || 0) + (media || 0)),
       notes: null,
     });
     inserted++;
@@ -290,7 +294,7 @@ function importMonthSection(matrix, headerRowIdx, period, log) {
       podatek_suma: null,
     };
 
-    // Marek jako osobny payment (Królewska 12) — kwota z sekcji sumarycznej
+    // Marek/Kościelna jako osobny payment — kwota z sekcji sumarycznej
     const unitMarek = unitForMarek();
     if (unitMarek && summary.marek_total != null && summary.marek_total > 0) {
       const tMarek = ensureTenant('Marek', pickColor(0));

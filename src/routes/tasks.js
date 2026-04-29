@@ -10,7 +10,7 @@ const TaskSchema = z.object({
   property_id: z.coerce.number().int().positive().nullable().optional(),
   unit_id: z.coerce.number().int().positive().nullable().optional(),
   tenant_id: z.coerce.number().int().positive().nullable().optional(),
-  due_date: z.string().nullable().optional(),
+  due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   priority: z.enum(['low','med','high']).default('med'),
   status: z.enum(['open','done']).default('open'),
 });
@@ -64,8 +64,8 @@ router.put('/:id', validate(TaskSchema.partial()), (req, res) => {
   const fields = ['title','description','property_id','unit_id','tenant_id','due_date','priority','status']
     .filter(f => req.body[f] !== undefined);
   if (!fields.length) return res.status(400).json({ error: 'no_fields' });
-  const sql = `UPDATE tasks SET ${fields.map(f => `${f}=?`).join(',')}, done_at = CASE WHEN ?='done' THEN CURRENT_TIMESTAMP ELSE done_at END WHERE id = ?`;
-  const r = db.prepare(sql).run(...fields.map(f => req.body[f] === '' ? null : req.body[f]), req.body.status || '', req.params.id);
+  const sql = `UPDATE tasks SET ${fields.map(f => `${f}=?`).join(',')}, done_at = CASE WHEN ?='done' THEN CURRENT_TIMESTAMP WHEN ?='open' THEN NULL ELSE done_at END WHERE id = ?`;
+  const r = db.prepare(sql).run(...fields.map(f => req.body[f] === '' ? null : req.body[f]), req.body.status || '', req.body.status || '', req.params.id);
   if (!r.changes) return res.status(404).json({ error: 'not_found' });
   res.json(db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id));
 });

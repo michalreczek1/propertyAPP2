@@ -1,5 +1,7 @@
 'use strict';
 
+const { currentPeriod } = require('./period');
+
 function toNumber(value, fallback = 0) {
   if (value == null || value === '') return fallback;
   const n = Number(value);
@@ -11,8 +13,71 @@ function getSetting(db, key, fallback = 0) {
   return toNumber(row && row.value, fallback);
 }
 
-function getOwnerCosts(db) {
-  const management = getSetting(db, 'cost.management.monthly', 500);
+function tableExists(db, name) {
+  return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?").get(name);
+}
+
+function getRecurringRows(db, period) {
+  if (!tableExists(db, 'recurring_costs')) return [];
+  return db.prepare(`
+    SELECT rc.*, p.name AS property_name
+    FROM recurring_costs rc
+    LEFT JOIN properties p ON p.id = rc.property_id
+    WHERE rc.active = 1
+      AND rc.valid_from_period <= ?
+      AND (rc.valid_to_period IS NULL OR rc.valid_to_period = '' OR rc.valid_to_period >= ?)
+      AND rc.valid_from_period = (
+        SELECT MAX(rc2.valid_from_period)
+        FROM recurring_costs rc2
+        WHERE rc2.active = 1
+          AND rc2.category = rc.category
+          AND COALESCE(rc2.property_id, 0) = COALESCE(rc.property_id, 0)
+          AND rc2.valid_from_period <= ?
+          AND (rc2.valid_to_period IS NULL OR rc2.valid_to_period = '' OR rc2.valid_to_period >= ?)
+      )
+    ORDER BY rc.category, rc.property_id
+  `).all(period, period, period, period);
+}
+
+function getOwnerCosts(db, period = currentPeriod()) {
+  const rows = getRecurringRows(db, period);
+  if (rows.length) {
+    const byProperty = {};
+    let management = 0;
+    let mortgageTotal = 0;
+    let mortgageKoscielna = 0;
+    let mortgageChrobrego = 0;
+
+    for (const row of rows) {
+      const amount = toNumber(row.amount, 0);
+      if (row.category === 'zarzadzanie') {
+        management += amount;
+      } else if (row.category === 'kredyt') {
+        mortgageTotal += amount;
+        if (row.property_id) {
+          byProperty[row.property_id] = byProperty[row.property_id] || { management: 0, mortgage: 0, total: 0 };
+          byProperty[row.property_id].mortgage += amount;
+          byProperty[row.property_id].total += amount;
+        }
+        const name = String(row.property_name || '').toLowerCase();
+        if (name.includes('kościelna') || name.includes('koscielna')) mortgageKoscielna += amount;
+        else if (name.includes('chrobrego')) mortgageChrobrego += amount;
+      }
+    }
+
+    return {
+      management,
+      mortgage_koscielna: mortgageKoscielna,
+      mortgage_chrobrego: mortgageChrobrego,
+      mortgage_total: mortgageTotal,
+      total: management + mortgageTotal,
+      by_property: byProperty,
+      period,
+      source: 'recurring_costs',
+    };
+  }
+
+  const management = getSetting(db, 'cost.management.monthly', 0);
   const mortgageKoscielna = getSetting(db, 'cost.mortgage.koscielna.monthly', 0);
   const mortgageChrobrego = getSetting(db, 'cost.mortgage.chrobrego.monthly', 0);
   return {
@@ -21,10 +86,18 @@ function getOwnerCosts(db) {
     mortgage_chrobrego: mortgageChrobrego,
     mortgage_total: mortgageKoscielna + mortgageChrobrego,
     total: management + mortgageKoscielna + mortgageChrobrego,
+    by_property: {},
+    period,
+    source: 'settings',
   };
 }
 
-function ownerCostsForProperty(ownerCosts, propertyName, propertyCount = 2) {
+function ownerCostsForProperty(ownerCosts, propertyName, propertyCount = 2, propertyId = null) {
+  if (propertyId && ownerCosts.by_property && ownerCosts.by_property[propertyId]) {
+    const direct = ownerCosts.by_property[propertyId].total || 0;
+    const shared = (ownerCosts.management || 0) / Math.max(1, propertyCount || 1);
+    return +(shared + direct).toFixed(2);
+  }
   const name = String(propertyName || '').toLowerCase();
   const managementShare = (ownerCosts.management || 0) / Math.max(1, propertyCount || 1);
   let mortgage = 0;
@@ -56,22 +129,17 @@ function monthRangeFromDates(from, to) {
 }
 
 function ownerExpenseRows(db, filters = {}) {
-  const ownerCosts = getOwnerCosts(db);
   const properties = db.prepare('SELECT id, name FROM properties ORDER BY name').all();
   const propertyCount = properties.length || 1;
   const months = monthRangeFromDates(filters.from || filters.period, filters.to || filters.period);
   const rows = [];
 
   for (const period of months) {
+    const ownerCosts = getOwnerCosts(db, period);
     const date = `${period}-01`;
     for (const property of properties) {
       const managementShare = +(ownerCosts.management / propertyCount).toFixed(2);
-      const lowerName = String(property.name || '').toLowerCase();
-      const mortgage = lowerName.includes('kościelna') || lowerName.includes('koscielna')
-        ? ownerCosts.mortgage_koscielna
-        : lowerName.includes('chrobrego')
-          ? ownerCosts.mortgage_chrobrego
-          : 0;
+      const mortgage = ownerCostsForProperty({ ...ownerCosts, management: 0 }, property.name, propertyCount, property.id);
 
       if (managementShare) {
         rows.push({
@@ -121,10 +189,21 @@ function ownerExpenseRows(db, filters = {}) {
 }
 
 function appendOwnerCostCategories(categories, ownerCosts) {
-  const rows = categories.map(row => ({ ...row }));
-  if (ownerCosts.management) rows.push({ category: 'zarzadzanie', total: ownerCosts.management });
-  if (ownerCosts.mortgage_total) rows.push({ category: 'kredyt', total: ownerCosts.mortgage_total });
-  return rows;
+  const byCategory = new Map();
+  for (const row of categories) {
+    const key = row.category;
+    byCategory.set(key, { ...row, total: toNumber(row.total, 0) });
+  }
+  function add(category, amount) {
+    const total = toNumber(amount, 0);
+    if (!total) return;
+    const before = byCategory.get(category) || { category, total: 0 };
+    before.total = +(toNumber(before.total, 0) + total).toFixed(2);
+    byCategory.set(category, before);
+  }
+  add('zarzadzanie', ownerCosts.management);
+  add('kredyt', ownerCosts.mortgage_total);
+  return Array.from(byCategory.values()).sort((a, b) => (b.total || 0) - (a.total || 0));
 }
 
 module.exports = {
