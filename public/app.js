@@ -151,6 +151,9 @@ const Api = {
       data = await r.text();
     }
     if (!r.ok) {
+      if (r.status === 401 && !path.startsWith('/auth/')) {
+        location.href = `/login?next=${encodeURIComponent(location.pathname + location.hash)}`;
+      }
       const err = new Error((data && data.error) || ('HTTP ' + r.status));
       err.status = r.status; err.data = data;
       throw err;
@@ -268,11 +271,21 @@ function setTopbar(title, sub, actions) {
       ${escapeHtml(periodTitleCase(State.period))}
     </button>
     <button class="tb-btn tb-ghost" data-period="+1" title="Następny miesiąc">›</button>
-    ${actions || ''}`;
+    ${actions || ''}
+    <button class="tb-btn tb-ghost" id="logout-btn" title="Wyloguj">
+      <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      Wyloguj
+    </button>`;
   right.querySelectorAll('[data-period]').forEach(b => {
     b.onclick = () => { State.period = shiftPeriod(State.period, +b.dataset.period); render(); };
   });
   right.querySelector('#period-btn').onclick = () => openPeriodPicker();
+  right.querySelector('#logout-btn').onclick = () => logout();
+}
+
+async function logout() {
+  try { await Api.post('/auth/logout', {}); } catch {}
+  location.href = '/login';
 }
 
 function openPeriodPicker() {

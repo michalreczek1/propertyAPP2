@@ -7,6 +7,7 @@ const morgan = require('morgan');
 
 const db = require('./db');
 const { notFound, errorHandler } = require('./middleware/error');
+const { authStatus, installAuth, requireAuth } = require('./middleware/auth');
 
 // Lazy-load opcjonalnego pliku .env
 const envFile = path.join(__dirname, '..', '.env');
@@ -25,6 +26,7 @@ app.disable('x-powered-by');
 app.use(morgan('tiny'));
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
+installAuth(app);
 
 // API
 app.get('/health', (_req, res) => {
@@ -32,6 +34,7 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true, db: db.name, tables });
 });
 
+app.use('/api', requireAuth);
 app.use('/api/dashboard',  require('./routes/dashboard'));
 app.use('/api/reports',    require('./routes/reports'));
 app.use('/api/properties', require('./routes/properties'));
@@ -48,6 +51,14 @@ app.use('/api/export',     require('./routes/export'));
 
 // Frontend (statyczne)
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+function requirePageAuth(req, res, next) {
+  const status = authStatus(req);
+  if (!status.enabled || status.user) return next();
+  const nextUrl = encodeURIComponent(req.originalUrl || '/');
+  res.redirect(`/login?next=${nextUrl}`);
+}
+
+app.use(requirePageAuth);
 app.use(express.static(PUBLIC_DIR, {
   index: false,
   setHeaders(res, filePath) {

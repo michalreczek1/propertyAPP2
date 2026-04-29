@@ -19,6 +19,7 @@
     "backup": "node scripts/backup.js",
     "seed:fixed-expenses-2026": "node scripts/seed-fixed-expenses-2026.js",
     "smoke": "node scripts/smoke-test.js",
+    "test:auth": "node scripts/auth-smoke-test.js",
     "test:finance": "node scripts/finance-regression-test.js",
     "test:rental-model": "node scripts/rental-model-test.js",
     "test:seed-safety": "node scripts/seed-safety-test.js",
@@ -28,6 +29,7 @@
     "setup:dev": "npm run migrate && npm run seed"
   },
   "dependencies": {
+    "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.5.0",
     "express": "^4.21.1",
     "morgan": "^1.10.0",
