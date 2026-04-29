@@ -14,6 +14,48 @@ const TenantSchema = z.object({
   notes: z.string().optional().nullable(),
 });
 
+function conflict(message) {
+  const err = new Error(message);
+  err.status = 409;
+  return err;
+}
+
+function assertNoActiveUnitConflict(tenant, excludeId = null) {
+  if (tenant.status !== 'active' || !tenant.current_unit_id) return;
+  const params = excludeId ? [tenant.current_unit_id, excludeId] : [tenant.current_unit_id];
+  const idClause = excludeId ? 'AND id != ?' : '';
+  const existing = db.prepare(`
+    SELECT id FROM tenants
+    WHERE current_unit_id = ? AND status = 'active' ${idClause}
+    LIMIT 1
+  `).get(...params);
+  if (existing) throw conflict('active_tenant_exists_for_unit');
+
+  const contractParams = excludeId ? [tenant.current_unit_id, excludeId] : [tenant.current_unit_id];
+  const contractTenantClause = excludeId ? 'AND tenant_id != ?' : '';
+  const activeContract = db.prepare(`
+    SELECT id FROM contracts
+    WHERE unit_id = ? AND status = 'active' ${contractTenantClause}
+    LIMIT 1
+  `).get(...contractParams);
+  if (activeContract) throw conflict('active_contract_exists_for_unit');
+}
+
+function syncUnitOccupancy(unitId) {
+  if (!unitId) return;
+  const occupied = db.prepare(`
+    SELECT 1
+    FROM tenants
+    WHERE current_unit_id = ? AND status = 'active'
+    UNION
+    SELECT 1
+    FROM contracts
+    WHERE unit_id = ? AND status = 'active'
+    LIMIT 1
+  `).get(unitId, unitId);
+  db.prepare('UPDATE units SET status = ? WHERE id = ?').run(occupied ? 'rented' : 'vacant', unitId);
+}
+
 router.get('/', (req, res) => {
   const where = [];
   const params = [];
@@ -59,34 +101,69 @@ router.get('/:id/payments', (req, res) => {
 
 router.post('/', validate(TenantSchema), (req, res) => {
   const b = req.body;
-  const r = db.prepare(`
-    INSERT INTO tenants (name,email,phone,current_unit_id,status,avatar_color,notes)
-    VALUES (@name,@email,@phone,@current_unit_id,@status,@avatar_color,@notes)
-  `).run({
-    name: b.name,
-    email: b.email || null,
-    phone: b.phone || null,
-    current_unit_id: b.current_unit_id || null,
-    status: b.status,
-    avatar_color: b.avatar_color || null,
-    notes: b.notes || null,
+  const tx = db.transaction(() => {
+    assertNoActiveUnitConflict(b);
+    const r = db.prepare(`
+      INSERT INTO tenants (name,email,phone,current_unit_id,status,avatar_color,notes)
+      VALUES (@name,@email,@phone,@current_unit_id,@status,@avatar_color,@notes)
+    `).run({
+      name: b.name,
+      email: b.email || null,
+      phone: b.phone || null,
+      current_unit_id: b.current_unit_id || null,
+      status: b.status,
+      avatar_color: b.avatar_color || null,
+      notes: b.notes || null,
+    });
+    syncUnitOccupancy(b.current_unit_id);
+    return r.lastInsertRowid;
   });
-  res.status(201).json(db.prepare('SELECT * FROM tenants WHERE id = ?').get(r.lastInsertRowid));
+  try {
+    const id = tx();
+    res.status(201).json(db.prepare('SELECT * FROM tenants WHERE id = ?').get(id));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || 'tenant_error' });
+  }
 });
 
 router.put('/:id', validate(TenantSchema.partial()), (req, res) => {
   const fields = ['name','email','phone','current_unit_id','status','avatar_color','notes']
     .filter(f => req.body[f] !== undefined);
   if (!fields.length) return res.status(400).json({ error: 'no_fields' });
-  const sql = `UPDATE tenants SET ${fields.map(f => `${f}=?`).join(',')} WHERE id = ?`;
-  const r = db.prepare(sql).run(...fields.map(f => req.body[f] === '' ? null : req.body[f]), req.params.id);
-  if (!r.changes) return res.status(404).json({ error: 'not_found' });
-  res.json(db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.id));
+  const id = Number(req.params.id);
+  const tx = db.transaction(() => {
+    const before = db.prepare('SELECT * FROM tenants WHERE id = ?').get(id);
+    if (!before) return null;
+    const next = { ...before };
+    for (const field of fields) next[field] = req.body[field] === '' ? null : req.body[field];
+    assertNoActiveUnitConflict(next, id);
+    const sql = `UPDATE tenants SET ${fields.map(f => `${f}=?`).join(',')} WHERE id = ?`;
+    db.prepare(sql).run(...fields.map(f => req.body[f] === '' ? null : req.body[f]), id);
+    if (before.current_unit_id !== next.current_unit_id || before.status !== next.status) {
+      syncUnitOccupancy(before.current_unit_id);
+      syncUnitOccupancy(next.current_unit_id);
+    }
+    return db.prepare('SELECT * FROM tenants WHERE id = ?').get(id);
+  });
+  try {
+    const updated = tx();
+    if (!updated) return res.status(404).json({ error: 'not_found' });
+    res.json(updated);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || 'tenant_error' });
+  }
 });
 
 router.delete('/:id', (req, res) => {
-  const r = db.prepare('DELETE FROM tenants WHERE id = ?').run(req.params.id);
-  if (!r.changes) return res.status(404).json({ error: 'not_found' });
+  const id = Number(req.params.id);
+  const tx = db.transaction(() => {
+    const before = db.prepare('SELECT * FROM tenants WHERE id = ?').get(id);
+    if (!before) return false;
+    db.prepare('DELETE FROM tenants WHERE id = ?').run(id);
+    syncUnitOccupancy(before.current_unit_id);
+    return true;
+  });
+  if (!tx()) return res.status(404).json({ error: 'not_found' });
   res.json({ ok: true });
 });
 

@@ -20,6 +20,7 @@
     "seed:fixed-expenses-2026": "node scripts/seed-fixed-expenses-2026.js",
     "smoke": "node scripts/smoke-test.js",
     "test:finance": "node scripts/finance-regression-test.js",
+    "test:rental-model": "node scripts/rental-model-test.js",
     "test:seed-safety": "node scripts/seed-safety-test.js",
     "test:ui": "playwright test",
     "migrate:prod": "npm run migrate",

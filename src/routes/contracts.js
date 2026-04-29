@@ -18,6 +18,64 @@ const ContractSchema = z.object({
   notes: z.string().nullable().optional(),
 });
 
+function makeConflictError(message) {
+  const err = new Error(message);
+  err.status = 409;
+  return err;
+}
+
+function assertNoActiveConflict(contract, excludeId = null, previousTenantId = null) {
+  if (contract.status !== 'active') return;
+  const idClause = excludeId ? 'AND id != ?' : '';
+  const params = excludeId ? [excludeId] : [];
+
+  const unitConflict = db.prepare(`
+    SELECT id FROM contracts
+    WHERE unit_id = ? AND status = 'active' ${idClause}
+    LIMIT 1
+  `).get(contract.unit_id, ...params);
+  if (unitConflict) throw makeConflictError('active_contract_exists_for_unit');
+
+  const tenantInUnit = db.prepare(`
+    SELECT id FROM tenants
+    WHERE current_unit_id = ? AND status = 'active' AND id NOT IN (?, ?)
+    LIMIT 1
+  `).get(contract.unit_id, contract.tenant_id, previousTenantId || contract.tenant_id);
+  if (tenantInUnit) throw makeConflictError('active_tenant_exists_for_unit');
+
+  const tenantConflict = db.prepare(`
+    SELECT id FROM contracts
+    WHERE tenant_id = ? AND status = 'active' ${idClause}
+    LIMIT 1
+  `).get(contract.tenant_id, ...params);
+  if (tenantConflict) throw makeConflictError('active_contract_exists_for_tenant');
+}
+
+function syncUnitOccupancy(unitId) {
+  if (!unitId) return;
+  const occupied = db.prepare(`
+    SELECT 1
+    FROM contracts
+    WHERE unit_id = ? AND status = 'active'
+    UNION
+    SELECT 1
+    FROM tenants
+    WHERE current_unit_id = ? AND status = 'active'
+    LIMIT 1
+  `).get(unitId, unitId);
+  db.prepare('UPDATE units SET status = ? WHERE id = ?').run(occupied ? 'rented' : 'vacant', unitId);
+}
+
+function detachTenantFromUnit(tenantId, unitId) {
+  if (!tenantId || !unitId) return;
+  db.prepare('UPDATE tenants SET current_unit_id = NULL WHERE id = ? AND current_unit_id = ?').run(tenantId, unitId);
+}
+
+function applyActiveContract(contract) {
+  db.prepare('UPDATE tenants SET current_unit_id = ?, status = ? WHERE id = ?').run(contract.unit_id, 'active', contract.tenant_id);
+  db.prepare('UPDATE units SET status = ? WHERE id = ?').run('rented', contract.unit_id);
+}
+
 router.get('/', (req, res) => {
   const where = [];
   const params = [];
@@ -55,14 +113,8 @@ router.get('/:id', (req, res) => {
 router.post('/', validate(ContractSchema), (req, res) => {
   const b = req.body;
   const tx = db.transaction(() => {
-    if (b.status === 'active') {
-      const conflict = db.prepare('SELECT id FROM contracts WHERE unit_id = ? AND status = ? LIMIT 1').get(b.unit_id, 'active');
-      if (conflict) {
-        const err = new Error('active_contract_exists_for_unit');
-        err.status = 409;
-        throw err;
-      }
-    }
+    assertNoActiveConflict(b);
+    const tenantBefore = db.prepare('SELECT current_unit_id FROM tenants WHERE id = ?').get(b.tenant_id);
     const r = db.prepare(`
       INSERT INTO contracts (tenant_id,unit_id,start_date,end_date,rent,media_advance,deposit,pay_by_day,document_path,status,notes)
       VALUES (@tenant_id,@unit_id,@start_date,@end_date,@rent,@media_advance,@deposit,@pay_by_day,@document_path,@status,@notes)
@@ -74,8 +126,10 @@ router.post('/', validate(ContractSchema), (req, res) => {
       notes: b.notes || null,
     });
     if (b.status === 'active') {
-      db.prepare('UPDATE tenants SET current_unit_id = ?, status = ? WHERE id = ?').run(b.unit_id, 'active', b.tenant_id);
-      db.prepare('UPDATE units SET status = ? WHERE id = ?').run('rented', b.unit_id);
+      applyActiveContract(b);
+      if (tenantBefore && tenantBefore.current_unit_id !== b.unit_id) {
+        syncUnitOccupancy(tenantBefore.current_unit_id);
+      }
     }
     return r.lastInsertRowid;
   });
@@ -88,24 +142,62 @@ router.put('/:id', validate(ContractSchema.partial()), (req, res) => {
   const fields = ['tenant_id','unit_id','start_date','end_date','rent','media_advance','deposit','pay_by_day','document_path','status','notes']
     .filter(f => req.body[f] !== undefined);
   if (!fields.length) return res.status(400).json({ error: 'no_fields' });
-  const sql = `UPDATE contracts SET ${fields.map(f => `${f}=?`).join(',')} WHERE id = ?`;
-  const r = db.prepare(sql).run(...fields.map(f => req.body[f] === '' ? null : req.body[f]), req.params.id);
-  if (!r.changes) return res.status(404).json({ error: 'not_found' });
-  const c = db.prepare('SELECT * FROM contracts WHERE id = ?').get(req.params.id);
-  if (c && c.status === 'active') {
-    db.prepare('UPDATE tenants SET current_unit_id = ?, status = ? WHERE id = ?').run(c.unit_id, 'active', c.tenant_id);
-    db.prepare('UPDATE units SET status = ? WHERE id = ?').run('rented', c.unit_id);
-  } else if (c && c.status === 'ended') {
-    db.prepare('UPDATE tenants SET current_unit_id = NULL WHERE id = ? AND current_unit_id = ?').run(c.tenant_id, c.unit_id);
-    const stillActive = db.prepare('SELECT 1 FROM contracts WHERE unit_id = ? AND status = ? LIMIT 1').get(c.unit_id, 'active');
-    if (!stillActive) db.prepare('UPDATE units SET status = ? WHERE id = ?').run('vacant', c.unit_id);
+  const id = Number(req.params.id);
+  const tx = db.transaction(() => {
+    const before = db.prepare('SELECT * FROM contracts WHERE id = ?').get(id);
+    if (!before) return null;
+    const next = { ...before };
+    for (const field of fields) next[field] = req.body[field] === '' ? null : req.body[field];
+
+    assertNoActiveConflict(next, id, before.tenant_id);
+    const nextTenantBefore = db.prepare('SELECT current_unit_id FROM tenants WHERE id = ?').get(next.tenant_id);
+
+    const sql = `UPDATE contracts SET ${fields.map(f => `${f}=?`).join(',')} WHERE id = ?`;
+    db.prepare(sql).run(...fields.map(f => req.body[f] === '' ? null : req.body[f]), id);
+
+    const movedTenant = before.tenant_id !== next.tenant_id;
+    const movedUnit = before.unit_id !== next.unit_id;
+    const stoppedBeingActive = before.status === 'active' && next.status !== 'active';
+
+    if (before.status === 'active' && (movedTenant || movedUnit || stoppedBeingActive)) {
+      detachTenantFromUnit(before.tenant_id, before.unit_id);
+      syncUnitOccupancy(before.unit_id);
+    }
+
+    if (next.status === 'active') {
+      applyActiveContract(next);
+      if (nextTenantBefore && nextTenantBefore.current_unit_id !== next.unit_id) {
+        syncUnitOccupancy(nextTenantBefore.current_unit_id);
+      }
+    } else {
+      detachTenantFromUnit(next.tenant_id, next.unit_id);
+      syncUnitOccupancy(next.unit_id);
+    }
+
+    return db.prepare('SELECT * FROM contracts WHERE id = ?').get(id);
+  });
+  try {
+    const updated = tx();
+    if (!updated) return res.status(404).json({ error: 'not_found' });
+    res.json(updated);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || 'contract_error' });
   }
-  res.json(db.prepare('SELECT * FROM contracts WHERE id = ?').get(req.params.id));
 });
 
 router.delete('/:id', (req, res) => {
-  const r = db.prepare('DELETE FROM contracts WHERE id = ?').run(req.params.id);
-  if (!r.changes) return res.status(404).json({ error: 'not_found' });
+  const id = Number(req.params.id);
+  const tx = db.transaction(() => {
+    const before = db.prepare('SELECT * FROM contracts WHERE id = ?').get(id);
+    if (!before) return false;
+    db.prepare('DELETE FROM contracts WHERE id = ?').run(id);
+    if (before.status === 'active') {
+      detachTenantFromUnit(before.tenant_id, before.unit_id);
+      syncUnitOccupancy(before.unit_id);
+    }
+    return true;
+  });
+  if (!tx()) return res.status(404).json({ error: 'not_found' });
   res.json({ ok: true });
 });
 

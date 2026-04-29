@@ -144,31 +144,84 @@ router.delete('/:id', (req, res) => {
 });
 
 router.post('/generate-month', (req, res) => {
-  // Generuje wpisy `pending` dla wszystkich aktywnych umów w danym miesiącu (z domyślnymi kwotami z umowy).
   const period = (req.body && req.body.period) || currentPeriod();
+  if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'invalid_period' });
+  const fallbackDueDay = Number(req.body && req.body.default_due_day) || 10;
+  if (fallbackDueDay < 1 || fallbackDueDay > 31) return res.status(400).json({ error: 'invalid_due_day' });
+  const monthStart = `${period}-01`;
+  const monthEnd = dueDate(period, 31);
   const tx = db.transaction(() => {
-    const contracts = db.prepare(`SELECT * FROM contracts WHERE status='active'`).all();
+    const contracts = db.prepare(`
+      SELECT * FROM contracts
+      WHERE status = 'active'
+        AND (start_date IS NULL OR DATE(start_date) <= DATE(?))
+        AND (end_date IS NULL OR DATE(end_date) >= DATE(?))
+      ORDER BY unit_id
+    `).all(monthEnd, monthStart);
+    const tenantFallbacks = db.prepare(`
+      SELECT
+        t.id AS tenant_id,
+        t.current_unit_id AS unit_id,
+        COALESCE(u.base_rent, 0) AS rent_amount,
+        COALESCE(u.base_media, 0) AS media_amount
+      FROM tenants t
+      JOIN units u ON u.id = t.current_unit_id
+      WHERE t.status = 'active'
+        AND t.current_unit_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM contracts c
+          WHERE c.unit_id = t.current_unit_id
+            AND c.status = 'active'
+            AND (c.start_date IS NULL OR DATE(c.start_date) <= DATE(?))
+            AND (c.end_date IS NULL OR DATE(c.end_date) >= DATE(?))
+        )
+      ORDER BY t.current_unit_id
+    `).all(monthEnd, monthStart);
     let created = 0, skipped = 0;
     const upsert = db.prepare(`
       INSERT INTO payments (period,tenant_id,unit_id,due_day,due_date,rent_amount,media_amount,total_paid,status,source)
-      VALUES (@period,@tenant_id,@unit_id,@due_day,@due_date,@rent_amount,@media_amount,0,'pending','manual')
+      VALUES (@period,@tenant_id,@unit_id,@due_day,@due_date,@rent_amount,@media_amount,0,'pending',@source)
       ON CONFLICT(period, unit_id) WHERE unit_id IS NOT NULL DO NOTHING
     `);
-    for (const c of contracts) {
-      const before = db.prepare('SELECT id FROM payments WHERE period=? AND unit_id=?').get(period, c.unit_id);
-      if (before) { skipped++; continue; }
-      upsert.run({
+
+    function insertPayment(row, source) {
+      const dueDay = row.due_day || fallbackDueDay;
+      const r = upsert.run({
         period,
+        tenant_id: row.tenant_id,
+        unit_id: row.unit_id,
+        due_day: dueDay,
+        due_date: dueDate(period, dueDay),
+        rent_amount: row.rent_amount || row.rent || 0,
+        media_amount: row.media_amount || row.media_advance || 0,
+        source,
+      });
+      if (r.changes) created++;
+      else skipped++;
+    }
+
+    for (const c of contracts) {
+      insertPayment({
         tenant_id: c.tenant_id,
         unit_id: c.unit_id,
         due_day: c.pay_by_day || 31,
-        due_date: dueDate(period, c.pay_by_day || 31),
         rent_amount: c.rent || 0,
         media_amount: c.media_advance || 0,
-      });
-      created++;
+      }, 'contract');
     }
-    return { created, skipped };
+    for (const t of tenantFallbacks) {
+      insertPayment(t, 'tenant');
+    }
+    return {
+      created,
+      skipped,
+      source_counts: {
+        contracts: contracts.length,
+        tenants: tenantFallbacks.length,
+      },
+      fallback_used: tenantFallbacks.length > 0,
+    };
   });
   res.json({ period, ...tx() });
 });
