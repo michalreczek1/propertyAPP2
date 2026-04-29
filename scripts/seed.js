@@ -61,8 +61,8 @@ const upsertSetting = db.prepare(`
 `);
 
 const insertRecurringCost = db.prepare(`
-  INSERT OR IGNORE INTO recurring_costs(category, property_id, amount, valid_from_period, notes)
-  VALUES (?, ?, ?, '2026-01', ?)
+  INSERT OR IGNORE INTO recurring_costs(category, owner_user_id, property_id, amount, valid_from_period, notes)
+  VALUES (?, ?, ?, ?, '2026-01', ?)
 `);
 
 const tx = db.transaction(() => {
@@ -81,9 +81,10 @@ const tx = db.transaction(() => {
   for (const [k, v] of Object.entries(settings)) upsertSetting.run(k, v);
   const koscielna = findProperty.get('Kościelna 30/21');
   const chrobrego = findProperty.get('Os. B. Chrobrego 28/21');
-  insertRecurringCost.run('zarzadzanie', null, 500, 'Seed default owner management cost');
-  if (koscielna) insertRecurringCost.run('kredyt', koscielna.id, 0, 'Seed default mortgage cost');
-  if (chrobrego) insertRecurringCost.run('kredyt', chrobrego.id, 0, 'Seed default mortgage cost');
+  const adminId = admin ? admin.id : null;
+  insertRecurringCost.run('zarzadzanie', adminId, null, 500, 'Seed default owner management cost');
+  if (koscielna) insertRecurringCost.run('kredyt', adminId, koscielna.id, 0, 'Seed default mortgage cost');
+  if (chrobrego) insertRecurringCost.run('kredyt', adminId, chrobrego.id, 0, 'Seed default mortgage cost');
 });
 
 tx();

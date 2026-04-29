@@ -3,6 +3,7 @@ const router = require('express').Router();
 const { z } = require('zod');
 const db = require('../db');
 const { validate } = require('../middleware/validate');
+const { assertRefs, canAccessContract, canAccessTenant, canAccessUnit } = require('../utils/scope');
 
 const ContractSchema = z.object({
   tenant_id: z.coerce.number().int().positive(),
@@ -85,6 +86,10 @@ router.get('/', (req, res) => {
     where.push("c.end_date IS NOT NULL AND DATE(c.end_date) <= DATE('now', '+' || ? || ' days') AND c.status='active'");
     params.push(req.query.ending_within_days);
   }
+  if (req.user && req.user.id && req.user.role !== 'admin') {
+    where.push('(p.owner_user_id = ? OR t.owner_user_id = ?)');
+    params.push(req.user.id, req.user.id);
+  }
   res.json(db.prepare(`
     SELECT c.*, t.name AS tenant_name, u.name AS unit_name, u.code AS unit_code,
            p.name AS property_name, p.district
@@ -98,6 +103,7 @@ router.get('/', (req, res) => {
 });
 
 router.get('/:id', (req, res) => {
+  if (!canAccessContract(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
   const c = db.prepare(`
     SELECT c.*, t.name AS tenant_name, u.name AS unit_name, u.code AS unit_code, p.name AS property_name
     FROM contracts c
@@ -112,6 +118,7 @@ router.get('/:id', (req, res) => {
 
 router.post('/', validate(ContractSchema), (req, res) => {
   const b = req.body;
+  if (!assertRefs(db, req, { tenant_id: b.tenant_id, unit_id: b.unit_id })) return res.status(404).json({ error: 'related_not_found' });
   const tx = db.transaction(() => {
     assertNoActiveConflict(b);
     const tenantBefore = db.prepare('SELECT current_unit_id FROM tenants WHERE id = ?').get(b.tenant_id);
@@ -139,6 +146,9 @@ router.post('/', validate(ContractSchema), (req, res) => {
 });
 
 router.put('/:id', validate(ContractSchema.partial()), (req, res) => {
+  if (!canAccessContract(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
+  if (req.body.tenant_id && !canAccessTenant(db, req, req.body.tenant_id)) return res.status(404).json({ error: 'tenant_not_found' });
+  if (req.body.unit_id && !canAccessUnit(db, req, req.body.unit_id)) return res.status(404).json({ error: 'unit_not_found' });
   const fields = ['tenant_id','unit_id','start_date','end_date','rent','media_advance','deposit','pay_by_day','document_path','status','notes']
     .filter(f => req.body[f] !== undefined);
   if (!fields.length) return res.status(400).json({ error: 'no_fields' });
@@ -186,6 +196,7 @@ router.put('/:id', validate(ContractSchema.partial()), (req, res) => {
 });
 
 router.delete('/:id', (req, res) => {
+  if (!canAccessContract(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
   const id = Number(req.params.id);
   const tx = db.transaction(() => {
     const before = db.prepare('SELECT * FROM contracts WHERE id = ?').get(id);

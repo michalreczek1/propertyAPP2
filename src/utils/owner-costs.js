@@ -1,6 +1,7 @@
 'use strict';
 
 const { currentPeriod } = require('./period');
+const { canSeeAll, ownerId } = require('./scope');
 
 function toNumber(value, fallback = 0) {
   if (value == null || value === '') return fallback;
@@ -17,13 +18,22 @@ function tableExists(db, name) {
   return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?").get(name);
 }
 
-function getRecurringRows(db, period) {
+function getRecurringRows(db, period, req = null) {
   if (!tableExists(db, 'recurring_costs')) return [];
+  const uid = ownerId(req);
+  const scopeParams = canSeeAll(req) ? [] : [uid, uid];
+  const scopeClause = canSeeAll(req) ? '' : `
+      AND (
+        (rc.property_id IS NULL AND rc.owner_user_id = @uid)
+        OR p.owner_user_id = @uid
+      )
+  `;
   return db.prepare(`
     SELECT rc.*, p.name AS property_name
     FROM recurring_costs rc
     LEFT JOIN properties p ON p.id = rc.property_id
     WHERE rc.active = 1
+      ${scopeClause}
       AND rc.valid_from_period <= ?
       AND (rc.valid_to_period IS NULL OR rc.valid_to_period = '' OR rc.valid_to_period >= ?)
       AND rc.valid_from_period = (
@@ -36,11 +46,11 @@ function getRecurringRows(db, period) {
           AND (rc2.valid_to_period IS NULL OR rc2.valid_to_period = '' OR rc2.valid_to_period >= ?)
       )
     ORDER BY rc.category, rc.property_id
-  `).all(period, period, period, period);
+  `.replaceAll('@uid', '?')).all(...scopeParams, period, period, period, period);
 }
 
-function getOwnerCosts(db, period = currentPeriod()) {
-  const rows = getRecurringRows(db, period);
+function getOwnerCosts(db, period = currentPeriod(), req = null) {
+  const rows = getRecurringRows(db, period, req);
   if (rows.length) {
     const byProperty = {};
     let management = 0;
@@ -129,13 +139,15 @@ function monthRangeFromDates(from, to) {
 }
 
 function ownerExpenseRows(db, filters = {}) {
-  const properties = db.prepare('SELECT id, name FROM properties ORDER BY name').all();
+  const scopeSql = filters.user && !canSeeAll(filters.user) ? 'WHERE owner_user_id = ?' : '';
+  const scopeParams = filters.user && !canSeeAll(filters.user) ? [ownerId(filters.user)] : [];
+  const properties = db.prepare(`SELECT id, name FROM properties ${scopeSql} ORDER BY name`).all(...scopeParams);
   const propertyCount = properties.length || 1;
   const months = monthRangeFromDates(filters.from || filters.period, filters.to || filters.period);
   const rows = [];
 
   for (const period of months) {
-    const ownerCosts = getOwnerCosts(db, period);
+    const ownerCosts = getOwnerCosts(db, period, filters.user || null);
     const date = `${period}-01`;
     for (const property of properties) {
       const managementShare = +(ownerCosts.management / propertyCount).toFixed(2);

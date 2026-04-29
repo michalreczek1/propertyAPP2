@@ -3,6 +3,7 @@ const router = require('express').Router();
 const { z } = require('zod');
 const db = require('../db');
 const { validate } = require('../middleware/validate');
+const { canAccessProperty, canAccessUnit, propertyScope } = require('../utils/scope');
 
 const UnitSchema = z.object({
   property_id: z.coerce.number().int().positive(),
@@ -16,21 +17,25 @@ const UnitSchema = z.object({
 });
 
 router.get('/', (req, res) => {
-  const filter = req.query.property_id ? 'WHERE u.property_id = ?' : '';
-  const params = req.query.property_id ? [req.query.property_id] : [];
+  const where = [];
+  const params = [];
+  if (req.query.property_id) { where.push('u.property_id = ?'); params.push(req.query.property_id); }
+  const scope = propertyScope(req, 'p');
+  if (scope.sql) { where.push(scope.sql); params.push(...scope.params); }
   const rows = db.prepare(`
     SELECT u.*, p.name AS property_name, p.district,
       (SELECT t.id FROM tenants t WHERE t.current_unit_id = u.id AND t.status='active' LIMIT 1) AS tenant_id,
       (SELECT t.name FROM tenants t WHERE t.current_unit_id = u.id AND t.status='active' LIMIT 1) AS tenant_name
     FROM units u
     JOIN properties p ON p.id = u.property_id
-    ${filter}
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
     ORDER BY p.name, u.code
   `).all(...params);
   res.json(rows);
 });
 
 router.get('/:id', (req, res) => {
+  if (!canAccessUnit(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
   const u = db.prepare(`
     SELECT u.*, p.name AS property_name FROM units u
     JOIN properties p ON p.id = u.property_id
@@ -42,6 +47,7 @@ router.get('/:id', (req, res) => {
 
 router.post('/', validate(UnitSchema), (req, res) => {
   const b = req.body;
+  if (!canAccessProperty(db, req, b.property_id)) return res.status(404).json({ error: 'property_not_found' });
   const r = db.prepare(`
     INSERT INTO units (property_id,name,code,area_m2,base_rent,base_media,status,notes)
     VALUES (@property_id,@name,@code,@area_m2,@base_rent,@base_media,@status,@notes)
@@ -50,6 +56,8 @@ router.post('/', validate(UnitSchema), (req, res) => {
 });
 
 router.put('/:id', validate(UnitSchema.partial()), (req, res) => {
+  if (!canAccessUnit(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
+  if (req.body.property_id && !canAccessProperty(db, req, req.body.property_id)) return res.status(404).json({ error: 'property_not_found' });
   const fields = ['property_id','name','code','area_m2','base_rent','base_media','status','notes']
     .filter(f => req.body[f] !== undefined);
   if (!fields.length) return res.status(400).json({ error: 'no_fields' });
@@ -60,6 +68,7 @@ router.put('/:id', validate(UnitSchema.partial()), (req, res) => {
 });
 
 router.delete('/:id', (req, res) => {
+  if (!canAccessUnit(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
   const r = db.prepare('DELETE FROM units WHERE id = ?').run(req.params.id);
   if (!r.changes) return res.status(404).json({ error: 'not_found' });
   res.json({ ok: true });

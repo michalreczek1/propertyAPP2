@@ -4,6 +4,7 @@ const { z } = require('zod');
 const db = require('../db');
 const { validate } = require('../middleware/validate');
 const { ownerExpenseRows, getOwnerCosts, appendOwnerCostCategories } = require('../utils/owner-costs');
+const { assertRefs, canAccessExpense, ownerId } = require('../utils/scope');
 
 const ExpenseSchema = z.object({
   property_id: z.coerce.number().int().positive().nullable().optional(),
@@ -26,11 +27,16 @@ router.get('/', (req, res) => {
   }
   if (req.query.category) { where.push('e.category = ?'); params.push(req.query.category); }
   if (req.query.property_id) { where.push('e.property_id = ?'); params.push(req.query.property_id); }
+  if (req.user && req.user.id && req.user.role !== 'admin') {
+    where.push('(e.owner_user_id = ? OR p.owner_user_id = ? OR up.owner_user_id = ?)');
+    params.push(req.user.id, req.user.id, req.user.id);
+  }
   const rows = db.prepare(`
     SELECT e.*, p.name AS property_name, u.name AS unit_name, u.code AS unit_code
     FROM expenses e
     LEFT JOIN properties p ON p.id = e.property_id
     LEFT JOIN units u ON u.id = e.unit_id
+    LEFT JOIN properties up ON up.id = u.property_id
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
     ORDER BY e.date DESC, e.id DESC
   `).all(...params);
@@ -42,6 +48,7 @@ router.get('/', (req, res) => {
       period: req.query.period,
       category: req.query.category,
       property_id: req.query.property_id,
+      user: req,
     }));
     rows.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.id).localeCompare(String(a.id)));
   }
@@ -53,19 +60,24 @@ router.get('/by-category', (req, res) => {
   const period = req.query.period;
   if (!period) return res.status(400).json({ error: 'period_required' });
   let rows = db.prepare(`
-    SELECT category, SUM(amount) AS total
-    FROM expenses
-    WHERE strftime('%Y-%m', date) = ?
+    SELECT e.category, SUM(e.amount) AS total
+    FROM expenses e
+    LEFT JOIN properties p ON p.id = e.property_id
+    LEFT JOIN units u ON u.id = e.unit_id
+    LEFT JOIN properties up ON up.id = u.property_id
+    WHERE strftime('%Y-%m', e.date) = ?
+      ${req.user && req.user.id && req.user.role !== 'admin' ? 'AND (e.owner_user_id = ? OR p.owner_user_id = ? OR up.owner_user_id = ?)' : ''}
     GROUP BY category
     ORDER BY total DESC
-  `).all(period);
+  `).all(period, ...(req.user && req.user.id && req.user.role !== 'admin' ? [req.user.id, req.user.id, req.user.id] : []));
   if (req.query.include_owner === '1') {
-    rows = appendOwnerCostCategories(rows, getOwnerCosts(db, period));
+    rows = appendOwnerCostCategories(rows, getOwnerCosts(db, period, req));
   }
   res.json(rows);
 });
 
 router.get('/:id', (req, res) => {
+  if (!canAccessExpense(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
   const e = db.prepare(`
     SELECT e.*, p.name AS property_name, u.name AS unit_name, u.code AS unit_code
     FROM expenses e
@@ -79,11 +91,13 @@ router.get('/:id', (req, res) => {
 
 router.post('/', validate(ExpenseSchema), (req, res) => {
   const b = req.body;
+  if (!assertRefs(db, req, { property_id: b.property_id, unit_id: b.unit_id })) return res.status(404).json({ error: 'related_not_found' });
   const r = db.prepare(`
-    INSERT INTO expenses (property_id,unit_id,category,amount,date,description,document_path)
-    VALUES (@property_id,@unit_id,@category,@amount,@date,@description,@document_path)
+    INSERT INTO expenses (owner_user_id,property_id,unit_id,category,amount,date,description,document_path)
+    VALUES (@owner_user_id,@property_id,@unit_id,@category,@amount,@date,@description,@document_path)
   `).run({
     ...b,
+    owner_user_id: ownerId(req),
     property_id: b.property_id || null,
     unit_id: b.unit_id || null,
     description: b.description || null,
@@ -93,6 +107,8 @@ router.post('/', validate(ExpenseSchema), (req, res) => {
 });
 
 router.put('/:id', validate(ExpenseSchema.partial()), (req, res) => {
+  if (!canAccessExpense(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
+  if (!assertRefs(db, req, { property_id: req.body.property_id, unit_id: req.body.unit_id })) return res.status(404).json({ error: 'related_not_found' });
   const fields = ['property_id','unit_id','category','amount','date','description','document_path']
     .filter(f => req.body[f] !== undefined);
   if (!fields.length) return res.status(400).json({ error: 'no_fields' });
@@ -103,6 +119,7 @@ router.put('/:id', validate(ExpenseSchema.partial()), (req, res) => {
 });
 
 router.delete('/:id', (req, res) => {
+  if (!canAccessExpense(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
   const r = db.prepare('DELETE FROM expenses WHERE id = ?').run(req.params.id);
   if (!r.changes) return res.status(404).json({ error: 'not_found' });
   res.json({ ok: true });
@@ -127,8 +144,8 @@ router.post('/migrate-from-summary', (_req, res) => {
 
   let inserted = 0, skipped = 0;
   const ins = db.prepare(`
-    INSERT INTO expenses (property_id, category, amount, date, description, document_path)
-    VALUES (?, ?, ?, ?, ?, NULL)
+    INSERT INTO expenses (owner_user_id, property_id, category, amount, date, description, document_path)
+    VALUES (?, ?, ?, ?, ?, ?, NULL)
   `);
   const exists = db.prepare(`
     SELECT 1 FROM expenses
@@ -142,13 +159,13 @@ router.post('/migrate-from-summary', (_req, res) => {
       const date = `${s.period}-01`;
       if (s.media_paid && s.media_paid > 0) {
         if (!exists.get(chrobr.id, 'inne', s.period)) {
-          ins.run(chrobr.id, 'inne', s.media_paid, date, 'Media (dostawcy) — z arkusza Excel');
+          ins.run(ownerId(_req), chrobr.id, 'inne', s.media_paid, date, 'Media (dostawcy) — z arkusza Excel');
           inserted++;
         } else skipped++;
       }
       if (s.marek_total && s.marek_total > 0) {
         if (!exists.get(chrobr.id, 'doplata', s.period)) {
-          ins.run(chrobr.id, 'doplata', s.marek_total, date, 'Prowizja zarządcy (Marek) — z arkusza Excel');
+          ins.run(ownerId(_req), chrobr.id, 'doplata', s.marek_total, date, 'Prowizja zarządcy (Marek) — z arkusza Excel');
           inserted++;
         } else skipped++;
       }

@@ -4,6 +4,7 @@ const { z } = require('zod');
 const db = require('../db');
 const { validate } = require('../middleware/validate');
 const { dueDate, currentPeriod, todayLocalISO } = require('../utils/period');
+const { assertRefs, canAccessPayment, ownerId } = require('../utils/scope');
 
 const PaymentSchema = z.object({
   period: z.string().regex(/^\d{4}-\d{2}$/),
@@ -50,24 +51,34 @@ router.get('/', (req, res) => {
     const q = '%' + String(req.query.q).toLowerCase() + '%';
     params.push(q, q, q);
   }
+  if (req.user && req.user.id && req.user.role !== 'admin') {
+    where.push('(p.owner_user_id = ? OR pr.owner_user_id = ? OR t.owner_user_id = ?)');
+    params.push(req.user.id, req.user.id, req.user.id);
+  }
   const sql = paymentJoinSql(where.length ? 'WHERE ' + where.join(' AND ') : '') +
     ' ORDER BY p.period DESC, p.unit_id';
   res.json(db.prepare(sql).all(...params));
 });
 
-router.get('/periods', (_req, res) => {
+router.get('/periods', (req, res) => {
+  const scoped = req.user && req.user.id && req.user.role !== 'admin';
   const rows = db.prepare(`
     SELECT period, COUNT(*) AS payments_count,
-           SUM(total_paid) AS total,
-           SUM(CASE WHEN status='paid' THEN 1 ELSE 0 END) AS paid_count
-    FROM payments
+           SUM(p.total_paid) AS total,
+           SUM(CASE WHEN p.status='paid' THEN 1 ELSE 0 END) AS paid_count
+    FROM payments p
+    LEFT JOIN units u ON u.id = p.unit_id
+    LEFT JOIN properties pr ON pr.id = u.property_id
+    LEFT JOIN tenants t ON t.id = p.tenant_id
+    ${scoped ? 'WHERE (p.owner_user_id = ? OR pr.owner_user_id = ? OR t.owner_user_id = ?)' : ''}
     GROUP BY period
     ORDER BY period DESC
-  `).all();
+  `).all(...(scoped ? [req.user.id, req.user.id, req.user.id] : []));
   res.json(rows);
 });
 
 router.get('/:id', (req, res) => {
+  if (!canAccessPayment(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
   const r = db.prepare(paymentJoinSql('WHERE p.id = ?')).get(req.params.id);
   if (!r) return res.status(404).json({ error: 'not_found' });
   res.json(r);
@@ -75,12 +86,14 @@ router.get('/:id', (req, res) => {
 
 router.post('/', validate(PaymentSchema), (req, res) => {
   const b = req.body;
+  if (!assertRefs(db, req, { tenant_id: b.tenant_id, unit_id: b.unit_id })) return res.status(404).json({ error: 'related_not_found' });
   if (!b.due_date && b.due_day) b.due_date = dueDate(b.period, b.due_day);
   const r = db.prepare(`
-    INSERT INTO payments (period,tenant_id,unit_id,due_day,due_date,paid_date,rent_amount,media_amount,other_amount,total_paid,status,notes,source)
-    VALUES (@period,@tenant_id,@unit_id,@due_day,@due_date,@paid_date,@rent_amount,@media_amount,@other_amount,@total_paid,@status,@notes,@source)
+    INSERT INTO payments (owner_user_id,period,tenant_id,unit_id,due_day,due_date,paid_date,rent_amount,media_amount,other_amount,total_paid,status,notes,source)
+    VALUES (@owner_user_id,@period,@tenant_id,@unit_id,@due_day,@due_date,@paid_date,@rent_amount,@media_amount,@other_amount,@total_paid,@status,@notes,@source)
   `).run({
     ...b,
+    owner_user_id: ownerId(req),
     tenant_id: b.tenant_id || null,
     unit_id: b.unit_id || null,
     due_day: b.due_day || null,
@@ -92,6 +105,8 @@ router.post('/', validate(PaymentSchema), (req, res) => {
 });
 
 router.put('/:id', validate(PaymentSchema.partial()), (req, res) => {
+  if (!canAccessPayment(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
+  if (!assertRefs(db, req, { tenant_id: req.body.tenant_id, unit_id: req.body.unit_id })) return res.status(404).json({ error: 'related_not_found' });
   const fields = ['period','tenant_id','unit_id','due_day','due_date','paid_date','rent_amount','media_amount','other_amount','total_paid','status','notes','source']
     .filter(f => req.body[f] !== undefined);
   if (!fields.length) return res.status(400).json({ error: 'no_fields' });
@@ -102,6 +117,7 @@ router.put('/:id', validate(PaymentSchema.partial()), (req, res) => {
 });
 
 router.put('/:id/mark-paid', (req, res) => {
+  if (!canAccessPayment(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
   const today = (req.body && req.body.paid_date) || todayLocalISO();
   const r = db.prepare(`
     UPDATE payments
@@ -113,6 +129,7 @@ router.put('/:id/mark-paid', (req, res) => {
 });
 
 router.put('/:id/toggle-paid', (req, res) => {
+  if (!canAccessPayment(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
   const cur = db.prepare('SELECT * FROM payments WHERE id = ?').get(req.params.id);
   if (!cur) return res.status(404).json({ error: 'not_found' });
   const today = (req.body && req.body.paid_date) || todayLocalISO();
@@ -128,16 +145,19 @@ router.put('/:id/toggle-paid', (req, res) => {
 router.post('/approve-month', (req, res) => {
   const period = req.body && req.body.period;
   if (!period || !/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'invalid_period' });
+  const scoped = req.user && req.user.id && req.user.role !== 'admin';
   const today = (req.body && req.body.paid_date) || todayLocalISO();
   const r = db.prepare(`
     UPDATE payments
     SET status='paid', paid_date=?, total_paid=(rent_amount + media_amount + other_amount)
     WHERE period = ? AND status IN ('pending','overdue')
-  `).run(today, period);
+      ${scoped ? 'AND id IN (SELECT pm.id FROM payments pm LEFT JOIN units u ON u.id = pm.unit_id LEFT JOIN properties pr ON pr.id = u.property_id LEFT JOIN tenants t ON t.id = pm.tenant_id WHERE pm.period = ? AND (pm.owner_user_id = ? OR pr.owner_user_id = ? OR t.owner_user_id = ?))' : ''}
+  `).run(today, period, ...(scoped ? [period, req.user.id, req.user.id, req.user.id] : []));
   res.json({ period, updated: r.changes });
 });
 
 router.delete('/:id', (req, res) => {
+  if (!canAccessPayment(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
   const r = db.prepare('DELETE FROM payments WHERE id = ?').run(req.params.id);
   if (!r.changes) return res.status(404).json({ error: 'not_found' });
   res.json({ ok: true });
@@ -150,14 +170,17 @@ router.post('/generate-month', (req, res) => {
   if (fallbackDueDay < 1 || fallbackDueDay > 31) return res.status(400).json({ error: 'invalid_due_day' });
   const monthStart = `${period}-01`;
   const monthEnd = dueDate(period, 31);
+  const scoped = req.user && req.user.id && req.user.role !== 'admin';
+  const uid = ownerId(req);
   const tx = db.transaction(() => {
     const contracts = db.prepare(`
       SELECT * FROM contracts
       WHERE status = 'active'
         AND (start_date IS NULL OR DATE(start_date) <= DATE(?))
         AND (end_date IS NULL OR DATE(end_date) >= DATE(?))
+        ${scoped ? 'AND unit_id IN (SELECT u.id FROM units u JOIN properties p ON p.id = u.property_id WHERE p.owner_user_id = ?)' : ''}
       ORDER BY unit_id
-    `).all(monthEnd, monthStart);
+    `).all(monthEnd, monthStart, ...(scoped ? [uid] : []));
     const tenantFallbacks = db.prepare(`
       SELECT
         t.id AS tenant_id,
@@ -166,8 +189,10 @@ router.post('/generate-month', (req, res) => {
         COALESCE(u.base_media, 0) AS media_amount
       FROM tenants t
       JOIN units u ON u.id = t.current_unit_id
+      JOIN properties p ON p.id = u.property_id
       WHERE t.status = 'active'
         AND t.current_unit_id IS NOT NULL
+        ${scoped ? 'AND (t.owner_user_id = ? OR p.owner_user_id = ?)' : ''}
         AND NOT EXISTS (
           SELECT 1
           FROM contracts c
@@ -177,11 +202,11 @@ router.post('/generate-month', (req, res) => {
             AND (c.end_date IS NULL OR DATE(c.end_date) >= DATE(?))
         )
       ORDER BY t.current_unit_id
-    `).all(monthEnd, monthStart);
+    `).all(...(scoped ? [uid, uid] : []), monthEnd, monthStart);
     let created = 0, skipped = 0;
     const upsert = db.prepare(`
-      INSERT INTO payments (period,tenant_id,unit_id,due_day,due_date,rent_amount,media_amount,total_paid,status,source)
-      VALUES (@period,@tenant_id,@unit_id,@due_day,@due_date,@rent_amount,@media_amount,0,'pending',@source)
+      INSERT INTO payments (owner_user_id,period,tenant_id,unit_id,due_day,due_date,rent_amount,media_amount,total_paid,status,source)
+      VALUES (@owner_user_id,@period,@tenant_id,@unit_id,@due_day,@due_date,@rent_amount,@media_amount,0,'pending',@source)
       ON CONFLICT(period, unit_id) WHERE unit_id IS NOT NULL DO NOTHING
     `);
 
@@ -189,6 +214,7 @@ router.post('/generate-month', (req, res) => {
       const dueDay = row.due_day || fallbackDueDay;
       const r = upsert.run({
         period,
+        owner_user_id: uid,
         tenant_id: row.tenant_id,
         unit_id: row.unit_id,
         due_day: dueDay,

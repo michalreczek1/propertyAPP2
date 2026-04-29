@@ -5,6 +5,7 @@ const db = require('../db');
 const { currentPeriod, periodLabel } = require('../utils/period');
 const { fmtPLN } = require('../utils/money');
 const { monthlyFinanceSummary } = require('../services/finance-summary');
+const { canSeeAll, ownerId } = require('../utils/scope');
 
 function csvEscape(v) {
   if (v == null) return '';
@@ -15,6 +16,7 @@ function csvEscape(v) {
 
 router.get('/payments.csv', (req, res) => {
   const period = req.query.period || currentPeriod();
+  const scoped = !canSeeAll(req);
   const rows = db.prepare(`
     SELECT pm.period, t.name AS tenant, pr.name AS property, u.name AS unit, u.code,
            pm.due_date, pm.paid_date, pm.rent_amount, pm.media_amount, pm.other_amount,
@@ -23,9 +25,11 @@ router.get('/payments.csv', (req, res) => {
     LEFT JOIN tenants t ON t.id = pm.tenant_id
     LEFT JOIN units u ON u.id = pm.unit_id
     LEFT JOIN properties pr ON pr.id = u.property_id
+    LEFT JOIN tenants t2 ON t2.id = pm.tenant_id
     WHERE pm.period = ?
+      ${scoped ? 'AND (pm.owner_user_id = ? OR pr.owner_user_id = ? OR t2.owner_user_id = ?)' : ''}
     ORDER BY pr.name, u.code
-  `).all(period);
+  `).all(period, ...(scoped ? [ownerId(req), ownerId(req), ownerId(req)] : []));
 
   const header = ['period','tenant','property','unit','code','due_date','paid_date',
                   'rent','media','other','paid','status','notes'];
@@ -47,7 +51,7 @@ router.get('/payments.csv', (req, res) => {
 
 router.get('/report.pdf', (req, res) => {
   const period = req.query.period || currentPeriod();
-  const summary = monthlyFinanceSummary(db, period);
+  const summary = monthlyFinanceSummary(db, period, req);
   const ownerCosts = summary.owner_costs;
 
   const doc = new PDFDocument({ size: 'A4', margin: 50 });

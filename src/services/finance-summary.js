@@ -3,9 +3,14 @@
 const { periodLabel, previousPeriod, parsePeriod } = require('../utils/period');
 const { computeTaxAmounts } = require('../utils/tax');
 const { getOwnerCosts, ownerCostsForProperty, appendOwnerCostCategories } = require('../utils/owner-costs');
+const { canSeeAll, ownerId, propertyScope } = require('../utils/scope');
 
-function getNum(db, key, fallback = 0) {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+function getNum(db, key, fallback = 0, req = null) {
+  let row = null;
+  if (!canSeeAll(req)) {
+    row = db.prepare('SELECT value FROM user_settings WHERE owner_user_id = ? AND key = ?').get(ownerId(req), key);
+  }
+  if (!row) row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
   if (!row || row.value == null || row.value === '') return fallback;
   const n = Number(row.value);
   return Number.isFinite(n) ? n : fallback;
@@ -77,7 +82,17 @@ function monthListUntil(period, count = 12) {
   return months;
 }
 
-function baseForPeriod(db, period) {
+function scopePaymentClause(req, propertyAlias = 'pr', paymentAlias = 'pm', tenantAlias = 't') {
+  if (canSeeAll(req)) return { sql: '', params: [] };
+  const uid = ownerId(req);
+  return {
+    sql: `AND (${paymentAlias}.owner_user_id = ? OR ${propertyAlias}.owner_user_id = ? OR ${tenantAlias}.owner_user_id = ?)`,
+    params: [uid, uid, uid],
+  };
+}
+
+function baseForPeriod(db, period, req = null) {
+  const scope = scopePaymentClause(req, 'pr', 'pm', 't');
   return db.prepare(`
     SELECT
       COALESCE(SUM(rent_amount + media_amount + other_amount), 0) AS gross_expected,
@@ -89,22 +104,34 @@ function baseForPeriod(db, period) {
       COALESCE(SUM(${paidPartExpr('media_amount', 'pm')}), 0) AS media_paid,
       COALESCE(SUM(${paidPartExpr('other_amount', 'pm')}), 0) AS other_paid,
       COUNT(*) AS count,
-      COALESCE(SUM(CASE WHEN status='paid' THEN 1 ELSE 0 END), 0) AS paid_count,
-      COALESCE(SUM(CASE WHEN status='overdue' THEN 1 ELSE 0 END), 0) AS overdue_count,
-      COALESCE(SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END), 0) AS pending_count
+      COALESCE(SUM(CASE WHEN pm.status='paid' THEN 1 ELSE 0 END), 0) AS paid_count,
+      COALESCE(SUM(CASE WHEN pm.status='overdue' THEN 1 ELSE 0 END), 0) AS overdue_count,
+      COALESCE(SUM(CASE WHEN pm.status='pending' THEN 1 ELSE 0 END), 0) AS pending_count
     FROM payments pm
-    WHERE period = ?
-  `).get(period);
+    LEFT JOIN units u ON u.id = pm.unit_id
+    LEFT JOIN properties pr ON pr.id = u.property_id
+    LEFT JOIN tenants t ON t.id = pm.tenant_id
+    WHERE pm.period = ?
+    ${scope.sql}
+  `).get(period, ...scope.params);
 }
 
-function costsForPeriod(db, period) {
-  const ownerCosts = getOwnerCosts(db, period);
+function costsForPeriod(db, period, req = null) {
+  const ownerCosts = getOwnerCosts(db, period, req);
+  const expenseScope = canSeeAll(req) ? { sql: '', params: [] } : {
+    sql: 'AND (e.owner_user_id = ? OR p.owner_user_id = ? OR up.owner_user_id = ?)',
+    params: [ownerId(req), ownerId(req), ownerId(req)],
+  };
   const categories = db.prepare(`
-    SELECT category, SUM(amount) AS total
-    FROM expenses
-    WHERE strftime('%Y-%m', date) = ?
+    SELECT e.category, SUM(e.amount) AS total
+    FROM expenses e
+    LEFT JOIN properties p ON p.id = e.property_id
+    LEFT JOIN units u ON u.id = e.unit_id
+    LEFT JOIN properties up ON up.id = u.property_id
+    WHERE strftime('%Y-%m', e.date) = ?
+      ${expenseScope.sql}
     GROUP BY category
-  `).all(period);
+  `).all(period, ...expenseScope.params);
   const withOwner = appendOwnerCostCategories(categories, ownerCosts);
   return {
     ownerCosts,
@@ -113,7 +140,8 @@ function costsForPeriod(db, period) {
   };
 }
 
-function propertiesForPeriod(db, period, tax, ownerCosts) {
+function propertiesForPeriod(db, period, tax, ownerCosts, req = null) {
+  const scope = propertyScope(req, 'p');
   const properties = db.prepare(`
     SELECT p.*,
       (SELECT COUNT(*) FROM units u WHERE u.property_id = p.id) AS units_count,
@@ -142,8 +170,9 @@ function propertiesForPeriod(db, period, tax, ownerCosts) {
         WHERE e.property_id = p.id AND strftime('%Y-%m', e.date) = ?
       ), 0) AS direct_expenses
     FROM properties p
+    ${scope.sql ? 'WHERE ' + scope.sql : ''}
     ORDER BY p.name
-  `).all(period, period, period, period);
+  `).all(period, period, period, period, ...scope.params);
 
   const propertyCount = properties.length || 1;
   const baseTaxParts = allocateRounded(tax.podatek, properties, 'rent_paid');
@@ -171,7 +200,8 @@ function propertiesForPeriod(db, period, tax, ownerCosts) {
   });
 }
 
-function perUnitForPeriod(db, period, ownerCosts) {
+function perUnitForPeriod(db, period, ownerCosts, req = null) {
+  const scope = propertyScope(req, 'p');
   const rows = db.prepare(`
     SELECT u.id AS unit_id, u.name AS unit_name, u.code AS unit_code,
            u.property_id, p.name AS property_name, p.district,
@@ -193,8 +223,9 @@ function perUnitForPeriod(db, period, ownerCosts) {
     JOIN properties p ON p.id = u.property_id
     LEFT JOIN tenants t ON t.current_unit_id = u.id AND t.status='active'
     LEFT JOIN payments pm ON pm.unit_id = u.id AND pm.period = ?
+    ${scope.sql ? 'WHERE ' + scope.sql : ''}
     ORDER BY p.name, u.code
-  `).all(period, period, period);
+  `).all(period, period, period, ...scope.params);
 
   const propertyCount = new Set(rows.map(row => row.property_id)).size || 1;
   const rowsByProperty = new Map();
@@ -222,10 +253,10 @@ function perUnitForPeriod(db, period, ownerCosts) {
   });
 }
 
-function chartForPeriod(db, period, taxRate, taxKoscielna) {
+function chartForPeriod(db, period, taxRate, taxKoscielna, req = null) {
   return monthListUntil(period, 12).map((p) => {
-    const base = baseForPeriod(db, p);
-    const costs = costsForPeriod(db, p);
+    const base = baseForPeriod(db, p, req);
+    const costs = costsForPeriod(db, p, req);
     const tax = computeTaxAmounts(base.rent_paid || 0, taxRate, taxKoscielna);
     return {
       period: p,
@@ -238,19 +269,19 @@ function chartForPeriod(db, period, taxRate, taxKoscielna) {
   });
 }
 
-function monthlyFinanceSummary(db, period) {
-  const taxRate = getNum(db, 'tax.rate', 8.5);
-  const taxKoscielna = getNum(db, 'tax.koscielna', 0);
-  const current = baseForPeriod(db, period);
+function monthlyFinanceSummary(db, period, req = null) {
+  const taxRate = getNum(db, 'tax.rate', 8.5, req);
+  const taxKoscielna = getNum(db, 'tax.koscielna', 0, req);
+  const current = baseForPeriod(db, period, req);
   const prevPeriod = previousPeriod(period);
-  const prev = prevPeriod ? baseForPeriod(db, prevPeriod) : { paid: 0 };
-  const costs = costsForPeriod(db, period);
-  const prevCosts = prevPeriod ? costsForPeriod(db, prevPeriod) : { total: 0 };
+  const prev = prevPeriod ? baseForPeriod(db, prevPeriod, req) : { paid: 0 };
+  const costs = costsForPeriod(db, period, req);
+  const prevCosts = prevPeriod ? costsForPeriod(db, prevPeriod, req) : { total: 0 };
   const tax = computeTaxAmounts(current.rent_paid || 0, taxRate, taxKoscielna);
-  const properties = propertiesForPeriod(db, period, tax, costs.ownerCosts);
-  const perUnit = perUnitForPeriod(db, period, costs.ownerCosts);
+  const properties = propertiesForPeriod(db, period, tax, costs.ownerCosts, req);
+  const perUnit = perUnitForPeriod(db, period, costs.ownerCosts, req);
   const net = round2((current.paid || 0) - costs.total - tax.podatek_suma);
-  const chart = chartForPeriod(db, period, taxRate, taxKoscielna);
+  const chart = chartForPeriod(db, period, taxRate, taxKoscielna, req);
 
   return {
     period,

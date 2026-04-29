@@ -4,6 +4,15 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const db = require('../db');
+const {
+  canAccessContract,
+  canAccessDocument,
+  canAccessExpense,
+  canAccessProperty,
+  canAccessTenant,
+  canAccessUnit,
+  ownerId,
+} = require('../utils/scope');
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, '..', '..', 'data', 'uploads');
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -24,12 +33,26 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage, limits: { fileSize: 25 * 1024 * 1024 } });
 
+function canAccessRelated(req, type, id) {
+  if (!type || !id) return true;
+  if (type === 'property') return canAccessProperty(db, req, id);
+  if (type === 'unit') return canAccessUnit(db, req, id);
+  if (type === 'tenant') return canAccessTenant(db, req, id);
+  if (type === 'contract') return canAccessContract(db, req, id);
+  if (type === 'expense') return canAccessExpense(db, req, id);
+  return false;
+}
+
 router.get('/', (req, res) => {
   const where = [];
   const params = [];
   if (req.query.entity_type) { where.push('related_entity_type = ?'); params.push(req.query.entity_type); }
   if (req.query.entity_id)   { where.push('related_entity_id = ?'); params.push(req.query.entity_id); }
   if (req.query.category)    { where.push('category = ?'); params.push(req.query.category); }
+  if (req.user && req.user.id && req.user.role !== 'admin') {
+    where.push('owner_user_id = ?');
+    params.push(req.user.id);
+  }
   res.json(db.prepare(`
     SELECT * FROM documents
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
@@ -38,12 +61,14 @@ router.get('/', (req, res) => {
 });
 
 router.get('/:id', (req, res) => {
+  if (!canAccessDocument(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
   const d = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
   if (!d) return res.status(404).json({ error: 'not_found' });
   res.json(d);
 });
 
 router.get('/:id/download', (req, res) => {
+  if (!canAccessDocument(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
   const d = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
   if (!d) return res.status(404).json({ error: 'not_found' });
   const abs = resolveUploadPath(d.file_path);
@@ -54,16 +79,20 @@ router.get('/:id/download', (req, res) => {
 
 router.post('/', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'no_file' });
+  const entityType = req.body.entity_type || null;
+  const entityId = req.body.entity_id ? +req.body.entity_id : null;
+  if (!canAccessRelated(req, entityType, entityId)) return res.status(404).json({ error: 'related_not_found' });
   const r = db.prepare(`
-    INSERT INTO documents (name, file_path, mime_type, size_bytes, related_entity_type, related_entity_id, category, notes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO documents (owner_user_id, name, file_path, mime_type, size_bytes, related_entity_type, related_entity_id, category, notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
+    ownerId(req),
     req.body.name || req.file.originalname,
     req.file.filename,
     req.file.mimetype,
     req.file.size,
-    req.body.entity_type || null,
-    req.body.entity_id ? +req.body.entity_id : null,
+    entityType,
+    entityId,
     req.body.category || 'inne',
     req.body.notes || null
   );
@@ -71,6 +100,7 @@ router.post('/', upload.single('file'), (req, res) => {
 });
 
 router.delete('/:id', (req, res) => {
+  if (!canAccessDocument(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
   const d = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
   if (!d) return res.status(404).json({ error: 'not_found' });
   const abs = resolveUploadPath(d.file_path);

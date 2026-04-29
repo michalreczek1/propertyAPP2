@@ -104,8 +104,23 @@ async function main() {
   const api = await fetch(base + '/api/dashboard', { headers: { Cookie: cookie } });
   expect(api.ok, `authenticated API failed: ${api.status}`);
 
+  const adminSettingsSeed = await fetch(base + '/api/settings', {
+    method: 'PUT',
+    headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 'tax.rate': '8.5' }),
+  });
+  expect(adminSettingsSeed.ok, `admin settings write failed: ${adminSettingsSeed.status}`);
+
   const users = await fetch(base + '/api/admin/users', { headers: { Cookie: cookie } });
   expect(users.ok, `admin users list failed: ${users.status}`);
+
+  const adminProperty = await fetch(base + '/api/properties', {
+    method: 'POST',
+    headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Admin Property', type: 'mieszkanie' }),
+  });
+  expect(adminProperty.status === 201, `admin property failed: ${adminProperty.status}`);
+  const adminPropertyId = (await adminProperty.json()).id;
 
   const createUser = await fetch(base + '/api/admin/users', {
     method: 'POST',
@@ -113,8 +128,51 @@ async function main() {
     body: JSON.stringify({ username: 'tester', display_name: 'Tester', role: 'user', password: 'secret-pass-2' }),
   });
   expect(createUser.status === 201, `admin create user failed: ${createUser.status}`);
+  const createdUser = await createUser.json();
 
-  const editUser = await fetch(base + `/api/admin/users/${(await createUser.json()).id}`, {
+  const userLogin = await fetch(base + '/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'tester', password: 'secret-pass-2' }),
+  });
+  expect(userLogin.ok, `user login failed: ${userLogin.status}`);
+  const userCookie = userLogin.headers.get('set-cookie');
+  expect(userCookie && userCookie.includes('propertyapp_session='), 'missing user session cookie');
+
+  const hiddenAdminProperty = await fetch(base + `/api/properties/${adminPropertyId}`, { headers: { Cookie: userCookie } });
+  expect(hiddenAdminProperty.status === 404, `user can see admin property: ${hiddenAdminProperty.status}`);
+
+  const userProperty = await fetch(base + '/api/properties', {
+    method: 'POST',
+    headers: { Cookie: userCookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'User Property', type: 'mieszkanie' }),
+  });
+  expect(userProperty.status === 201, `user property failed: ${userProperty.status}`);
+  const userPropertyId = (await userProperty.json()).id;
+
+  const userProperties = await fetch(base + '/api/properties', { headers: { Cookie: userCookie } });
+  const visibleProperties = await userProperties.json();
+  expect(visibleProperties.length === 1 && visibleProperties[0].id === userPropertyId, 'user property list is not isolated');
+
+  const forbiddenUnit = await fetch(base + '/api/units', {
+    method: 'POST',
+    headers: { Cookie: userCookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ property_id: adminPropertyId, name: 'Hidden Unit', status: 'vacant' }),
+  });
+  expect(forbiddenUnit.status === 404, `user created unit in admin property: ${forbiddenUnit.status}`);
+
+  const userSettings = await fetch(base + '/api/settings', {
+    method: 'PUT',
+    headers: { Cookie: userCookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 'tax.rate': '12.34' }),
+  });
+  expect(userSettings.ok, `user settings write failed: ${userSettings.status}`);
+  const userSettingsRead = await fetch(base + '/api/settings', { headers: { Cookie: userCookie } });
+  expect((await userSettingsRead.json())['tax.rate'] === '12.34', 'user setting override missing');
+  const adminSettingsRead = await fetch(base + '/api/settings', { headers: { Cookie: cookie } });
+  expect((await adminSettingsRead.json())['tax.rate'] === '8.5', 'user setting leaked into global settings');
+
+  const editUser = await fetch(base + `/api/admin/users/${createdUser.id}`, {
     method: 'PUT',
     headers: { Cookie: cookie, 'Content-Type': 'application/json' },
     body: JSON.stringify({ active: false }),

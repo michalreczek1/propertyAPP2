@@ -5,6 +5,7 @@ const fs = require('fs');
 const multer = require('multer');
 const { runImport } = require('../../scripts/import-excel');
 const { run: runDryRun } = require('../../scripts/import-excel-dryrun');
+const { requireAdmin } = require('../middleware/auth');
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, '..', '..', 'data', 'uploads');
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -41,7 +42,7 @@ router.post('/excel/dry-run', upload.single('file'), async (req, res, next) => {
   }
 });
 
-router.post('/excel', upload.single('file'), async (req, res, next) => {
+router.post('/excel', requireAdmin, upload.single('file'), async (req, res, next) => {
   const filePath = req.file ? req.file.path : (req.body && req.body.path);
   try {
     if (!filePath) return res.status(400).json({ error: 'no_file' });

@@ -3,6 +3,7 @@ const router = require('express').Router();
 const { z } = require('zod');
 const db = require('../db');
 const { validate } = require('../middleware/validate');
+const { assertRefs, canAccessTenant, ownerId } = require('../utils/scope');
 
 const TenantSchema = z.object({
   name: z.string().min(1),
@@ -62,6 +63,10 @@ router.get('/', (req, res) => {
   if (req.query.status) { where.push('t.status = ?'); params.push(req.query.status); }
   if (req.query.q) { where.push('LOWER(t.name) LIKE ?'); params.push('%' + String(req.query.q).toLowerCase() + '%'); }
   if (req.query.property_id) { where.push('p.id = ?'); params.push(req.query.property_id); }
+  if (req.user && req.user.id && req.user.role !== 'admin') {
+    where.push('(t.owner_user_id = ? OR p.owner_user_id = ?)');
+    params.push(req.user.id, req.user.id);
+  }
   const sql = `
     SELECT t.*, u.name AS unit_name, u.code AS unit_code, u.base_rent, u.base_media,
            p.id AS property_id, p.name AS property_name, p.district,
@@ -79,6 +84,7 @@ router.get('/', (req, res) => {
 });
 
 router.get('/:id', (req, res) => {
+  if (!canAccessTenant(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
   const t = db.prepare(`
     SELECT t.*, u.name AS unit_name, u.code AS unit_code, p.name AS property_name
     FROM tenants t
@@ -93,6 +99,7 @@ router.get('/:id', (req, res) => {
 });
 
 router.get('/:id/payments', (req, res) => {
+  if (!canAccessTenant(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
   const rows = db.prepare(`
     SELECT p.* FROM payments p WHERE p.tenant_id = ? ORDER BY p.period DESC
   `).all(req.params.id);
@@ -101,12 +108,14 @@ router.get('/:id/payments', (req, res) => {
 
 router.post('/', validate(TenantSchema), (req, res) => {
   const b = req.body;
+  if (!assertRefs(db, req, { unit_id: b.current_unit_id })) return res.status(404).json({ error: 'unit_not_found' });
   const tx = db.transaction(() => {
     assertNoActiveUnitConflict(b);
     const r = db.prepare(`
-      INSERT INTO tenants (name,email,phone,current_unit_id,status,avatar_color,notes)
-      VALUES (@name,@email,@phone,@current_unit_id,@status,@avatar_color,@notes)
+      INSERT INTO tenants (owner_user_id,name,email,phone,current_unit_id,status,avatar_color,notes)
+      VALUES (@owner_user_id,@name,@email,@phone,@current_unit_id,@status,@avatar_color,@notes)
     `).run({
+      owner_user_id: ownerId(req),
       name: b.name,
       email: b.email || null,
       phone: b.phone || null,
@@ -127,6 +136,8 @@ router.post('/', validate(TenantSchema), (req, res) => {
 });
 
 router.put('/:id', validate(TenantSchema.partial()), (req, res) => {
+  if (!canAccessTenant(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
+  if (!assertRefs(db, req, { unit_id: req.body.current_unit_id })) return res.status(404).json({ error: 'unit_not_found' });
   const fields = ['name','email','phone','current_unit_id','status','avatar_color','notes']
     .filter(f => req.body[f] !== undefined);
   if (!fields.length) return res.status(400).json({ error: 'no_fields' });
@@ -155,6 +166,7 @@ router.put('/:id', validate(TenantSchema.partial()), (req, res) => {
 });
 
 router.delete('/:id', (req, res) => {
+  if (!canAccessTenant(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
   const id = Number(req.params.id);
   const tx = db.transaction(() => {
     const before = db.prepare('SELECT * FROM tenants WHERE id = ?').get(id);

@@ -46,6 +46,15 @@ CREATE TABLE IF NOT EXISTS users (
 );
 CREATE INDEX IF NOT EXISTS idx_users_active ON users(active);
 
+CREATE TABLE IF NOT EXISTS user_settings (
+  owner_user_id INTEGER NOT NULL,
+  key TEXT NOT NULL,
+  value TEXT,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (owner_user_id, key),
+  FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 -- ── PROPERTIES ───────────────────────────────────────
 CREATE TABLE IF NOT EXISTS properties (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,6 +87,7 @@ CREATE INDEX IF NOT EXISTS idx_units_property ON units(property_id);
 -- ── TENANTS ──────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS tenants (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_user_id INTEGER,
   name TEXT NOT NULL,
   email TEXT,
   phone TEXT,
@@ -86,6 +96,7 @@ CREATE TABLE IF NOT EXISTS tenants (
   avatar_color TEXT,
   notes TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL,
   FOREIGN KEY (current_unit_id) REFERENCES units(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_tenants_unit ON tenants(current_unit_id);
@@ -116,6 +127,7 @@ CREATE INDEX IF NOT EXISTS idx_contracts_status ON contracts(status);
 -- ── PAYMENTS ─────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS payments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_user_id INTEGER,
   period TEXT NOT NULL,            -- "YYYY-MM"
   tenant_id INTEGER,
   unit_id INTEGER,
@@ -130,6 +142,7 @@ CREATE TABLE IF NOT EXISTS payments (
   notes TEXT,
   source TEXT DEFAULT 'manual',    -- excel|manual
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL,
   FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL,
   FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE SET NULL
 );
@@ -162,6 +175,7 @@ CREATE TABLE IF NOT EXISTS monthly_summary (
 -- ── EXPENSES ────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS expenses (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_user_id INTEGER,
   property_id INTEGER,
   unit_id INTEGER,
   category TEXT NOT NULL,          -- media|podatek|ubezpieczenie|remont|zarzadzanie|inne
@@ -170,6 +184,7 @@ CREATE TABLE IF NOT EXISTS expenses (
   description TEXT,
   document_path TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL,
   FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL,
   FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE SET NULL
 );
@@ -180,6 +195,7 @@ CREATE INDEX IF NOT EXISTS idx_expenses_property ON expenses(property_id);
 -- ── TASKS ───────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS tasks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_user_id INTEGER,
   title TEXT NOT NULL,
   description TEXT,
   property_id INTEGER,
@@ -190,6 +206,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   status TEXT DEFAULT 'open',      -- open|done
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   done_at TIMESTAMP,
+  FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL,
   FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL,
   FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE SET NULL,
   FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL
@@ -200,6 +217,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date);
 -- ── DOCUMENTS ───────────────────────────────────────
 CREATE TABLE IF NOT EXISTS documents (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_user_id INTEGER,
   name TEXT NOT NULL,
   file_path TEXT NOT NULL,
   mime_type TEXT,
@@ -223,6 +241,7 @@ CREATE TABLE IF NOT EXISTS settings (
 -- ── RECURRING OWNER COSTS ────────────────────────────
 CREATE TABLE IF NOT EXISTS recurring_costs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_user_id INTEGER,
   category TEXT NOT NULL,          -- zarzadzanie|kredyt
   property_id INTEGER,
   amount REAL NOT NULL DEFAULT 0,
@@ -232,6 +251,7 @@ CREATE TABLE IF NOT EXISTS recurring_costs (
   notes TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL,
   FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_recurring_costs_period
@@ -239,7 +259,7 @@ CREATE INDEX IF NOT EXISTS idx_recurring_costs_period
 CREATE INDEX IF NOT EXISTS idx_recurring_costs_property
   ON recurring_costs(property_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_recurring_costs_open
-  ON recurring_costs(category, COALESCE(property_id, 0), valid_from_period)
+  ON recurring_costs(category, COALESCE(owner_user_id, 0), COALESCE(property_id, 0), valid_from_period)
   WHERE active = 1;
 `;
 
@@ -252,6 +272,11 @@ function columnExists(table, column) {
 function ensureLegacyColumns() {
   if (!columnExists('properties', 'owner_user_id')) {
     db.prepare('ALTER TABLE properties ADD COLUMN owner_user_id INTEGER').run();
+  }
+  for (const table of ['tenants', 'payments', 'expenses', 'tasks', 'documents', 'recurring_costs']) {
+    if (!columnExists(table, 'owner_user_id')) {
+      db.prepare(`ALTER TABLE ${table} ADD COLUMN owner_user_id INTEGER`).run();
+    }
   }
 }
 
@@ -271,11 +296,72 @@ function backfillPropertyOwner() {
   const admin = db.prepare("SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").get();
   if (!admin) return;
   db.prepare('UPDATE properties SET owner_user_id = ? WHERE owner_user_id IS NULL').run(admin.id);
+  db.prepare(`
+    UPDATE tenants
+    SET owner_user_id = ?
+    WHERE owner_user_id IS NULL
+  `).run(admin.id);
+  db.prepare(`
+    UPDATE payments
+    SET owner_user_id = COALESCE((
+      SELECT p.owner_user_id
+      FROM units u
+      JOIN properties p ON p.id = u.property_id
+      WHERE u.id = payments.unit_id
+    ), (
+      SELECT t.owner_user_id FROM tenants t WHERE t.id = payments.tenant_id
+    ), ?)
+    WHERE owner_user_id IS NULL
+  `).run(admin.id);
+  db.prepare(`
+    UPDATE expenses
+    SET owner_user_id = COALESCE((
+      SELECT p.owner_user_id FROM properties p WHERE p.id = expenses.property_id
+    ), (
+      SELECT p.owner_user_id
+      FROM units u
+      JOIN properties p ON p.id = u.property_id
+      WHERE u.id = expenses.unit_id
+    ), ?)
+    WHERE owner_user_id IS NULL
+  `).run(admin.id);
+  db.prepare(`
+    UPDATE tasks
+    SET owner_user_id = COALESCE((
+      SELECT p.owner_user_id FROM properties p WHERE p.id = tasks.property_id
+    ), (
+      SELECT p.owner_user_id
+      FROM units u
+      JOIN properties p ON p.id = u.property_id
+      WHERE u.id = tasks.unit_id
+    ), (
+      SELECT t.owner_user_id FROM tenants t WHERE t.id = tasks.tenant_id
+    ), ?)
+    WHERE owner_user_id IS NULL
+  `).run(admin.id);
+  db.prepare('UPDATE documents SET owner_user_id = ? WHERE owner_user_id IS NULL').run(admin.id);
+  db.prepare(`
+    UPDATE recurring_costs
+    SET owner_user_id = COALESCE((
+      SELECT p.owner_user_id FROM properties p WHERE p.id = recurring_costs.property_id
+    ), ?)
+    WHERE owner_user_id IS NULL
+  `).run(admin.id);
+}
+
+function ensureRecurringCostIndex() {
+  db.prepare('DROP INDEX IF EXISTS uniq_recurring_costs_open').run();
+  db.prepare(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_recurring_costs_open
+      ON recurring_costs(category, COALESCE(owner_user_id, 0), COALESCE(property_id, 0), valid_from_period)
+      WHERE active = 1
+  `).run();
 }
 
 ensureLegacyColumns();
 backfillAdminUser();
 backfillPropertyOwner();
+ensureRecurringCostIndex();
 
 function numSetting(key, fallback = 0) {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
@@ -291,17 +377,19 @@ function backfillRecurringCosts() {
   const management = numSetting('cost.management.monthly', 0);
   const koscielna = numSetting('cost.mortgage.koscielna.monthly', 0);
   const chrobrego = numSetting('cost.mortgage.chrobrego.monthly', 0);
+  const admin = db.prepare("SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").get();
+  const adminId = admin ? admin.id : null;
   const propByName = db.prepare('SELECT id, name FROM properties').all();
   const findProp = (fragment) => propByName.find(p => String(p.name || '').toLowerCase().includes(fragment));
   const koscielnaProp = findProp('kościelna') || findProp('koscielna');
   const chrobregoProp = findProp('chrobrego');
   const insert = db.prepare(`
-    INSERT OR IGNORE INTO recurring_costs(category, property_id, amount, valid_from_period, notes)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO recurring_costs(category, owner_user_id, property_id, amount, valid_from_period, notes)
+    VALUES (?, ?, ?, ?, ?, ?)
   `);
-  if (management) insert.run('zarzadzanie', null, management, validFrom, 'Backfill from settings');
-  if (koscielna && koscielnaProp) insert.run('kredyt', koscielnaProp.id, koscielna, validFrom, 'Backfill from settings');
-  if (chrobrego && chrobregoProp) insert.run('kredyt', chrobregoProp.id, chrobrego, validFrom, 'Backfill from settings');
+  if (management) insert.run('zarzadzanie', adminId, null, management, validFrom, 'Backfill from settings');
+  if (koscielna && koscielnaProp) insert.run('kredyt', adminId, koscielnaProp.id, koscielna, validFrom, 'Backfill from settings');
+  if (chrobrego && chrobregoProp) insert.run('kredyt', adminId, chrobregoProp.id, chrobrego, validFrom, 'Backfill from settings');
 }
 
 backfillRecurringCosts();

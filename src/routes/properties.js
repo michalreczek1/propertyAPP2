@@ -3,6 +3,7 @@ const router = require('express').Router();
 const { z } = require('zod');
 const db = require('../db');
 const { validate } = require('../middleware/validate');
+const { canAccessProperty, ownerId, propertyScope } = require('../utils/scope');
 
 const PropertySchema = z.object({
   name: z.string().min(1),
@@ -13,17 +14,20 @@ const PropertySchema = z.object({
 });
 
 router.get('/', (req, res) => {
+  const scope = propertyScope(req, 'p');
   const rows = db.prepare(`
     SELECT p.*,
       (SELECT COUNT(*) FROM units u WHERE u.property_id = p.id) AS units_count,
       (SELECT COUNT(*) FROM units u WHERE u.property_id = p.id AND u.status='rented') AS units_rented
     FROM properties p
+    ${scope.sql ? 'WHERE ' + scope.sql : ''}
     ORDER BY p.name COLLATE NOCASE
-  `).all();
+  `).all(...scope.params);
   res.json(rows);
 });
 
 router.get('/:id', (req, res) => {
+  if (!canAccessProperty(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
   const p = db.prepare('SELECT * FROM properties WHERE id = ?').get(req.params.id);
   if (!p) return res.status(404).json({ error: 'not_found' });
   p.units = db.prepare('SELECT * FROM units WHERE property_id = ? ORDER BY code').all(p.id);
@@ -31,13 +35,14 @@ router.get('/:id', (req, res) => {
 });
 
 router.post('/', validate(PropertySchema), (req, res) => {
-  const ownerId = req.user && req.user.id ? req.user.id : null;
+  const userId = ownerId(req);
   const r = db.prepare(`INSERT INTO properties (owner_user_id,name,address,district,type,notes) VALUES (?,?,?,?,?,?)`)
-    .run(ownerId, req.body.name, req.body.address ?? null, req.body.district ?? null, req.body.type ?? 'mieszkanie', req.body.notes ?? null);
+    .run(userId, req.body.name, req.body.address ?? null, req.body.district ?? null, req.body.type ?? 'mieszkanie', req.body.notes ?? null);
   res.status(201).json(db.prepare('SELECT * FROM properties WHERE id = ?').get(r.lastInsertRowid));
 });
 
 router.put('/:id', validate(PropertySchema.partial()), (req, res) => {
+  if (!canAccessProperty(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
   const fields = ['name','address','district','type','notes'].filter(f => req.body[f] !== undefined);
   if (!fields.length) return res.status(400).json({ error: 'no_fields' });
   const sql = `UPDATE properties SET ${fields.map(f => `${f}=?`).join(',')} WHERE id = ?`;
@@ -47,6 +52,7 @@ router.put('/:id', validate(PropertySchema.partial()), (req, res) => {
 });
 
 router.delete('/:id', (req, res) => {
+  if (!canAccessProperty(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
   const r = db.prepare('DELETE FROM properties WHERE id = ?').run(req.params.id);
   if (!r.changes) return res.status(404).json({ error: 'not_found' });
   res.json({ ok: true });

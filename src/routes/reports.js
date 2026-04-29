@@ -6,7 +6,7 @@ const { monthlyFinanceSummary } = require('../services/finance-summary');
 
 router.get('/', (req, res) => {
   const period = req.query.period || currentPeriod();
-  const summary = monthlyFinanceSummary(db, period);
+  const summary = monthlyFinanceSummary(db, period, req);
 
   res.json({
     period: summary.period,
@@ -24,7 +24,7 @@ router.get('/yearly', (req, res) => {
   const year = req.query.year || new Date().getFullYear();
   const months = Array.from({ length: 12 }, (_, index) => `${year}-${String(index + 1).padStart(2, '0')}`)
     .map((period) => {
-      const s = monthlyFinanceSummary(db, period);
+      const s = monthlyFinanceSummary(db, period, req);
       return {
         period,
         revenue: s.revenue.gross,
