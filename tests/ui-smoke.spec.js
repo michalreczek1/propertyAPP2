@@ -106,18 +106,19 @@ test('payments table becomes readable cards on phone width', async ({ page, requ
     await expect(table).toBeVisible();
     await expect(page.locator('td[data-label="Najemca"]').first()).toBeVisible();
     await expect(page.locator('td[data-label="Razem"]').first()).toBeVisible();
-
-    const overflow = await page.evaluate(() => {
+    const metrics = await page.evaluate(() => {
       const content = document.querySelector('.content');
       return {
         documentWidth: document.documentElement.scrollWidth,
         viewportWidth: window.innerWidth,
         contentWidth: content ? content.scrollWidth : 0,
         contentClient: content ? content.clientWidth : 0,
+        bodyFont: Number.parseFloat(getComputedStyle(document.body).fontSize),
       };
     });
-    expect(overflow.documentWidth).toBeLessThanOrEqual(overflow.viewportWidth + 1);
-    expect(overflow.contentWidth).toBeLessThanOrEqual(overflow.contentClient + 1);
+    expect(metrics.documentWidth).toBeLessThanOrEqual(metrics.viewportWidth + 1);
+    expect(metrics.contentWidth).toBeLessThanOrEqual(metrics.contentClient + 1);
+    expect(metrics.bodyFont).toBeGreaterThanOrEqual(15);
   } finally {
     await cleanupPaymentFixture(request, fixture);
   }

@@ -801,6 +801,19 @@ select.slim { font-size: 12.5px; padding: 6px 10px; border: 1px solid var(--bord
   .settle-cell:nth-child(1), .settle-cell:nth-child(2) { border-bottom: 1px solid var(--border); }
 }
 @media (max-width: 900px) {
+  body { font-size: 15px; }
+  .topbar-view-label { font-size: 18px; }
+  .topbar-sub { font-size: 13px; }
+  .ch-title { font-size: 14.5px; }
+  .ch-sub { font-size: 12.5px; }
+  .ks-label, .sc-lbl, .settle-lbl { font-size: 11.5px; }
+  .ks-val { font-size: 24px; }
+  .t-name, .udc-name, .tc-name, .up-name { font-size: 14.5px; }
+  .t-sub, .udc-sub, .udc-tenant-meta, .up-detail { font-size: 12px; }
+  .mono, .mono-e, .mono-r, .mono-a { font-size: 12.8px; }
+  .ftab, .tb-btn, .summary-row, .tc-row, .cr-label { font-size: 13px; }
+  .empty-title { font-size: 14.5px; }
+  .empty-sub { font-size: 12.8px; }
   .kpi-strip, .kpi-strip-flat-5, .kpi-strip-flat-4 { grid-template-columns: 1fr 1fr; }
   .kpi-strip > .kpi-sm:nth-child(6) { display: flex; }
   .kanban { grid-template-columns: 1fr; }
@@ -814,7 +827,27 @@ select.slim { font-size: 12.5px; padding: 6px 10px; border: 1px solid var(--bord
 @media (max-width: 720px) {
   .topbar-search { display: none; }
   .topbar { padding: 0 16px; }
-  .content { padding: 14px 16px calc(82px + env(safe-area-inset-bottom)); }
+  .content { padding: 16px 16px calc(84px + env(safe-area-inset-bottom)); gap: 16px; }
+  .kpi-hero { padding: 24px 22px; }
+  .kpi-sm { padding: 18px 18px; }
+  .t-responsive tbody { padding: 12px; gap: 12px; }
+  .t-responsive td {
+    grid-template-columns: minmax(96px, 38%) minmax(0, 1fr);
+    padding: 11px 13px;
+  }
+  .t-responsive td::before {
+    font-size: 11px;
+  }
+  .t-responsive .t-name { font-size: 15px; }
+  .t-responsive .t-sub { font-size: 12.5px; }
+  .mobile-nav-item {
+    min-width: 76px;
+    height: 56px;
+  }
+  .mobile-nav-item span {
+    max-width: 72px;
+    font-size: 11px;
+  }
   .rail { width: 0; }
   .rail:hover { width: 220px; }
   .mobile-nav { display: flex; }
