@@ -1757,6 +1757,7 @@ async function renderExpenses(root) {
   if (State.expProp) params.set('property_id', State.expProp);
   params.set('from', State.period + '-01');
   params.set('to', State.period + '-31');
+  params.set('include_owner', '1');
 
   const [expenses, properties] = await Promise.all([
     Api.get('/expenses?' + params.toString()),
@@ -1769,7 +1770,7 @@ async function renderExpenses(root) {
   const CAT_COLORS = { czynsz:'#8b5cf6', prad:'#f59e0b', internet:'#06b6d4', remonty:'#f43f5e', doplata:'#10b981', zarzadzanie:'#a78bfa', kredyt:'#fb7185', inne:'#5a5a8a' };
 
   const year = State.period.slice(0,4);
-  const yearExpenses = await Api.get(`/expenses?from=${year}-01-01&to=${year}-12-31`).catch(() => []);
+  const yearExpenses = await Api.get(`/expenses?from=${year}-01-01&to=${year}-12-31&include_owner=1`).catch(() => []);
   const byMonthCat = Array.from({length:12}, () => ({}));
   for (const e of yearExpenses) {
     const m = parseInt((e.date||'').slice(5,7), 10) - 1;
@@ -1814,8 +1815,10 @@ async function renderExpenses(root) {
           <td style="font-size:12px;color:var(--t2)">${escapeHtml(e.description||'—')}</td>
           <td class="mono-r">${fmtPLN(e.amount)} zł</td>
           <td><div style="display:flex;gap:4px">
-            <button class="icon-btn" onclick="editExpense(${e.id})" title="Edytuj"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-            <button class="icon-btn danger" onclick="deleteExpense(${e.id})" title="Usuń"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg></button>
+            ${e.system ? `<span class="mono-m">systemowy</span>` : `
+              <button class="icon-btn" onclick="editExpense(${e.id})" title="Edytuj"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+              <button class="icon-btn danger" onclick="deleteExpense(${e.id})" title="Usuń"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg></button>
+            `}
           </div></td>
         </tr>`).join('')}</tbody>
         <tfoot><tr><td colspan="5" style="text-align:right;padding-right:12px">Razem:</td><td class="mono-r" style="font-size:13px">${fmtPLN(total)} zł</td><td></td></tr></tfoot>

@@ -3,6 +3,7 @@ const router = require('express').Router();
 const { z } = require('zod');
 const db = require('../db');
 const { validate } = require('../middleware/validate');
+const { ownerExpenseRows } = require('../utils/owner-costs');
 
 const ExpenseSchema = z.object({
   property_id: z.coerce.number().int().positive().nullable().optional(),
@@ -25,14 +26,27 @@ router.get('/', (req, res) => {
   }
   if (req.query.category) { where.push('e.category = ?'); params.push(req.query.category); }
   if (req.query.property_id) { where.push('e.property_id = ?'); params.push(req.query.property_id); }
-  res.json(db.prepare(`
+  const rows = db.prepare(`
     SELECT e.*, p.name AS property_name, u.name AS unit_name, u.code AS unit_code
     FROM expenses e
     LEFT JOIN properties p ON p.id = e.property_id
     LEFT JOIN units u ON u.id = e.unit_id
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
     ORDER BY e.date DESC, e.id DESC
-  `).all(...params));
+  `).all(...params);
+
+  if (req.query.include_owner === '1') {
+    rows.push(...ownerExpenseRows(db, {
+      from: req.query.from,
+      to: req.query.to,
+      period: req.query.period,
+      category: req.query.category,
+      property_id: req.query.property_id,
+    }));
+    rows.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.id).localeCompare(String(a.id)));
+  }
+
+  res.json(rows);
 });
 
 router.get('/by-category', (req, res) => {
