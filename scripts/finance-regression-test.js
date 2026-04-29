@@ -128,10 +128,12 @@ expense.run(chrobregoId, 'prad', 150, '2026-04-01', 'Prąd Chrobrego');
 expense.run(koscielnaId, 'czynsz', 695.54, '2026-04-01', 'Czynsz Kościelna');
 expense.run(koscielnaId, 'prad', 120, '2026-04-01', 'Prąd Kościelna');
 expense.run(chrobregoId, 'remonty', 30, '2026-04-01', 'Testowy remont');
+expense.run(chrobregoId, 'kredyt', 100, '2026-07-01', 'Manualny koszt kredytu');
 
 const recurring = db.prepare('INSERT INTO recurring_costs(category, property_id, amount, valid_from_period, active) VALUES (?, ?, ?, ?, 1)');
 recurring.run('zarzadzanie', null, 500, '2026-01');
 recurring.run('kredyt', chrobregoId, 3030, '2026-01');
+recurring.run('kredyt', chrobregoId, 4000, '2026-05');
 
 const april = monthlyFinanceSummary(db, '2026-04');
 near(april.revenue.gross, 8590, 'April revenue');
@@ -147,10 +149,18 @@ const may = monthlyFinanceSummary(db, '2026-05');
 near(may.revenue.gross, 0, 'May pending revenue is zero');
 near(may.tax.podatek_suma, 0, 'May pending tax is zero');
 assert.equal(may.revenue.total_units, 7, 'May still has seven expected payments');
+near(may.owner_costs.mortgage_total, 4000, 'May uses updated recurring mortgage');
+near(april.owner_costs.mortgage_total, 3030, 'April keeps historical recurring mortgage');
+near(april.expenses.total, 6299.54, 'April total is unchanged by May recurring cost update');
 
 const june = monthlyFinanceSummary(db, '2026-06');
 near(june.tax.podatek_suma, 17, 'June aggregate tax rounds once from total rent');
 near(june.properties.reduce((sum, p) => sum + p.tax, 0), 17, 'June property tax allocation sums to aggregate tax');
 assert.deepEqual(june.properties.map(p => p.tax).sort((a, b) => b - a), [9, 8], 'June property tax allocation absorbs rounding delta');
+
+const july = monthlyFinanceSummary(db, '2026-07');
+const julyCreditRows = july.costs_by_category.filter(row => row.category === 'kredyt');
+assert.equal(julyCreditRows.length, 1, 'Manual and owner mortgage costs are merged into one credit category');
+near(julyCreditRows[0].total, 4100, 'Credit category includes manual and owner mortgage costs');
 
 console.log('✓ Finance regression tests passed');
