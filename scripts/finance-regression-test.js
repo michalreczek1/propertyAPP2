@@ -118,6 +118,8 @@ for (const [tenantId, unitId, rent, media] of aprilPayments) {
   payment.run('2026-04', tenantId, unitId, '2026-04-10', '2026-04-10', rent, media, rent + media, 'paid');
   payment.run('2026-05', tenantId, unitId, '2026-05-10', null, rent, media, 0, 'pending');
 }
+payment.run('2026-06', tenantIds[0], krId, '2026-06-10', '2026-06-10', 100, 0, 100, 'paid');
+payment.run('2026-06', tenantIds[1], roomIds[0], '2026-06-10', '2026-06-10', 100, 0, 100, 'paid');
 
 const expense = db.prepare('INSERT INTO expenses(property_id, category, amount, date, description) VALUES (?, ?, ?, ?, ?)');
 expense.run(chrobregoId, 'czynsz', 1710, '2026-04-01', 'Czynsz Chrobrego');
@@ -145,5 +147,10 @@ const may = monthlyFinanceSummary(db, '2026-05');
 near(may.revenue.gross, 0, 'May pending revenue is zero');
 near(may.tax.podatek_suma, 0, 'May pending tax is zero');
 assert.equal(may.revenue.total_units, 7, 'May still has seven expected payments');
+
+const june = monthlyFinanceSummary(db, '2026-06');
+near(june.tax.podatek_suma, 17, 'June aggregate tax rounds once from total rent');
+near(june.properties.reduce((sum, p) => sum + p.tax, 0), 17, 'June property tax allocation sums to aggregate tax');
+assert.deepEqual(june.properties.map(p => p.tax).sort((a, b) => b - a), [9, 8], 'June property tax allocation absorbs rounding delta');
 
 console.log('✓ Finance regression tests passed');
