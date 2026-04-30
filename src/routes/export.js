@@ -20,6 +20,8 @@ router.get('/payments.csv', (req, res) => {
   const rows = db.prepare(`
     SELECT pm.period, t.name AS tenant, pr.name AS property, u.name AS unit, u.code,
            pm.due_date, pm.paid_date, pm.rent_amount, pm.media_amount, pm.other_amount,
+           COALESCE(pm.late_fee_amount, 0) AS late_fee_amount,
+           COALESCE(pm.late_fee_paid, 0) AS late_fee_paid,
            pm.total_paid, pm.status, pm.notes
     FROM payments pm
     LEFT JOIN tenants t ON t.id = pm.tenant_id
@@ -32,13 +34,14 @@ router.get('/payments.csv', (req, res) => {
   `).all(period, ...(scoped ? [ownerId(req), ownerId(req), ownerId(req)] : []));
 
   const header = ['period','tenant','property','unit','code','due_date','paid_date',
-                  'rent','media','other','paid','status','notes'];
+                  'rent','media','other','late_fee','late_fee_paid','paid','status','notes'];
   const lines = [header.join(',')];
   for (const r of rows) {
     lines.push([
       r.period, r.tenant, r.property, r.unit, r.code,
       r.due_date || '', r.paid_date || '',
       r.rent_amount, r.media_amount, r.other_amount,
+      r.late_fee_amount, r.late_fee_paid,
       r.total_paid, r.status, r.notes || ''
     ].map(csvEscape).join(','));
   }

@@ -767,22 +767,27 @@ function paymentsTable(rows, withActions) {
       <thead><tr>
         <th style="width:40px;text-align:center">✓</th>
         <th>Najemca</th><th>Lokal</th><th>Status</th><th>Termin</th>
-        <th>Wpłata</th><th>Czynsz</th><th>Media</th><th>Razem</th>
+        <th>Wpłata</th><th>Czynsz</th><th>Media</th><th>Kara</th><th>Razem</th>
         ${withActions ? '<th></th>' : ''}
       </tr></thead>
       <tbody>${rows.map(p => paymentRow(p, withActions)).join('')}</tbody>
       <tfoot><tr>
-        <td colspan="${withActions?8:8}" style="font-size:13px">Suma</td>
-        <td class="mono-e" style="font-size:13px">${fmtPLN(rows.reduce((s,r) => s + (r.rent_amount||0)+(r.media_amount||0)+(r.other_amount||0), 0))} zł</td>
+        <td colspan="${withActions?9:9}" style="font-size:13px">Suma</td>
+        <td class="mono-e" style="font-size:13px">${fmtPLN(rows.reduce((s,r) => s + paymentExpectedTotal(r), 0))} zł</td>
         ${withActions ? '<td></td>' : ''}
       </tr></tfoot>
     </table>`;
 }
 
+function paymentExpectedTotal(p) {
+  return (p.rent_amount||0) + (p.media_amount||0) + (p.other_amount||0) + (p.late_fee_amount||0);
+}
+
 function paymentRow(p, withActions) {
   const st = STATUS_CHIP[p.status] || STATUS_CHIP.pending;
   const isPaid = p.status === 'paid';
-  const total = (p.rent_amount||0) + (p.media_amount||0) + (p.other_amount||0);
+  const total = paymentExpectedTotal(p);
+  const lateBalance = Math.max(0, (p.late_fee_amount||0) - (p.late_fee_paid||0));
   return `
     <tr>
       <td style="text-align:center">
@@ -797,6 +802,7 @@ function paymentRow(p, withActions) {
       <td class="mono${p.paid_date?'-e':''}">${p.paid_date ? fmtDateShort(p.paid_date) : '—'}</td>
       <td class="mono">${fmtPLN(p.rent_amount)} zł</td>
       <td class="mono">${fmtPLN(p.media_amount)} zł</td>
+      <td class="mono${lateBalance>0?'-r':(p.late_fee_amount?'-a':'')}">${p.late_fee_amount ? fmtPLN(p.late_fee_amount)+' zł' : '—'}</td>
       <td class="mono-e">${fmtPLN(total)} zł</td>
       ${withActions ? `<td><div style="display:flex;gap:4px">
         <button class="icon-btn" title="Edytuj" onclick="editPayment(${p.id})"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
@@ -900,7 +906,7 @@ async function renderPayments(root) {
         <div class="ks-icon ki-r"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/></svg></div>
         <div class="ks-label">Zaległości (wszystkie)</div>
         <div class="ks-val">${overdue.length}<span class="ks-unit">szt.</span></div>
-        ${chip(overdue.length===0?'chip-e':'chip-r', overdue.length===0?'bez zaległości':`${fmtPLN(overdue.reduce((s,p)=>s+(p.rent_amount||0)+(p.media_amount||0)-(p.total_paid||0),0))} zł`)}
+        ${chip(overdue.length===0?'chip-e':'chip-r', overdue.length===0?'bez zaległości':`${fmtPLN(overdue.reduce((s,p)=>s+paymentExpectedTotal(p)-(p.total_paid||0),0))} zł`)}
       </div>
       <div class="kpi-sm">
         <div class="ks-icon ki-v"><svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 1 0 0 7h5a3.5 3.5 0 1 1 0 7H6"/></svg></div>
@@ -940,7 +946,7 @@ async function renderPayments(root) {
         ${periodsSorted.length === 0 ? `<div class="gc">${emptyState('Brak płatności w wybranym zakresie.')}</div>` :
           periodsSorted.map(period => {
             const rows = byPeriod[period];
-            const sum = rows.reduce((a, r) => a + (r.rent_amount||0)+(r.media_amount||0)+(r.other_amount||0), 0);
+            const sum = rows.reduce((a, r) => a + paymentExpectedTotal(r), 0);
             const paidN = rows.filter(r => r.status === 'paid').length;
             const remN = rows.length - paidN;
             const allPaid = paidN === rows.length;
@@ -974,7 +980,7 @@ async function renderPayments(root) {
                   <div class="up-name">${escapeHtml(p.tenant_name||'—')} — ${escapeHtml(p.unit_code||p.unit_name||'')}</div>
                   <div class="up-detail">${p.status==='pending'?'oczekuje potwierdzenia':'termin '+fmtDateShort(p.due_date)}</div>
                 </div>
-                <div class="up-amount" style="color:var(--${status==='amber'?'amber':'emerald'})">${fmtPLN((p.rent_amount||0)+(p.media_amount||0)+(p.other_amount||0))} zł</div>
+                <div class="up-amount" style="color:var(--${status==='amber'?'amber':'emerald'})">${fmtPLN(paymentExpectedTotal(p))} zł</div>
               </div>`;
             }).join('')}</div>`;
           })()}
@@ -984,7 +990,8 @@ async function renderPayments(root) {
           <div class="ch"><div><div class="ch-title">Podsumowanie</div><div class="ch-sub">${escapeHtml(periodLabel(State.period))}</div></div></div>
           <div style="padding:16px 20px">
             <div class="summary-row"><span class="lbl">Przychody (zatwierdzone)</span><span class="val" style="color:var(--emerald)">+ ${fmtPLN(r.gross)} zł</span></div>
-            <div class="summary-row"><span class="lbl">Oczekiwane</span><span class="val" style="color:var(--t3)">${fmtPLN(r.expected||0)} zł</span></div>
+            <div class="summary-row"><span class="lbl">Oczekiwane</span><span class="val" style="color:var(--t3)">${fmtPLN(r.expected_with_late_fees||r.expected||0)} zł</span></div>
+            ${r.late_fee_balance ? `<div class="summary-row"><span class="lbl">Kary do potrącenia z kaucji</span><span class="val" style="color:var(--rose)">${fmtPLN(r.late_fee_balance)} zł</span></div>` : ''}
             <div class="summary-row"><span class="lbl">Podatek</span><span class="val" style="color:var(--rose)">− ${fmtPLN(t.podatek_suma||0)} zł</span></div>
             ${dash && dash.expenses ? `<div class="summary-row"><span class="lbl">Koszty</span><span class="val" style="color:var(--rose)">− ${fmtPLN(dash.expenses.total||0)} zł</span></div>` : ''}
             <div class="summary-row last"><span class="lbl">Netto właściciel</span><span class="val" style="color:var(--emerald);font-size:18px">${fmtPLN(owner)} zł</span></div>
@@ -1021,6 +1028,7 @@ window.editPayment = async function(id) {
       { name:'rent_amount', label:'Czynsz', type:'number', step:'0.01' },
       { name:'media_amount', label:'Media', type:'number', step:'0.01' },
       { name:'other_amount', label:'Inne', type:'number', step:'0.01' },
+      { name:'late_fee_amount', label:'Kara za opóźnienie', type:'number', step:'0.01', hint:'Automatycznie 50 zł, gdy data wpłaty jest po terminie. Możesz zmienić albo wyzerować.' },
       { name:'total_paid', label:'Wpłacono', type:'number', step:'0.01' },
       { name:'status', label:'Status', type:'select', options:[{value:'paid',label:'Opłacona'},{value:'pending',label:'Oczekuje'},{value:'overdue',label:'Zaległa'},{value:'partial',label:'Częściowa'}] },
       { name:'notes', label:'Notatka', type:'textarea', full:true },
@@ -1597,7 +1605,7 @@ window.openTenantDetails = async function(id) {
 
   const paymentsHtml = t.payments && t.payments.length
     ? `<table class="t" style="margin-top:10px">
-        <thead><tr><th>Okres</th><th>Termin</th><th>Czynsz</th><th>Media</th><th>Wpłacono</th><th>Status</th></tr></thead>
+        <thead><tr><th>Okres</th><th>Termin</th><th>Czynsz</th><th>Media</th><th>Kara</th><th>Wpłacono</th><th>Status</th></tr></thead>
         <tbody>${t.payments.slice(0,12).map(p => {
           const st = STATUS_CHIP[p.status] || STATUS_CHIP.pending;
           return `<tr>
@@ -1605,11 +1613,33 @@ window.openTenantDetails = async function(id) {
             <td class="mono">${fmtDateShort(p.due_date)}</td>
             <td class="mono">${fmtPLN(p.rent_amount)} zł</td>
             <td class="mono">${fmtPLN(p.media_amount)} zł</td>
+            <td class="mono${p.late_fee_amount?'-a':'-m'}">${p.late_fee_amount?fmtPLN(p.late_fee_amount)+' zł':'—'}</td>
             <td class="mono-e">${fmtPLN(p.total_paid)} zł</td>
             <td><span class="chip ${st.cls}">${st.label}</span></td>
           </tr>`;
         }).join('')}</tbody>
       </table>` : emptyState('Brak historii płatności.');
+
+  const feeSummary = t.late_fee_summary || { total: 0, paid: 0, balance: 0, count: 0 };
+  const lateFeesHtml = t.late_fees && t.late_fees.length
+    ? `<div class="late-fee-summary">
+        <div><span>Naliczone</span><b>${fmtPLN(feeSummary.total||0)} zł</b></div>
+        <div><span>Zapłacone</span><b style="color:var(--emerald)">${fmtPLN(feeSummary.paid||0)} zł</b></div>
+        <div><span>Do potrącenia</span><b style="color:${(feeSummary.balance||0)>0?'var(--rose)':'var(--t1)'}">${fmtPLN(feeSummary.balance||0)} zł</b></div>
+      </div>
+      <table class="t" style="margin-top:10px">
+        <thead><tr><th>Okres</th><th>Termin</th><th>Wpłata</th><th>Kara</th><th>Zapłacono</th><th>Do kaucji</th><th></th></tr></thead>
+        <tbody>${t.late_fees.map(f => `<tr>
+          <td class="mono">${escapeHtml(f.period)}</td>
+          <td class="mono">${fmtDateShort(f.due_date)}</td>
+          <td class="mono">${fmtDateShort(f.paid_date)}</td>
+          <td class="mono-a">${fmtPLN(f.amount)} zł</td>
+          <td class="mono-e">${fmtPLN(f.paid)} zł</td>
+          <td class="mono${f.balance>0?'-r':'-m'}">${fmtPLN(f.balance)} zł</td>
+          <td><button class="icon-btn" title="Edytuj płatność" onclick="editPayment(${f.payment_id})"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></td>
+        </tr>`).join('')}</tbody>
+      </table>`
+    : emptyState('Brak kar za opóźnione wpłaty.', 'Gdy wpłata ma datę po terminie, aplikacja naliczy 50 zł automatycznie.');
 
   const contractsHtml = t.contracts && t.contracts.length
     ? `<table class="t" style="margin-top:10px">
@@ -1641,6 +1671,8 @@ window.openTenantDetails = async function(id) {
       </div>
       <div class="ch-title" style="margin-bottom:6px">Umowy (${(t.contracts||[]).length})</div>
       <div style="overflow-x:auto">${contractsHtml}</div>
+      <div class="ch-title" style="margin-top:18px;margin-bottom:6px">Kary za opóźnione wpłaty</div>
+      <div style="overflow-x:auto">${lateFeesHtml}</div>
       <div class="ch-title" style="margin-top:18px;margin-bottom:6px">Historia płatności (ostatnie ${Math.min(12, (t.payments||[]).length)})</div>
       <div style="overflow-x:auto">${paymentsHtml}</div>
     </div>`;
@@ -1915,7 +1947,7 @@ async function renderReports(root) {
 
     <div class="gc">
       <div class="sum-grid sum-grid-5">
-        <div class="sum-cell"><div class="sc-lbl">Przychód brutto</div><div class="sc-val">${fmtPLN(totals.revenue)}<span class="sc-unit"> PLN</span></div><div class="sc-delta delta-n">z ${fmtPLN(totals.expected_revenue||0)} oczekiwanych</div><div class="sc-bar"><div class="sc-fill" style="width:${totals.expected_revenue?Math.min(100,totals.revenue/totals.expected_revenue*100):0}%;background:var(--emerald)"></div></div></div>
+        <div class="sum-cell"><div class="sc-lbl">Przychód brutto</div><div class="sc-val">${fmtPLN(totals.revenue)}<span class="sc-unit"> PLN</span></div><div class="sc-delta delta-n">z ${fmtPLN(totals.expected_revenue_with_late_fees||totals.expected_revenue||0)} oczekiwanych</div><div class="sc-bar"><div class="sc-fill" style="width:${(totals.expected_revenue_with_late_fees||totals.expected_revenue)?Math.min(100,totals.revenue/(totals.expected_revenue_with_late_fees||totals.expected_revenue)*100):0}%;background:var(--emerald)"></div></div></div>
         <div class="sum-cell"><div class="sc-lbl">Łączne koszty</div><div class="sc-val">${fmtPLN(totals.expenses)}<span class="sc-unit"> PLN</span></div><div class="sc-delta delta-n">w okresie</div><div class="sc-bar"><div class="sc-fill" style="width:${totals.revenue?Math.min(100,totals.expenses/totals.revenue*100):0}%;background:var(--rose)"></div></div></div>
         <div class="sum-cell"><div class="sc-lbl">Podatek (ryczałt)</div><div class="sc-val">${fmtPLN(totals.tax_total||0)}<span class="sc-unit"> PLN</span></div><div class="sc-delta delta-n">${(totals.tax_rate||0)}% × ${fmtPLN(totals.rent_paid||0)} zł czynszu${(totals.tax_koscielna||0)>0?` + ${fmtPLN(totals.tax_koscielna)} zł stałe`:''}</div><div class="sc-bar"><div class="sc-fill" style="width:${totals.revenue?Math.min(100,(totals.tax_total||0)/totals.revenue*100):0}%;background:var(--violet)"></div></div></div>
         <div class="sum-cell"><div class="sc-lbl">Netto właściciel</div><div class="sc-val">${fmtPLN(totals.net)}<span class="sc-unit"> PLN</span></div><div class="sc-delta ${totals.net>=0?'delta-up':'delta-dn'}">po kosztach + podatku</div><div class="sc-bar"><div class="sc-fill" style="width:${totals.revenue?Math.max(0,Math.min(100,totals.net/totals.revenue*100)):0}%;background:var(--cyan)"></div></div></div>
@@ -1960,10 +1992,12 @@ async function renderReports(root) {
       <div class="ch"><div><div class="ch-title">Szczegół per lokal</div><div class="ch-sub">${escapeHtml(r.period_label)} · ${r.per_unit.length} pozycji · koszty bezpośrednie + alokowane</div></div></div>
       <div style="overflow-x:auto">
         <table class="t">
-          <thead><tr><th>#</th><th>Lokal</th><th>Najemca</th><th>Czynsz</th><th>Media</th><th>Inne</th><th>Razem</th><th>Wpłacono</th><th>Koszty (bezp. + alok.)</th><th>Status</th><th>Marża</th></tr></thead>
+          <thead><tr><th>#</th><th>Lokal</th><th>Najemca</th><th>Czynsz</th><th>Media</th><th>Inne</th><th>Kary</th><th>Razem</th><th>Wpłacono</th><th>Koszty (bezp. + alok.)</th><th>Status</th><th>Marża</th></tr></thead>
           <tbody>${r.per_unit.map((u, i) => {
             const st = STATUS_CHIP[u.status] || { cls:'chip-n', label:'—' };
-            const rev = (u.status === 'paid' ? u.gross : (u.status === 'partial' ? u.total_paid : 0)) || 0;
+            const rev = (u.status === 'paid'
+              ? (u.rent_amount||0) + (u.media_amount||0) + (u.other_amount||0) + (u.late_fee_paid||0)
+              : (u.status === 'partial' ? u.total_paid : 0)) || 0;
             const margin = rev ? (rev - (u.expenses||0)) / rev : 0;
             const mc = margin >= 0.7 ? 'emerald' : margin >= 0.5 ? 'cyan' : margin >= 0 ? 'amber' : 'rose';
             return `<tr>
@@ -1973,6 +2007,7 @@ async function renderReports(root) {
               <td class="mono">${fmtPLN(u.rent_amount)} zł</td>
               <td class="mono">${fmtPLN(u.media_amount)} zł</td>
               <td class="mono${u.other_amount?'-a':'-m'}">${u.other_amount?fmtPLN(u.other_amount)+' zł':'—'}</td>
+              <td class="mono${u.late_fee_amount?'-a':'-m'}">${u.late_fee_amount?fmtPLN(u.late_fee_amount)+' zł':'—'}</td>
               <td class="mono-e">${fmtPLN(u.gross)} zł</td>
               <td class="mono">${fmtPLN(u.total_paid)} zł</td>
               <td class="mono${u.expenses?'-r':'-m'}" title="Bezpośrednie: ${fmtPLN(u.direct_expenses||0)} zł · alokowane: ${fmtPLN(u.allocated_expenses||0)} zł">${u.expenses?fmtPLN(u.expenses)+' zł':'—'}</td>
@@ -1985,6 +2020,7 @@ async function renderReports(root) {
             <td class="mono">${fmtPLN(r.per_unit.reduce((s,u)=>s+(u.rent_amount||0),0))} zł</td>
             <td class="mono">${fmtPLN(r.per_unit.reduce((s,u)=>s+(u.media_amount||0),0))} zł</td>
             <td class="mono">${fmtPLN(r.per_unit.reduce((s,u)=>s+(u.other_amount||0),0))} zł</td>
+            <td class="mono-a">${fmtPLN(r.per_unit.reduce((s,u)=>s+(u.late_fee_amount||0),0))} zł</td>
             <td class="mono-e" style="font-size:13px">${fmtPLN(r.per_unit.reduce((s,u)=>s+(u.gross||0),0))} zł</td>
             <td class="mono">${fmtPLN(r.per_unit.reduce((s,u)=>s+(u.total_paid||0),0))} zł</td>
             <td class="mono-r" style="font-size:13px">${fmtPLN(r.per_unit.reduce((s,u)=>s+(u.expenses||0),0))} zł</td>

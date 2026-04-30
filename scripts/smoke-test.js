@@ -156,6 +156,43 @@ async function main() {
     return 'ok';
   });
 
+  console.log('\n══ LATE PAYMENT FEES ══');
+  let lateTenantId = null, latePaymentId = null;
+  await check('POST late paid payment adds 50 zł fee', async () => {
+    const tenant = await api('POST', '/api/tenants', { name:'__smoke_late_fee_tenant', status:'active' });
+    expect(tenant.ok && tenant.data.id, JSON.stringify(tenant));
+    lateTenantId = tenant.data.id;
+    const payment = await api('POST', '/api/payments', {
+      period: '2026-02',
+      tenant_id: lateTenantId,
+      due_day: 10,
+      due_date: '2026-02-10',
+      paid_date: '2026-02-12',
+      rent_amount: 100,
+      media_amount: 20,
+      other_amount: 0,
+      total_paid: 120,
+      status: 'paid',
+      source: 'smoke',
+    });
+    expect(payment.ok && payment.data.late_fee_amount === 50, JSON.stringify(payment));
+    expect(payment.data.late_fee_balance === 50, JSON.stringify(payment));
+    latePaymentId = payment.data.id;
+    return `fee=${payment.data.late_fee_amount} balance=${payment.data.late_fee_balance}`;
+  });
+  await check('PUT late fee paid updates tenant balance', async () => {
+    const r = await api('PUT', `/api/payments/${latePaymentId}`, { total_paid: 170, late_fee_amount: 50 });
+    expect(r.ok && r.data.late_fee_paid === 50 && r.data.late_fee_balance === 0, JSON.stringify(r));
+    const t = await api('GET', `/api/tenants/${lateTenantId}`);
+    expect(t.ok && t.data.late_fee_summary.total === 50 && t.data.late_fee_summary.balance === 0, JSON.stringify(t));
+    return 'ok';
+  });
+  await check('DEL  late payment fixture', async () => {
+    if (latePaymentId) expect((await api('DELETE', `/api/payments/${latePaymentId}`)).ok, 'payment delete failed');
+    if (lateTenantId) expect((await api('DELETE', `/api/tenants/${lateTenantId}`)).ok, 'tenant delete failed');
+    return 'ok';
+  });
+
   console.log('\n══ CRUD: property ══');
   let propId = null;
   await check('POST /api/properties', async () => {

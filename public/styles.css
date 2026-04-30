@@ -649,6 +649,10 @@ select.slim { font-size: 12.5px; padding: 6px 10px; border: 1px solid var(--bord
 .summary-row.last { padding: 12px 0 4px; border-bottom: none; font-weight: 700; font-size: 14px; }
 .summary-row .lbl { color: var(--t2); }
 .summary-row .val { font-family: var(--mono); font-weight: 600; }
+.late-fee-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+.late-fee-summary > div { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: rgba(255,255,255,0.025); }
+.late-fee-summary span { display: block; font-size: 10.5px; color: var(--t4); text-transform: uppercase; letter-spacing: .04em; }
+.late-fee-summary b { display: block; margin-top: 4px; font-family: var(--mono); color: var(--t1); font-size: 14px; }
 
 /* ── MODAL ── */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(4px); padding: 20px; }
@@ -851,6 +855,7 @@ select.slim { font-size: 12.5px; padding: 6px 10px; border: 1px solid var(--bord
   .kpi-strip > .kpi-sm:nth-child(6) { display: flex; }
   .kanban { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: 1fr; }
+  .late-fee-summary { grid-template-columns: 1fr; }
   .sum-grid, .sum-grid-5 { grid-template-columns: repeat(2, 1fr); }
   .sum-cell { border-right: none !important; border-bottom: 1px solid var(--border); }
   .tenant-row { grid-template-columns: 42px 1fr; }

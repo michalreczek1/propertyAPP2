@@ -95,6 +95,26 @@ router.get('/:id', (req, res) => {
   if (!t) return res.status(404).json({ error: 'not_found' });
   t.contracts = db.prepare('SELECT * FROM contracts WHERE tenant_id = ? ORDER BY start_date DESC').all(t.id);
   t.payments  = db.prepare('SELECT * FROM payments WHERE tenant_id = ? ORDER BY period DESC LIMIT 24').all(t.id);
+  t.late_fees = db.prepare(`
+    SELECT p.id AS payment_id, p.period, p.due_date, p.paid_date,
+           COALESCE(p.late_fee_amount, 0) AS amount,
+           COALESCE(p.late_fee_paid, 0) AS paid,
+           MAX(COALESCE(p.late_fee_amount, 0) - COALESCE(p.late_fee_paid, 0), 0) AS balance,
+           p.status, p.notes
+    FROM payments p
+    WHERE p.tenant_id = ?
+      AND COALESCE(p.late_fee_amount, 0) > 0
+    ORDER BY p.period DESC
+  `).all(t.id);
+  t.late_fee_summary = db.prepare(`
+    SELECT COALESCE(SUM(COALESCE(late_fee_amount, 0)), 0) AS total,
+           COALESCE(SUM(COALESCE(late_fee_paid, 0)), 0) AS paid,
+           COALESCE(SUM(MAX(COALESCE(late_fee_amount, 0) - COALESCE(late_fee_paid, 0), 0)), 0) AS balance,
+           COUNT(*) AS count
+    FROM payments
+    WHERE tenant_id = ?
+      AND COALESCE(late_fee_amount, 0) > 0
+  `).get(t.id);
   res.json(t);
 });
 

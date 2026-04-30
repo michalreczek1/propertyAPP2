@@ -22,7 +22,7 @@ function round2(value) {
 
 function paidExpr(alias = 'pm') {
   return `CASE
-    WHEN ${alias}.status='paid' THEN (${alias}.rent_amount + ${alias}.media_amount + ${alias}.other_amount)
+    WHEN ${alias}.status='paid' THEN (${alias}.rent_amount + ${alias}.media_amount + ${alias}.other_amount + COALESCE(${alias}.late_fee_paid, 0))
     WHEN ${alias}.status='partial' THEN ${alias}.total_paid
     ELSE 0
   END`;
@@ -32,8 +32,8 @@ function paidPartExpr(part, alias = 'pm') {
   return `CASE
     WHEN ${alias}.status='paid' THEN ${alias}.${part}
     WHEN ${alias}.status='partial' THEN
-      CASE WHEN (${alias}.rent_amount + ${alias}.media_amount + ${alias}.other_amount) > 0
-        THEN ${alias}.total_paid * ${alias}.${part} * 1.0 / (${alias}.rent_amount + ${alias}.media_amount + ${alias}.other_amount)
+      CASE WHEN (${alias}.rent_amount + ${alias}.media_amount + ${alias}.other_amount + COALESCE(${alias}.late_fee_amount, 0)) > 0
+        THEN ${alias}.total_paid * ${alias}.${part} * 1.0 / (${alias}.rent_amount + ${alias}.media_amount + ${alias}.other_amount + COALESCE(${alias}.late_fee_amount, 0))
         ELSE 0 END
     ELSE 0
   END`;
@@ -96,9 +96,13 @@ function baseForPeriod(db, period, req = null) {
   return db.prepare(`
     SELECT
       COALESCE(SUM(rent_amount + media_amount + other_amount), 0) AS gross_expected,
+      COALESCE(SUM(rent_amount + media_amount + other_amount + COALESCE(late_fee_amount, 0)), 0) AS expected_with_late_fees,
       COALESCE(SUM(rent_amount), 0) AS rent_expected,
       COALESCE(SUM(media_amount), 0) AS media_expected,
       COALESCE(SUM(other_amount), 0) AS other_expected,
+      COALESCE(SUM(COALESCE(late_fee_amount, 0)), 0) AS late_fee_expected,
+      COALESCE(SUM(COALESCE(late_fee_paid, 0)), 0) AS late_fee_paid,
+      COALESCE(SUM(MAX(COALESCE(late_fee_amount, 0) - COALESCE(late_fee_paid, 0), 0)), 0) AS late_fee_balance,
       COALESCE(SUM(${paidExpr('pm')}), 0) AS paid,
       COALESCE(SUM(${paidPartExpr('rent_amount', 'pm')}), 0) AS rent_paid,
       COALESCE(SUM(${paidPartExpr('media_amount', 'pm')}), 0) AS media_paid,
@@ -159,7 +163,7 @@ function propertiesForPeriod(db, period, tax, ownerCosts, req = null) {
         WHERE u2.property_id = p.id AND pm.period = ?
       ), 0) AS rent_paid,
       COALESCE((
-        SELECT SUM(pm.rent_amount + pm.media_amount + pm.other_amount)
+        SELECT SUM(pm.rent_amount + pm.media_amount + pm.other_amount + COALESCE(pm.late_fee_amount, 0))
         FROM payments pm
         JOIN units u2 ON u2.id = pm.unit_id
         WHERE u2.property_id = p.id AND pm.period = ?
@@ -206,8 +210,8 @@ function perUnitForPeriod(db, period, ownerCosts, req = null) {
     SELECT u.id AS unit_id, u.name AS unit_name, u.code AS unit_code,
            u.property_id, p.name AS property_name, p.district,
            t.name AS tenant_name, t.avatar_color,
-           pm.rent_amount, pm.media_amount, pm.other_amount, pm.total_paid, pm.status,
-           pm.rent_amount + pm.media_amount + pm.other_amount AS gross,
+           pm.rent_amount, pm.media_amount, pm.other_amount, pm.late_fee_amount, pm.late_fee_paid, pm.total_paid, pm.status,
+           pm.rent_amount + pm.media_amount + pm.other_amount + COALESCE(pm.late_fee_amount, 0) AS gross,
            COALESCE((
              SELECT SUM(e.amount)
              FROM expenses e
@@ -289,12 +293,16 @@ function monthlyFinanceSummary(db, period, req = null) {
     revenue: {
       gross: round2(current.paid || 0),
       expected: round2(current.gross_expected || 0),
+      expected_with_late_fees: round2(current.expected_with_late_fees || current.gross_expected || 0),
       rent: round2(current.rent_expected || 0),
       rent_paid: round2(current.rent_paid || 0),
       media: round2(current.media_paid || 0),
       media_expected: round2(current.media_expected || 0),
       other: round2(current.other_expected || 0),
       other_paid: round2(current.other_paid || 0),
+      late_fee_expected: round2(current.late_fee_expected || 0),
+      late_fee_paid: round2(current.late_fee_paid || 0),
+      late_fee_balance: round2(current.late_fee_balance || 0),
       paid: round2(current.paid || 0),
       paid_units: current.paid_count || 0,
       total_units: current.count || 0,
@@ -318,6 +326,9 @@ function monthlyFinanceSummary(db, period, req = null) {
       rent_paid: round2(current.rent_paid || 0),
       tax_base: tax.base,
       expected_revenue: round2(current.gross_expected || 0),
+      expected_revenue_with_late_fees: round2(current.expected_with_late_fees || current.gross_expected || 0),
+      late_fee_paid: round2(current.late_fee_paid || 0),
+      late_fee_balance: round2(current.late_fee_balance || 0),
       expenses: costs.total,
       tax: tax.podatek,
       tax_koscielna: tax.podatek_koscielna,

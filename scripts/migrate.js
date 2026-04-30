@@ -137,6 +137,9 @@ CREATE TABLE IF NOT EXISTS payments (
   rent_amount REAL DEFAULT 0,
   media_amount REAL DEFAULT 0,
   other_amount REAL DEFAULT 0,
+  late_fee_amount REAL DEFAULT 0,
+  late_fee_paid REAL DEFAULT 0,
+  late_fee_manual INTEGER DEFAULT 0,
   total_paid REAL DEFAULT 0,
   status TEXT DEFAULT 'pending',   -- paid|pending|overdue|partial
   notes TEXT,
@@ -278,6 +281,15 @@ function ensureLegacyColumns() {
       db.prepare(`ALTER TABLE ${table} ADD COLUMN owner_user_id INTEGER`).run();
     }
   }
+  if (!columnExists('payments', 'late_fee_amount')) {
+    db.prepare('ALTER TABLE payments ADD COLUMN late_fee_amount REAL DEFAULT 0').run();
+  }
+  if (!columnExists('payments', 'late_fee_paid')) {
+    db.prepare('ALTER TABLE payments ADD COLUMN late_fee_paid REAL DEFAULT 0').run();
+  }
+  if (!columnExists('payments', 'late_fee_manual')) {
+    db.prepare('ALTER TABLE payments ADD COLUMN late_fee_manual INTEGER DEFAULT 0').run();
+  }
 }
 
 function backfillAdminUser() {
@@ -358,10 +370,34 @@ function ensureRecurringCostIndex() {
   `).run();
 }
 
+function backfillLateFees() {
+  db.prepare(`
+    UPDATE payments
+    SET late_fee_amount = 50,
+        late_fee_paid = MIN(50, MAX(0, COALESCE(total_paid, 0) - (COALESCE(rent_amount, 0) + COALESCE(media_amount, 0) + COALESCE(other_amount, 0))))
+    WHERE COALESCE(late_fee_manual, 0) = 0
+      AND status IN ('paid', 'partial')
+      AND paid_date IS NOT NULL
+      AND due_date IS NOT NULL
+      AND DATE(paid_date) > DATE(due_date)
+  `).run();
+  db.prepare(`
+    UPDATE payments
+    SET late_fee_amount = 0,
+        late_fee_paid = 0
+    WHERE COALESCE(late_fee_manual, 0) = 0
+      AND (status NOT IN ('paid', 'partial')
+        OR paid_date IS NULL
+        OR due_date IS NULL
+        OR DATE(paid_date) <= DATE(due_date))
+  `).run();
+}
+
 ensureLegacyColumns();
 backfillAdminUser();
 backfillPropertyOwner();
 ensureRecurringCostIndex();
+backfillLateFees();
 
 function numSetting(key, fallback = 0) {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);

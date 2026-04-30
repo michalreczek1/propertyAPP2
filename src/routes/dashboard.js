@@ -47,7 +47,7 @@ router.get('/', (req, res) => {
 
   // Alerty
   const overdue = db.prepare(`
-    SELECT COUNT(*) AS c, COALESCE(SUM(rent_amount + media_amount - total_paid), 0) AS amount
+    SELECT COUNT(*) AS c, COALESCE(SUM(rent_amount + media_amount + other_amount + COALESCE(late_fee_amount, 0) - total_paid), 0) AS amount
     FROM payments pm
     LEFT JOIN units u ON u.id = pm.unit_id
     LEFT JOIN properties pr ON pr.id = u.property_id
