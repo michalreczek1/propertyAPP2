@@ -257,6 +257,7 @@ CREATE TABLE IF NOT EXISTS notification_logs (
   next_attempt_at TIMESTAMP,
   last_attempt_at TIMESTAMP,
   sent_at TIMESTAMP,
+  delivered_at TIMESTAMP,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL,
   FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE SET NULL,
@@ -329,6 +330,9 @@ function ensureLegacyColumns() {
   }
   if (!columnExists('tenants', 'sms_disabled')) {
     db.prepare('ALTER TABLE tenants ADD COLUMN sms_disabled INTEGER DEFAULT 0').run();
+  }
+  if (!columnExists('notification_logs', 'delivered_at')) {
+    db.prepare('ALTER TABLE notification_logs ADD COLUMN delivered_at TIMESTAMP').run();
   }
 }
 
@@ -412,6 +416,13 @@ function ensureRecurringCostIndex() {
 
 function ensureNotificationLogIndexes() {
   db.prepare('DROP INDEX IF EXISTS uniq_notification_logs_payment_type').run();
+  db.prepare(`
+    UPDATE notification_logs
+    SET status = 'simulated'
+    WHERE type = 'test'
+      AND status = 'sent'
+      AND provider_message_id = '12345'
+  `).run();
 }
 
 function backfillLateFees() {

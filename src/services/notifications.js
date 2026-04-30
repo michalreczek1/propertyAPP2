@@ -2,7 +2,7 @@
 
 const crypto = require('crypto');
 const db = require('../db');
-const { sendSms } = require('./smsplanet');
+const { sendSms, getMessageInfo, parseMessageInfo } = require('./smsplanet');
 const { todayLocalISO } = require('../utils/period');
 const { canSeeAll, ownerId } = require('../utils/scope');
 
@@ -286,6 +286,39 @@ function updateLogSuccess(logId, providerMessageId, simulated = false) {
   `).run(simulated ? 'simulated' : 'sent', providerMessageId || null, logId);
 }
 
+function providerDateToSql(value) {
+  const m = String(value || '').match(/^(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return null;
+  return `${m[3]}-${m[2]}-${m[1]} ${m[4]}:${m[5]}:${m[6] || '00'}`;
+}
+
+function updateDeliveryStatus(log, delivery) {
+  if (!delivery) return { id: log.id, status: log.status, changed: false, reason: 'delivery_row_missing' };
+  if (delivery.delivered) {
+    db.prepare(`
+      UPDATE notification_logs
+      SET status = 'delivered',
+          error_code = NULL,
+          error_message = NULL,
+          delivered_at = COALESCE(?, delivered_at, CURRENT_TIMESTAMP)
+      WHERE id = ?
+    `).run(providerDateToSql(delivery.deliveredAt), log.id);
+    return { id: log.id, status: 'delivered', changed: log.status !== 'delivered' };
+  }
+  if (delivery.rejectReason) {
+    db.prepare(`
+      UPDATE notification_logs
+      SET status = 'failed',
+          error_code = 'delivery_rejected',
+          error_message = ?,
+          delivered_at = NULL
+      WHERE id = ?
+    `).run(delivery.rejectReason, log.id);
+    return { id: log.id, status: 'failed', changed: log.status !== 'failed', error: delivery.rejectReason };
+  }
+  return { id: log.id, status: log.status, changed: false, reason: 'delivery_pending' };
+}
+
 function updateLogFailure(logId, errorCode, errorMessage, attemptsBefore) {
   const attempts = attemptsBefore + 1;
   const retryDelay = RETRY_DELAYS_MINUTES[Math.min(attempts - 1, RETRY_DELAYS_MINUTES.length - 1)];
@@ -408,6 +441,41 @@ async function processDueRetries(req = null) {
   return result;
 }
 
+async function syncDeliveryStatuses(req = null, limit = 20) {
+  const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 50);
+  const scope = canSeeAll(req) ? { sql: '', params: [] } : { sql: 'AND owner_user_id = ?', params: [ownerId(req)] };
+  const logs = db.prepare(`
+    SELECT *
+    FROM notification_logs
+    WHERE status = 'sent'
+      AND provider_message_id IS NOT NULL
+      AND provider_message_id <> '12345'
+      ${scope.sql}
+    ORDER BY sent_at DESC, id DESC
+    LIMIT ?
+  `).all(...scope.params, safeLimit);
+  const result = { checked: 0, delivered: 0, failed: 0, pending: 0, errors: [] };
+  for (const log of logs) {
+    try {
+      const info = await getMessageInfo({ messageIds: [log.provider_message_id] });
+      const rows = parseMessageInfo(info.message);
+      const expectedPhone = String(log.recipient_phone || '').replace(/\D/g, '').replace(/^48(?=\d{9}$)/, '');
+      const delivery = rows.find(item => {
+        const candidate = String(item.phone || '').replace(/\D/g, '').replace(/^48(?=\d{9}$)/, '');
+        return candidate && candidate === expectedPhone;
+      }) || rows[0];
+      const updated = updateDeliveryStatus(log, delivery);
+      result.checked += 1;
+      if (updated.status === 'delivered') result.delivered += 1;
+      else if (updated.status === 'failed') result.failed += 1;
+      else result.pending += 1;
+    } catch (err) {
+      result.errors.push({ id: log.id, message_id: log.provider_message_id, error: err.message || 'status_sync_failed' });
+    }
+  }
+  return result;
+}
+
 async function sendTestSms(req, phone, message) {
   const settings = getNotificationSettings(req);
   const normalized = normalizePhone(phone || settings.test_phone);
@@ -460,6 +528,7 @@ module.exports = {
   listLogs,
   processDueRetries,
   sendTestSms,
+  syncDeliveryStatuses,
   startNotificationScheduler,
   normalizePhone,
 };

@@ -8,6 +8,7 @@ const {
   listLogs,
   processDueRetries,
   sendTestSms,
+  syncDeliveryStatuses,
 } = require('../services/notifications');
 
 router.get('/settings', (req, res) => {
@@ -48,6 +49,14 @@ router.post('/run', async (req, res, next) => {
 router.post('/retry', async (req, res, next) => {
   try {
     res.json(await processDueRetries(req));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/sync-status', async (req, res, next) => {
+  try {
+    res.json(await syncDeliveryStatuses(req, (req.body || {}).limit));
   } catch (err) {
     next(err);
   }

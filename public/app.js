@@ -2506,6 +2506,7 @@ async function renderSettings(root) {
         <div><div class="ch-title">Powiadomienia SMS</div><div class="ch-sub">SMSPlanet · przypomnienia przed terminem i po terminie</div></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="tb-btn tb-ghost" id="sms-dry-run">Podgląd wysyłki</button>
+          <button class="tb-btn tb-ghost" id="sms-sync-status">Sprawdź doręczenia</button>
           <button class="tb-btn tb-ghost" id="sms-test">SMS testowy</button>
           <button class="tb-btn tb-primary" id="sms-run-now">Wyślij teraz</button>
         </div>
@@ -2606,6 +2607,7 @@ async function renderSettings(root) {
   document.getElementById('btn-import-preview').onclick = () => previewExcelImport(document.getElementById('xlsx-file').files[0]);
   document.getElementById('btn-do-import').onclick = () => doExcelImport(document.getElementById('xlsx-file').files[0]);
   document.getElementById('sms-dry-run').onclick = () => previewSmsNotifications();
+  document.getElementById('sms-sync-status').onclick = () => syncSmsDeliveryStatuses();
   document.getElementById('sms-run-now').onclick = () => runSmsNotificationsNow();
   document.getElementById('sms-test').onclick = () => sendTestSms();
   fetch('/health').then(r => r.json()).then(j => {
@@ -2669,6 +2671,13 @@ async function runSmsNotificationsNow() {
     target.textContent = '';
     toast(e.message, 'err');
   }
+}
+async function syncSmsDeliveryStatuses() {
+  try {
+    const r = await Api.post('/notifications/sync-status', { limit: 20 });
+    toast(`Doręczenia: sprawdzone ${r.checked}, dostarczone ${r.delivered}, błędy ${r.failed}, oczekujące ${r.pending}`, r.failed ? 'err' : 'ok', 5000);
+    render();
+  } catch (e) { toast(e.message, 'err'); }
 }
 async function sendTestSms() {
   try {
