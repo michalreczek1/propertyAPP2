@@ -40,7 +40,7 @@ function parsePolishMonthYear(text) {
 }
 
 const TENANT_ALIASES = {
-  'pys':'Pyś','ptyts':'Pyś','gajali':'Gajali','gojali':'Gajali',
+  'pys':'Pyś','gajali':'Gajali','gojali':'Gajali',
   'kluczynski':'Kluczyński','krzyzaniak':'Krzyżaniak',
   'lisiecki':'Lisiecki','liśiecki':'Lisiecki',
 };
@@ -76,6 +76,16 @@ function rowFirstNonEmpty(row) {
   return null;
 }
 
+function looksLikeMonthHeader(value) {
+  return !!parsePolishMonthYear(value);
+}
+
+function normalizeTaxValue(value) {
+  const n = asNumber(value);
+  if (n == null) return null;
+  return n > 10000 ? n / 100 : n;
+}
+
 function sheetToMatrix(ws) {
   return XLSX.utils.sheet_to_json(ws, { header:1, defval:null, blankrows:true });
 }
@@ -84,6 +94,7 @@ function importMonthSection(matrix, headerRowIdx, period) {
   let cols = null, tableRow = -1;
   for (let r = headerRowIdx; r < Math.min(headerRowIdx + 5, matrix.length); r++) {
     const row = matrix[r] || [];
+    if (r > headerRowIdx && looksLikeMonthHeader(rowFirstNonEmpty(row))) break;
     const idx = findCol(row, ['dane os']);
     if (idx >= 0) {
       tableRow = r;
@@ -158,13 +169,13 @@ function importMonthSection(matrix, headerRowIdx, period) {
     };
     for (let r = summaryRow; r < Math.min(summaryRow + 8, matrix.length); r++) {
       const row = matrix[r] || [];
-      const first = String(rowFirstNonEmpty(row) || '').toLowerCase();
+      const first = normalize(rowFirstNonEmpty(row) || '');
       let n = null;
       for (let c = 0; c < row.length; c++) {
-        const x = asNumber(row[c]);
-        if (x != null && String(row[c]).trim() !== first) { n = x; break; }
+        const x = normalizeTaxValue(row[c]);
+        if (x != null && normalize(row[c]) !== first) { n = x; break; }
       }
-      if (first.includes('podatek')) summary.podatek = n;
+      if (first === 'podatek' || first === 'podatek:') summary.podatek = n;
       else if (first.includes('koscielna') || first.includes('kościelna')) summary.podatek_koscielna = n;
       else if (first === 'suma' || first.startsWith('suma')) summary.podatek_suma = n;
     }

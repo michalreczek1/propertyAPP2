@@ -29,7 +29,6 @@ const TENANT_ALIASES = {
   // (klucz to wynik normalize() — bez wielkich liter, ze ściągniętymi diakrytykami
   //  Unicode jak akcenty łączone, ale ł/ś/ż zostają jako same z siebie)
   'pys': 'Pyś',
-  'ptyts': 'Pyś',
   'gajali': 'Gajali',
   'gojali': 'Gajali',
   'kluczynski': 'Kluczyński',
@@ -86,6 +85,19 @@ function findCol(row, fragments) {
 function rowFirstNonEmpty(row) {
   for (const c of row) if (c != null && String(c).trim() !== '') return c;
   return null;
+}
+
+function looksLikeMonthHeader(value) {
+  return !!parsePolishMonthYear(value);
+}
+
+function normalizeTaxValue(value) {
+  const n = asNumber(value);
+  if (n == null) return null;
+  // Arkusze historyczne maja czasem wartosc groszowa bez separatora,
+  // np. 48621 zamiast 486,21. Miesieczny podatek nie powinien miec
+  // pieciocyfrowych wartosci, wiec chronimy import przed takim zapisem.
+  return n > 10000 ? n / 100 : n;
 }
 
 // ── import sekcji miesięcznej ───────────────────────
@@ -175,6 +187,7 @@ function importMonthSection(matrix, headerRowIdx, period, log) {
   let tableRow = -1;
   for (let r = headerRowIdx; r < Math.min(headerRowIdx + 5, matrix.length); r++) {
     const row = matrix[r] || [];
+    if (r > headerRowIdx && looksLikeMonthHeader(rowFirstNonEmpty(row))) break;
     const idx = findCol(row, ['dane os']);
     if (idx >= 0) {
       tableRow = r;
@@ -319,14 +332,15 @@ function importMonthSection(matrix, headerRowIdx, period, log) {
     // Podatek — wiersze "Podatek:" / "kościelna" / "suma"
     for (let r = summaryRow; r < Math.min(summaryRow + 8, matrix.length); r++) {
       const row = matrix[r] || [];
-      const first = String(rowFirstNonEmpty(row) || '').toLowerCase();
+      const firstRaw = String(rowFirstNonEmpty(row) || '');
+      const first = normalize(firstRaw);
       // znajdź pierwszą liczbę w wierszu (po pierwszym tekście)
       let n = null;
       for (let c = 0; c < row.length; c++) {
-        const v = asNumber(row[c]);
-        if (v != null && String(row[c]).trim() !== first) { n = v; break; }
+        const v = normalizeTaxValue(row[c]);
+        if (v != null && normalize(row[c]) !== first) { n = v; break; }
       }
-      if (first.includes('podatek')) summary.podatek = n;
+      if (first === 'podatek' || first === 'podatek:') summary.podatek = n;
       else if (first.includes('koscielna') || first.includes('kościelna')) summary.podatek_koscielna = n;
       else if (first === 'suma' || first.startsWith('suma')) summary.podatek_suma = n;
     }
