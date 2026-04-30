@@ -234,6 +234,7 @@ async function main() {
   await check('GET  /api/documents/:id/download', async () => {
     const r = await fetch(BASE + `/api/documents/${docId}/download`);
     expect(r.ok && (r.headers.get('content-type') || '').includes('application/pdf'), `status=${r.status}`);
+    expect((r.headers.get('content-disposition') || '').toLowerCase().includes('.pdf'), 'download filename missing .pdf extension');
     return `${(await r.arrayBuffer()).byteLength} bajtów`;
   });
   await check('DEL  contract document fixture', async () => {

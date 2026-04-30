@@ -24,6 +24,21 @@ function resolveUploadPath(filePath) {
   return abs;
 }
 
+function getDownloadName(document) {
+  const name = String(document.name || 'dokument').trim() || 'dokument';
+  if (path.extname(name)) return name;
+
+  const extByMime = {
+    'application/pdf': '.pdf',
+    'image/jpeg': '.jpg',
+    'image/jpg': '.jpg',
+    'image/png': '.png',
+  };
+  const ext = extByMime[String(document.mime_type || '').toLowerCase()]
+    || path.extname(document.file_path || '').toLowerCase();
+  return ext ? `${name}${ext}` : name;
+}
+
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
   filename: (_req, file, cb) => {
@@ -74,7 +89,7 @@ router.get('/:id/download', (req, res) => {
   const abs = resolveUploadPath(d.file_path);
   if (!abs) return res.status(400).json({ error: 'invalid_file_path' });
   if (!fs.existsSync(abs)) return res.status(404).json({ error: 'file_missing' });
-  res.download(abs, d.name);
+  res.download(abs, getDownloadName(d));
 });
 
 router.post('/', upload.single('file'), (req, res) => {
