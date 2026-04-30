@@ -174,8 +174,13 @@ function authStatus(req) {
   if (session && session.id) {
     const row = getDbUserById(session.id);
     if (row && row.active !== 0) user = publicUser(row);
-  } else if (session && session.u && session.u === config.username) {
-    user = { username: session.u, display_name: session.name || session.u, role: session.role || 'admin' };
+  } else if (session && session.u) {
+    const row = getDbUserByUsername(session.u);
+    if (row && row.active !== 0) {
+      user = publicUser(row);
+    } else if (session.u === config.username) {
+      user = { username: session.u, display_name: session.name || session.u, role: session.role || 'admin' };
+    }
   }
   return {
     enabled: true,

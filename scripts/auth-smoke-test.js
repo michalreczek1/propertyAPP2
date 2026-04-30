@@ -4,6 +4,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { spawn, spawnSync } = require('child_process');
 
@@ -12,12 +13,20 @@ const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'propertyapp-auth-'));
 const dbFile = path.join(tmpDir, 'property.db');
 const port = Number(process.env.TEST_PORT || 8192);
 const base = `http://127.0.0.1:${port}`;
+const authHash = bcrypt.hashSync('secret-pass', 10);
 let serverProc = null;
 
 function runNode(script) {
   const r = spawnSync(process.execPath, [script], {
     cwd: ROOT,
-    env: { ...process.env, DB_FILE: dbFile, NODE_ENV: 'test' },
+    env: {
+      ...process.env,
+      DB_FILE: dbFile,
+      NODE_ENV: 'test',
+      APP_AUTH_USER: 'admin',
+      APP_AUTH_PASSWORD_HASH: authHash,
+      APP_SESSION_SECRET: 'test-secret-for-auth-smoke-with-enough-length',
+    },
     encoding: 'utf8',
   });
   if (r.status !== 0) throw new Error(`${script} failed\n${r.stdout}\n${r.stderr}`);
@@ -25,6 +34,18 @@ function runNode(script) {
 
 function expect(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function legacyToken(username) {
+  const payload = Buffer.from(JSON.stringify({
+    u: username,
+    iat: Date.now(),
+    exp: Date.now() + 60_000,
+  })).toString('base64url');
+  const sig = crypto.createHmac('sha256', 'test-secret-for-auth-smoke-with-enough-length')
+    .update(payload)
+    .digest('base64url');
+  return `${payload}.${sig}`;
 }
 
 async function startServer() {
@@ -38,7 +59,7 @@ async function startServer() {
       NODE_ENV: 'test',
       APP_AUTH_ENABLED: '1',
       APP_AUTH_USER: 'admin',
-      APP_AUTH_PASSWORD_HASH: bcrypt.hashSync('secret-pass', 10),
+      APP_AUTH_PASSWORD_HASH: authHash,
       APP_SESSION_SECRET: 'test-secret-for-auth-smoke-with-enough-length',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -110,6 +131,16 @@ async function main() {
     body: JSON.stringify({ 'tax.rate': '8.5' }),
   });
   expect(adminSettingsSeed.ok, `admin settings write failed: ${adminSettingsSeed.status}`);
+
+  const legacyChange = await fetch(base + '/api/admin/change-password', {
+    method: 'POST',
+    headers: {
+      Cookie: `propertyapp_session=${legacyToken('admin')}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ current_password: 'secret-pass', new_password: 'secret-pass' }),
+  });
+  expect(legacyChange.ok, `legacy session password change failed: ${legacyChange.status}`);
 
   const users = await fetch(base + '/api/admin/users', { headers: { Cookie: cookie } });
   expect(users.ok, `admin users list failed: ${users.status}`);
