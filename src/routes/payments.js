@@ -306,7 +306,7 @@ router.post('/generate-month', (req, res) => {
     const upsert = db.prepare(`
       INSERT INTO payments (owner_user_id,period,tenant_id,unit_id,due_day,due_date,rent_amount,media_amount,late_fee_amount,late_fee_paid,late_fee_manual,total_paid,status,source)
       VALUES (@owner_user_id,@period,@tenant_id,@unit_id,@due_day,@due_date,@rent_amount,@media_amount,0,0,0,0,'pending',@source)
-      ON CONFLICT(period, unit_id) WHERE unit_id IS NOT NULL DO NOTHING
+      ON CONFLICT DO NOTHING
     `);
 
     function insertPayment(row, source) {

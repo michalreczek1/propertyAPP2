@@ -60,6 +60,18 @@ function shiftPeriod(p, delta) {
   const d = new Date(y, m - 1 + delta, 1);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 }
+function todayISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function periodFromDateISO(date) {
+  return String(date || todayISO()).slice(0, 7);
+}
+function monthEndISO(period) {
+  const [y, m] = String(period || currentPeriodISO()).split('-').map(Number);
+  const d = new Date(y, m, 0);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
 
 // ─── HELPERY FORMATU ────────────────────────────────────────────────
 function fmtPLN(v) {
@@ -1175,8 +1187,11 @@ function renderPropertyCard(p, units, contracts, payments, expenses, idx) {
               <div style="display:flex;gap:6px;flex-wrap:wrap">
                 <button class="tb-btn tb-ghost" onclick="openTenantDetails(${u.tenant_id})" style="font-size:12px">Najemca</button>
                 ${c?`<button class="tb-btn tb-ghost" onclick="editContract(${c.id})" style="font-size:12px">Umowa</button>`:''}
+                ${c?`<button class="tb-btn tb-ghost" onclick="endContractFlow(${c.id})" style="font-size:12px">Zakończ umowę</button>`:''}
+                <button class="tb-btn tb-ghost" onclick="tenantTurnover(${u.id}, ${c ? c.id : 'null'})" style="font-size:12px">Zmień najemcę</button>
                 <button class="tb-btn tb-ghost" onclick="editUnit(${u.id})" style="font-size:12px">Lokal</button>
               </div>` : `<div style="color:var(--t4);font-style:italic">— lokal niewynajęty —</div>`}
+            ${!tenantName && u ? `<div style="margin-top:14px"><button class="tb-btn tb-primary" onclick="tenantTurnover(${u.id}, null)" style="font-size:12px">Dodaj najemcę</button></div>` : ''}
           </div>
         </div>
       </div>`;
@@ -1234,6 +1249,8 @@ function renderPropertyCard(p, units, contracts, payments, expenses, idx) {
             <div class="${isWarn?'rr-num-a':'rr-num-e'}">${fmtPLN(total)} zł</div>
             <div class="rr-num rr-col-end" style="${isWarn?'color:var(--amber)':''}">${c&&c.end_date?fmtDate(c.end_date)+(isWarn?' ⚠':''):'—'}</div>
             <div class="rr-actions">
+              ${c ? `<button class="tb-btn tb-ghost" onclick="endContractFlow(${c.id})" title="Zakończ umowę" style="font-size:11px;padding:0 8px;height:30px">Zakończ</button>` : ''}
+              <button class="tb-btn ${c ? 'tb-ghost' : 'tb-primary'}" onclick="tenantTurnover(${u.id}, ${c ? c.id : 'null'})" title="${c ? 'Zmień najemcę' : 'Dodaj najemcę'}" style="font-size:11px;padding:0 8px;height:30px">${c ? 'Zmień' : 'Dodaj'}</button>
               <button class="icon-btn" onclick="editUnit(${u.id})" title="Edytuj lokal"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
               ${c ? `<button class="icon-btn" onclick="editContract(${c.id})" title="Edytuj umowę"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></button>` : ''}
               ${u.tenant_id ? `<button class="icon-btn" onclick="openTenantDetails(${u.tenant_id})" title="Najemca"><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></button>` : ''}
@@ -1669,7 +1686,7 @@ window.openTenantDetails = async function(id) {
 
   const contractsHtml = t.contracts && t.contracts.length
     ? `<table class="t" style="margin-top:10px">
-        <thead><tr><th>Od</th><th>Do</th><th>Czynsz</th><th>Media</th><th>Kaucja</th><th>Status</th></tr></thead>
+        <thead><tr><th>Od</th><th>Do</th><th>Czynsz</th><th>Media</th><th>Kaucja</th><th>Status</th><th></th></tr></thead>
         <tbody>${t.contracts.map(c => `<tr>
           <td class="mono">${fmtDate(c.start_date)}</td>
           <td class="mono">${fmtDate(c.end_date)}</td>
@@ -1677,6 +1694,7 @@ window.openTenantDetails = async function(id) {
           <td class="mono">${fmtPLN(c.media_advance)} zł</td>
           <td class="mono">${fmtPLN(c.deposit)} zł</td>
           <td>${chip(c.status==='active'?'chip-e':'chip-n', c.status==='active'?'Aktywna':'Zakończona', c.status==='active')}</td>
+          <td>${c.status === 'active' ? `<button class="tb-btn tb-ghost" onclick="endContractFlow(${c.id})" style="font-size:11px;height:30px;padding:0 8px">Zakończ</button>` : ''}</td>
         </tr>`).join('')}</tbody>
       </table>` : emptyState('Brak umów.');
 
@@ -1707,10 +1725,12 @@ window.openTenantDetails = async function(id) {
   modal({ title: t.name, body, wide: true,
     footer: `<button class="tb-btn tb-danger" id="td-del">Usuń najemcę</button>
              <span style="flex:1"></span>
+             ${t.contract_id ? `<button class="tb-btn tb-ghost" id="td-end-contract">Zakończ umowę</button>` : ''}
              <button class="tb-btn tb-ghost" id="td-edit">Edytuj dane</button>
              <button class="tb-btn tb-primary" id="td-close">Zamknij</button>`});
   document.getElementById('td-close').onclick = () => document.getElementById('modal-root').innerHTML = '';
   document.getElementById('td-edit').onclick = () => { document.getElementById('modal-root').innerHTML = ''; editTenant(id); };
+  if (t.contract_id) document.getElementById('td-end-contract').onclick = () => endContractFlow(t.contract_id);
   document.getElementById('td-del').onclick = () => confirmDialog({ title:'Usuń najemcę', message:`Usunąć "${t.name}"?`, danger:true,
     onYes: async () => { await Api.del(`/tenants/${id}`); toast('Usunięto', 'info'); document.getElementById('modal-root').innerHTML = ''; render(); }});
 };
@@ -1812,6 +1832,7 @@ async function renderContracts(root) {
               <td class="mono">${fmtPLN(c.media_advance)} zł</td>
               <td class="mono-e">${fmtPLN(total)} zł</td>
               <td><div style="display:flex;gap:4px">
+                ${c.status === 'active' ? `<button class="tb-btn tb-ghost" onclick="endContractFlow(${c.id})" title="Zakończ umowę" style="font-size:11px;height:30px;padding:0 8px">Zakończ</button>` : ''}
                 <button class="icon-btn" onclick="openContractDocuments(${c.id})" title="Dokumenty umowy"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
                 <button class="icon-btn" onclick="editContract(${c.id})" title="Edytuj"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
                 <button class="icon-btn danger" onclick="deleteContract(${c.id})" title="Usuń"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg></button>
@@ -1850,6 +1871,72 @@ window.editContract = async function(id) {
       if (id) await Api.put(`/contracts/${id}`, b);
       else    await Api.post('/contracts', b);
       toast(id ? 'Zaktualizowano' : 'Dodano umowę');
+      render();
+    },
+  });
+};
+
+window.endContractFlow = async function(id) {
+  const contract = await Api.get(`/contracts/${id}`);
+  formModal({
+    title: `Zakończ umowę: ${contract.tenant_name || 'najemca'}`,
+    fields: [
+      { name:'end_date', label:'Data zakończenia', type:'date', default: contract.end_date || monthEndISO(State.period), full: true },
+      { name:'set_tenant_inactive', label:'Ustaw najemcę jako historycznego', type:'checkbox', default: true, full: true, hint:'Historia płatności i dokumenty zostają w aplikacji.' },
+    ],
+    submitLabel: 'Zakończ umowę',
+    onSubmit: async (b) => {
+      await Api.post(`/contracts/${id}/end`, b);
+      toast('Umowa zakończona');
+      document.getElementById('modal-root').innerHTML = '';
+      render();
+    },
+  });
+};
+
+window.tenantTurnover = async function(unitId, contractId = null) {
+  const unit = await Api.get(`/units/${unitId}`);
+  const contract = contractId ? await Api.get(`/contracts/${contractId}`) : null;
+  const start = todayISO();
+  const defaultPeriod = periodFromDateISO(start);
+  const currentRent = contract ? Number(contract.rent || 0) : Number(unit.base_rent || 0);
+  const currentMedia = contract ? Number(contract.media_advance || 0) : Number(unit.base_media || 0);
+  const fields = [];
+  if (contract) {
+    fields.push(
+      { name:'end_previous', label:'Zakończ obecną umowę', type:'checkbox', default: true, full: true },
+      { name:'previous_end_date', label:'Koniec starej umowy', type:'date', default: monthEndISO(defaultPeriod), hint:'Dla zakładki ustaw zwykle ostatni dzień miesiąca.' },
+      { name:'previous_tenant_inactive', label:'Stary najemca historyczny', type:'checkbox', default: true }
+    );
+  }
+  fields.push(
+    { name:'tenant_name', label:'Nowy najemca', required: true, full: true },
+    { name:'phone', label:'Telefon' },
+    { name:'email', label:'Email', type:'email' },
+    { name:'sms_consent', label:'Zgoda na SMS', type:'checkbox', default: false },
+    { name:'start_date', label:'Start nowej umowy', type:'date', default: start },
+    { name:'end_date', label:'Koniec nowej umowy', type:'date' },
+    { name:'rent', label:'Czynsz / mies.', type:'number', step:'0.01', default: currentRent },
+    { name:'media_advance', label:'Media / mies.', type:'number', step:'0.01', default: currentMedia },
+    { name:'deposit', label:'Kaucja', type:'number', step:'0.01', default: contract ? Number(contract.deposit || 0) : 0 },
+    { name:'pay_by_day', label:'Termin płatności (dzień)', type:'number', default: contract ? (contract.pay_by_day || 31) : 31 },
+    { name:'create_payment', label:'Dodaj płatność za miesiąc startowy', type:'checkbox', default: true, full: true },
+    { name:'payment_period', label:'Okres płatności', type:'text', default: defaultPeriod },
+    { name:'payment_multiplier', label:'Mnożnik płatności', type:'number', step:'0.01', default: contract ? 0.5 : 1, hint:'0.5 oznacza połowę miesiąca. Jeśli stary najemca ma pełną płatność, razem wyjdzie 150%.' },
+    { name:'notes', label:'Notatka do umowy', type:'textarea', full: true }
+  );
+  formModal({
+    title: `${contract ? 'Zmień najemcę' : 'Dodaj najemcę'} · ${unit.property_name || ''} ${unit.code || unit.name || ''}`,
+    fields,
+    wide: true,
+    submitLabel: contract ? 'Zmień najemcę' : 'Dodaj najemcę',
+    onSubmit: async (b) => {
+      await Api.post('/contracts/turnover', {
+        ...b,
+        unit_id: unitId,
+        previous_contract_id: contractId,
+      });
+      toast(contract ? 'Najemca zmieniony' : 'Najemca dodany');
       render();
     },
   });

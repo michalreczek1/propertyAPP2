@@ -59,9 +59,8 @@ const upsertPayment = db.prepare(`
     @rent_amount, @media_amount, 0, 0, 0,
     0, @total_paid, @status, @notes, 'excel'
   )
-  ON CONFLICT(period, unit_id) WHERE unit_id IS NOT NULL DO UPDATE SET
+  ON CONFLICT(period, unit_id, tenant_id) WHERE unit_id IS NOT NULL AND tenant_id IS NOT NULL DO UPDATE SET
     owner_user_id = excluded.owner_user_id,
-    tenant_id = excluded.tenant_id,
     due_day = excluded.due_day,
     due_date = excluded.due_date,
     paid_date = NULL,

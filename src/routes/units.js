@@ -24,8 +24,14 @@ router.get('/', (req, res) => {
   if (scope.sql) { where.push(scope.sql); params.push(...scope.params); }
   const rows = db.prepare(`
     SELECT u.*, p.name AS property_name, p.district,
-      (SELECT t.id FROM tenants t WHERE t.current_unit_id = u.id AND t.status='active' LIMIT 1) AS tenant_id,
-      (SELECT t.name FROM tenants t WHERE t.current_unit_id = u.id AND t.status='active' LIMIT 1) AS tenant_name
+      COALESCE(
+        (SELECT c.tenant_id FROM contracts c WHERE c.unit_id = u.id AND c.status='active' ORDER BY COALESCE(c.start_date, '') DESC, c.id DESC LIMIT 1),
+        (SELECT t.id FROM tenants t WHERE t.current_unit_id = u.id AND t.status='active' LIMIT 1)
+      ) AS tenant_id,
+      COALESCE(
+        (SELECT t.name FROM contracts c JOIN tenants t ON t.id = c.tenant_id WHERE c.unit_id = u.id AND c.status='active' ORDER BY COALESCE(c.start_date, '') DESC, c.id DESC LIMIT 1),
+        (SELECT t.name FROM tenants t WHERE t.current_unit_id = u.id AND t.status='active' LIMIT 1)
+      ) AS tenant_name
     FROM units u
     JOIN properties p ON p.id = u.property_id
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}

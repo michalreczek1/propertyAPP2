@@ -156,9 +156,14 @@ CREATE INDEX IF NOT EXISTS idx_payments_period ON payments(period);
 CREATE INDEX IF NOT EXISTS idx_payments_tenant ON payments(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_payments_unit ON payments(unit_id);
 CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
--- jednoznaczność po (period, unit_id) gdy unit_id jest niepusty (idempotentny re-import)
-CREATE UNIQUE INDEX IF NOT EXISTS uniq_payments_period_unit
-  ON payments(period, unit_id) WHERE unit_id IS NOT NULL;
+-- Jednoznaczność po okresie, lokalu i najemcy.
+-- Pozwala na zakładkę w jednym miesiącu: ten sam lokal, dwóch różnych najemców.
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_payments_period_unit_tenant
+  ON payments(period, unit_id, tenant_id)
+  WHERE unit_id IS NOT NULL AND tenant_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_payments_period_unit_no_tenant
+  ON payments(period, unit_id)
+  WHERE unit_id IS NOT NULL AND tenant_id IS NULL;
 
 -- ── MONTHLY SUMMARY (per period) ─────────────────────
 CREATE TABLE IF NOT EXISTS monthly_summary (
@@ -434,6 +439,21 @@ function ensureNotificationLogIndexes() {
   `).run();
 }
 
+function ensurePaymentIndexes() {
+  db.prepare('DROP INDEX IF EXISTS uniq_payments_period_unit').run();
+  db.prepare('DROP INDEX IF EXISTS uniq_payments_period_unit_tenant').run();
+  db.prepare(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_payments_period_unit_tenant
+      ON payments(period, unit_id, tenant_id)
+      WHERE unit_id IS NOT NULL AND tenant_id IS NOT NULL
+  `).run();
+  db.prepare(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_payments_period_unit_no_tenant
+      ON payments(period, unit_id)
+      WHERE unit_id IS NOT NULL AND tenant_id IS NULL
+  `).run();
+}
+
 function normalizePaymentDueDates() {
   const rows = db.prepare(`
     SELECT id, period, due_day, due_date
@@ -478,6 +498,7 @@ backfillAdminUser();
 backfillPropertyOwner();
 ensureRecurringCostIndex();
 ensureNotificationLogIndexes();
+ensurePaymentIndexes();
 normalizePaymentDueDates();
 backfillLateFees();
 

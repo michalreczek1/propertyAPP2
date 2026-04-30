@@ -11,7 +11,7 @@
  *  - dolny blok ('Czynsz | Marek | Dla mnie | ...') → monthly_summary + 'Marek' jako osobny payment dla Królewskiej,
  *  - 'Podatek:' / 'kościelna' / 'suma' → monthly_summary.podatek*.
  *
- *  Idempotentny: payments.UNIQUE(period, unit_id) → re-import nadpisuje.
+ *  Idempotentny: payments.UNIQUE(period, unit_id, tenant_id) → re-import nadpisuje.
  *  monthly_summary.period jest PK → upsert.
  *
  *  Użycie: node scripts/import-excel.js [ścieżka.xlsx]
@@ -142,8 +142,7 @@ const upsertPayment = db.prepare(`
                         rent_amount, media_amount, other_amount, total_paid, status, notes, source)
   VALUES (@period, @tenant_id, @unit_id, @due_day, @due_date, @paid_date,
           @rent_amount, @media_amount, @other_amount, @total_paid, @status, @notes, 'excel')
-  ON CONFLICT(period, unit_id) WHERE unit_id IS NOT NULL DO UPDATE SET
-    tenant_id   = excluded.tenant_id,
+  ON CONFLICT(period, unit_id, tenant_id) WHERE unit_id IS NOT NULL AND tenant_id IS NOT NULL DO UPDATE SET
     due_day     = excluded.due_day,
     due_date    = excluded.due_date,
     paid_date   = COALESCE(excluded.paid_date, payments.paid_date),

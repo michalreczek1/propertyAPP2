@@ -118,7 +118,8 @@ async function main() {
 
   const tenantA = await api('POST', '/api/tenants', { name: '__tenant_a', status: 'active' });
   const tenantB = await api('POST', '/api/tenants', { name: '__tenant_b', status: 'active' });
-  expect(tenantA.ok && tenantB.ok, 'tenant create failed');
+  const tenantC = await api('POST', '/api/tenants', { name: '__tenant_c_overlap', status: 'active' });
+  expect(tenantA.ok && tenantB.ok && tenantC.ok, 'tenant create failed');
 
   const contractA = await api('POST', '/api/contracts', {
     tenant_id: tenantA.data.id,
@@ -179,6 +180,21 @@ async function main() {
   expect(augustPayments.data[0].media_amount === 250, 'contract media was not used');
   expect(augustPayments.data[0].due_day === 12, 'contract due day was not used');
   expect(augustPayments.data[0].source === 'contract', 'contract payment source mismatch');
+
+  const overlapPayment = await api('POST', '/api/payments', {
+    period: '2026-08',
+    tenant_id: tenantC.data.id,
+    unit_id: unitA.data.id,
+    due_day: 31,
+    rent_amount: 700,
+    media_amount: 125,
+    total_paid: 0,
+    status: 'pending',
+    source: 'turnover',
+  });
+  expect(overlapPayment.ok && overlapPayment.data.id, 'overlap payment for same unit/month failed');
+  const augustOverlap = await api('GET', `/api/payments?period=2026-08&unit_id=${unitA.data.id}`);
+  expect(augustOverlap.ok && augustOverlap.data.length === 2, 'same unit/month should allow two tenants');
 
   const ended = await api('PUT', `/api/contracts/${contractA.data.id}`, {
     status: 'ended',

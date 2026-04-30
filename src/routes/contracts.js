@@ -7,6 +7,7 @@ const { z } = require('zod');
 const db = require('../db');
 const { validate } = require('../middleware/validate');
 const { assertRefs, canAccessContract, canAccessTenant, canAccessUnit, ownerId } = require('../utils/scope');
+const { dueDate } = require('../utils/period');
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, '..', '..', 'data', 'uploads');
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -41,6 +42,35 @@ const ContractSchema = z.object({
   document_path: z.string().nullable().optional(),
   status: z.enum(['active','ended']).default('active'),
   notes: z.string().nullable().optional(),
+});
+
+const EndContractSchema = z.object({
+  end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  set_tenant_inactive: z.boolean().optional().default(true),
+});
+
+const TurnoverSchema = z.object({
+  unit_id: z.coerce.number().int().positive(),
+  previous_contract_id: z.coerce.number().int().positive().nullable().optional(),
+  previous_end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  end_previous: z.boolean().optional().default(false),
+  previous_tenant_inactive: z.boolean().optional().default(true),
+  tenant_id: z.coerce.number().int().positive().nullable().optional(),
+  tenant_name: z.string().optional().nullable(),
+  email: z.string().email().optional().nullable().or(z.literal('')),
+  phone: z.string().optional().nullable(),
+  sms_consent: z.boolean().optional().default(false),
+  sms_disabled: z.boolean().optional().default(false),
+  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  rent: z.coerce.number().min(0).default(0),
+  media_advance: z.coerce.number().min(0).default(0),
+  deposit: z.coerce.number().min(0).default(0),
+  pay_by_day: z.coerce.number().int().min(1).max(31).default(31),
+  create_payment: z.boolean().optional().default(false),
+  payment_period: z.string().regex(/^\d{4}-\d{2}$/).nullable().optional(),
+  payment_multiplier: z.coerce.number().min(0).max(2).optional().default(1),
+  notes: z.string().optional().nullable(),
 });
 
 function makeConflictError(message) {
@@ -94,6 +124,21 @@ function syncUnitOccupancy(unitId) {
 function detachTenantFromUnit(tenantId, unitId) {
   if (!tenantId || !unitId) return;
   db.prepare('UPDATE tenants SET current_unit_id = NULL WHERE id = ? AND current_unit_id = ?').run(tenantId, unitId);
+}
+
+function hasOtherActiveContract(tenantId, excludeContractId) {
+  if (!tenantId) return false;
+  return !!db.prepare(`
+    SELECT 1 FROM contracts
+    WHERE tenant_id = ?
+      AND status = 'active'
+      AND id != ?
+    LIMIT 1
+  `).get(tenantId, excludeContractId || 0);
+}
+
+function periodFromDate(date) {
+  return String(date || '').slice(0, 7);
 }
 
 function applyActiveContract(contract) {
@@ -183,6 +228,109 @@ router.post('/:id/documents', requireContractAccess, signedDocumentUpload.single
     req.body.notes || null
   );
   res.status(201).json(db.prepare('SELECT * FROM documents WHERE id = ?').get(r.lastInsertRowid));
+});
+
+router.post('/:id/end', validate(EndContractSchema), (req, res) => {
+  if (!canAccessContract(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
+  const id = Number(req.params.id);
+  const tx = db.transaction(() => {
+    const before = db.prepare('SELECT * FROM contracts WHERE id = ?').get(id);
+    if (!before) return null;
+    db.prepare('UPDATE contracts SET status = ?, end_date = ? WHERE id = ?').run('ended', req.body.end_date, id);
+    detachTenantFromUnit(before.tenant_id, before.unit_id);
+    if (req.body.set_tenant_inactive && !hasOtherActiveContract(before.tenant_id, id)) {
+      db.prepare('UPDATE tenants SET status = ?, current_unit_id = NULL WHERE id = ?').run('inactive', before.tenant_id);
+    }
+    syncUnitOccupancy(before.unit_id);
+    return db.prepare('SELECT * FROM contracts WHERE id = ?').get(id);
+  });
+  const ended = tx();
+  if (!ended) return res.status(404).json({ error: 'not_found' });
+  res.json(ended);
+});
+
+router.post('/turnover', validate(TurnoverSchema), (req, res) => {
+  const b = req.body;
+  if (!canAccessUnit(db, req, b.unit_id)) return res.status(404).json({ error: 'unit_not_found' });
+  if (b.tenant_id && !canAccessTenant(db, req, b.tenant_id)) return res.status(404).json({ error: 'tenant_not_found' });
+  if (!b.tenant_id && !String(b.tenant_name || '').trim()) return res.status(400).json({ error: 'tenant_name_required' });
+
+  const tx = db.transaction(() => {
+    if (b.end_previous && b.previous_contract_id) {
+      const previous = db.prepare('SELECT * FROM contracts WHERE id = ?').get(b.previous_contract_id);
+      if (!previous || previous.unit_id !== b.unit_id) throw makeConflictError('previous_contract_not_for_unit');
+      db.prepare('UPDATE contracts SET status = ?, end_date = ? WHERE id = ?')
+        .run('ended', b.previous_end_date || b.start_date, previous.id);
+      detachTenantFromUnit(previous.tenant_id, previous.unit_id);
+      if (b.previous_tenant_inactive && !hasOtherActiveContract(previous.tenant_id, previous.id)) {
+        db.prepare('UPDATE tenants SET status = ?, current_unit_id = NULL WHERE id = ?').run('inactive', previous.tenant_id);
+      }
+      syncUnitOccupancy(previous.unit_id);
+    }
+
+    let tenantId = b.tenant_id || null;
+    if (!tenantId) {
+      const tenant = db.prepare(`
+        INSERT INTO tenants (owner_user_id,name,email,phone,sms_consent,sms_disabled,current_unit_id,status,notes)
+        VALUES (@owner_user_id,@name,@email,@phone,@sms_consent,@sms_disabled,NULL,'active',@notes)
+      `).run({
+        owner_user_id: ownerId(req),
+        name: String(b.tenant_name || '').trim(),
+        email: b.email || null,
+        phone: b.phone || null,
+        sms_consent: b.sms_consent ? 1 : 0,
+        sms_disabled: b.sms_disabled ? 1 : 0,
+        notes: null,
+      });
+      tenantId = tenant.lastInsertRowid;
+    }
+
+    const contract = {
+      tenant_id: tenantId,
+      unit_id: b.unit_id,
+      start_date: b.start_date,
+      end_date: b.end_date || null,
+      rent: b.rent,
+      media_advance: b.media_advance,
+      deposit: b.deposit,
+      pay_by_day: b.pay_by_day,
+      document_path: null,
+      status: 'active',
+      notes: b.notes || null,
+    };
+    assertNoActiveConflict(contract);
+    const created = db.prepare(`
+      INSERT INTO contracts (tenant_id,unit_id,start_date,end_date,rent,media_advance,deposit,pay_by_day,document_path,status,notes)
+      VALUES (@tenant_id,@unit_id,@start_date,@end_date,@rent,@media_advance,@deposit,@pay_by_day,@document_path,@status,@notes)
+    `).run(contract);
+    applyActiveContract(contract);
+
+    let payment = null;
+    if (b.create_payment) {
+      const period = b.payment_period || periodFromDate(b.start_date);
+      const multiplier = Number.isFinite(Number(b.payment_multiplier)) ? Number(b.payment_multiplier) : 1;
+      const rent = Math.round((Number(b.rent || 0) * multiplier) * 100) / 100;
+      const media = Math.round((Number(b.media_advance || 0) * multiplier) * 100) / 100;
+      const inserted = db.prepare(`
+        INSERT OR IGNORE INTO payments
+          (owner_user_id,period,tenant_id,unit_id,due_day,due_date,rent_amount,media_amount,other_amount,late_fee_amount,late_fee_paid,late_fee_manual,total_paid,status,source)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, 0, 'pending', 'turnover')
+      `).run(ownerId(req), period, tenantId, b.unit_id, b.pay_by_day, dueDate(period, b.pay_by_day), rent, media);
+      if (inserted.changes) payment = db.prepare('SELECT * FROM payments WHERE id = ?').get(inserted.lastInsertRowid);
+    }
+
+    return {
+      tenant: db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId),
+      contract: db.prepare('SELECT * FROM contracts WHERE id = ?').get(created.lastInsertRowid),
+      payment,
+    };
+  });
+
+  try {
+    res.status(201).json(tx());
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || 'contract_turnover_error' });
+  }
 });
 
 router.post('/', validate(ContractSchema), (req, res) => {
