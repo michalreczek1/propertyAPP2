@@ -87,6 +87,20 @@ function fmtDateShort(d) {
   if (isNaN(dt)) return d;
   return `${String(dt.getDate()).padStart(2,'0')}.${String(dt.getMonth()+1).padStart(2,'0')}`;
 }
+function fmtDateTimeLocal(d) {
+  if (!d) return '—';
+  const raw = String(d);
+  const iso = raw.includes('T') ? raw : raw.replace(' ', 'T') + 'Z';
+  const dt = new Date(iso);
+  if (isNaN(dt)) return raw.slice(0, 16);
+  return dt.toLocaleString('pl-PL', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 function costCategoryLabel(category) {
   return ({
     czynsz: 'Czynsz',
@@ -2517,7 +2531,7 @@ async function renderSettings(root) {
           <thead><tr><th>Czas</th><th>Typ</th><th>Najemca</th><th>Lokal</th><th>Status</th><th>Próby</th><th>Błąd</th></tr></thead>
           <tbody>${(notificationLogs || []).map(log => `
             <tr>
-              <td class="mono">${escapeHtml((log.created_at || '').slice(0, 16))}</td>
+              <td class="mono">${escapeHtml(fmtDateTimeLocal(log.created_at))}</td>
               <td>${escapeHtml(notificationTypeLabel(log.type))}</td>
               <td>${escapeHtml(log.tenant_name || '—')}</td>
               <td>${escapeHtml(log.unit_code || log.unit_name || '—')}</td>
