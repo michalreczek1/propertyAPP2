@@ -7,6 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 const db = require('../src/db');
+const { dueDate } = require('../src/utils/period');
 
 function loadEnvFile(file) {
   if (!fs.existsSync(file)) return;
@@ -433,6 +434,22 @@ function ensureNotificationLogIndexes() {
   `).run();
 }
 
+function normalizePaymentDueDates() {
+  const rows = db.prepare(`
+    SELECT id, period, due_day, due_date
+    FROM payments
+    WHERE due_day IS NOT NULL
+  `).all();
+  const update = db.prepare('UPDATE payments SET due_date = ? WHERE id = ?');
+  const tx = db.transaction(() => {
+    for (const row of rows) {
+      const expected = dueDate(row.period, row.due_day);
+      if (expected && row.due_date !== expected) update.run(expected, row.id);
+    }
+  });
+  tx();
+}
+
 function backfillLateFees() {
   db.prepare(`
     UPDATE payments
@@ -461,6 +478,7 @@ backfillAdminUser();
 backfillPropertyOwner();
 ensureRecurringCostIndex();
 ensureNotificationLogIndexes();
+normalizePaymentDueDates();
 backfillLateFees();
 
 function numSetting(key, fallback = 0) {

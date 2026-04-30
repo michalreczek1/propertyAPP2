@@ -196,6 +196,35 @@ async function main() {
     return 'ok';
   });
 
+  console.log('\n══ PAYMENT DUE DATES ══');
+  let dueTenantId = null, duePaymentId = null;
+  await check('PUT payment due_day recalculates due_date', async () => {
+    const tenant = await api('POST', '/api/tenants', { name:'__smoke_due_date_tenant', status:'active' });
+    expect(tenant.ok && tenant.data.id, JSON.stringify(tenant));
+    dueTenantId = tenant.data.id;
+    const payment = await api('POST', '/api/payments', {
+      period: '2026-04',
+      tenant_id: dueTenantId,
+      due_day: 10,
+      rent_amount: 100,
+      media_amount: 0,
+      other_amount: 0,
+      total_paid: 0,
+      status: 'pending',
+      source: 'smoke',
+    });
+    expect(payment.ok && payment.data.due_date === '2026-04-10', JSON.stringify(payment));
+    duePaymentId = payment.data.id;
+    const updated = await api('PUT', `/api/payments/${duePaymentId}`, { due_day: 31 });
+    expect(updated.ok && updated.data.due_day === 31 && updated.data.due_date === '2026-04-30', JSON.stringify(updated));
+    return updated.data.due_date;
+  });
+  await check('DEL  due date fixture', async () => {
+    if (duePaymentId) expect((await api('DELETE', `/api/payments/${duePaymentId}`)).ok, 'payment delete failed');
+    if (dueTenantId) expect((await api('DELETE', `/api/tenants/${dueTenantId}`)).ok, 'tenant delete failed');
+    return 'ok';
+  });
+
   console.log('\n══ SMS NOTIFICATIONS ══');
   await check('PUT  /api/notifications/settings', async () => {
     const r = await api('PUT', '/api/notifications/settings', {

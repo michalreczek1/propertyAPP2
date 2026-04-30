@@ -162,8 +162,17 @@ router.put('/:id', validate(PaymentSchema.partial()), (req, res) => {
   const cur = db.prepare('SELECT * FROM payments WHERE id = ?').get(req.params.id);
   if (!cur) return res.status(404).json({ error: 'not_found' });
   const next = { ...cur, ...req.body };
+  if (req.body.due_date === undefined && (req.body.due_day !== undefined || req.body.period !== undefined)) {
+    next.due_date = next.due_day ? dueDate(next.period, next.due_day) : null;
+  }
   Object.assign(next, normalizeLateFee(next, cur, hasManualLateFeeChange(req.body, cur)));
-  const patch = { ...req.body, late_fee_amount: next.late_fee_amount, late_fee_paid: next.late_fee_paid, late_fee_manual: next.late_fee_manual };
+  const patch = {
+    ...req.body,
+    due_date: next.due_date,
+    late_fee_amount: next.late_fee_amount,
+    late_fee_paid: next.late_fee_paid,
+    late_fee_manual: next.late_fee_manual,
+  };
   const fields = ['period','tenant_id','unit_id','due_day','due_date','paid_date','rent_amount','media_amount','other_amount','late_fee_amount','late_fee_paid','late_fee_manual','total_paid','status','notes','source']
     .filter(f => patch[f] !== undefined);
   if (!fields.length) return res.status(400).json({ error: 'no_fields' });
