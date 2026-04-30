@@ -18,6 +18,8 @@ if (fs.existsSync(envFile)) {
   }
 }
 
+const { startNotificationScheduler } = require('./services/notifications');
+
 const PORT = +(process.env.PORT || 8090);
 const HOST = process.env.HOST || '0.0.0.0';
 
@@ -47,6 +49,7 @@ app.use('/api/tasks',      require('./routes/tasks'));
 app.use('/api/documents',  require('./routes/documents'));
 app.use('/api/settings',   require('./routes/settings'));
 app.use('/api/admin',      require('./routes/admin'));
+app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/import',     require('./routes/import'));
 app.use('/api/export',     require('./routes/export'));
 
@@ -98,4 +101,5 @@ app.use(errorHandler);
 app.listen(PORT, HOST, () => {
   console.log(`▶ PropertyApp http://${HOST}:${PORT}`);
   console.log(`  DB: ${db.name}`);
+  startNotificationScheduler();
 });

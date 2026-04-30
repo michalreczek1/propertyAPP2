@@ -1595,6 +1595,8 @@ window.editTenant = async function(id) {
       { name:'name', label:'Imię/Nazwisko', required: true, full: true },
       { name:'email', label:'Email', type:'email' },
       { name:'phone', label:'Telefon' },
+      { name:'sms_consent', label:'Zgoda na SMS', type:'checkbox', default: false },
+      { name:'sms_disabled', label:'Wyłącz powiadomienia SMS', type:'checkbox', default: false },
       { name:'current_unit_id', label:'Lokal', type:'select', options: [{value:'',label:'—'}, ...units.map(u => ({value:u.id, label:`${u.property_name} · ${u.name}`}))] },
       { name:'status', label:'Status', type:'select', options:[{value:'active',label:'Aktywny'},{value:'inactive',label:'Historyczny'}] },
       { name:'notes', label:'Notatka', type:'textarea', full: true },
@@ -1675,6 +1677,7 @@ window.openTenantDetails = async function(id) {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;margin-bottom:20px">
         <div><span style="color:var(--t4)">Telefon:</span> <span style="color:var(--t1)">${escapeHtml(t.phone||'—')}</span></div>
         <div><span style="color:var(--t4)">Email:</span> <span style="color:var(--t1)">${escapeHtml(t.email||'—')}</span></div>
+        <div><span style="color:var(--t4)">SMS:</span> <span style="color:var(--t1)">${t.sms_disabled ? 'wyłączone' : (t.sms_consent ? 'zgoda aktywna' : 'brak zgody')}</span></div>
         <div><span style="color:var(--t4)">Czynsz mies.:</span> <span style="color:var(--emerald);font-family:var(--mono);font-weight:600">${fmtPLN(monthly)} zł</span></div>
         <div><span style="color:var(--t4)">Umowa do:</span> <span style="color:var(--t1)">${fmtDate(t.contract_end)}</span></div>
         ${t.notes ? `<div style="grid-column:span 2"><span style="color:var(--t4)">Notatka:</span> <span style="color:var(--t1)">${escapeHtml(t.notes)}</span></div>` : ''}
@@ -2446,10 +2449,12 @@ async function uploadDocDialog() {
 
 // ═══════════════════════ USTAWIENIA ═══════════════════════
 async function renderSettings(root) {
-  const [s, importStatus, ownerCosts] = await Promise.all([
+  const [s, importStatus, ownerCosts, notificationSettings, notificationLogs] = await Promise.all([
     Api.get('/settings'),
     Api.get('/import/status').catch(() => ({ excel_import_enabled: false, dry_run_enabled: true })),
     Api.get('/settings/owner-costs').catch(() => ({ valid_from_period: '2026-01', management_monthly: 0, mortgages: [] })),
+    Api.get('/notifications/settings').catch(() => ({ enabled: false, sender: 'TEST', send_time: '09:30', overdue_days: 1, reminder_enabled: true, reminder_days_before_due: 3, test_mode: true, test_phone: '', clear_polish: false, transactional: false, token_configured: false })),
+    Api.get('/notifications/logs?limit=12').catch(() => []),
   ]);
   setTopbar(VIEW_TITLES.ustawienia, 'Dane firmy, podatki, preferencje',
     `<button class="tb-btn tb-primary" id="set-save"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Zapisz</button>`);
@@ -2480,6 +2485,48 @@ async function renderSettings(root) {
           </div>`).join('')}
         ${!(ownerCosts.mortgages || []).length ? `<div class="form-row full"><div class="hint">Dodaj nieruchomość, aby przypisać do niej ratę kredytu.</div></div>` : ''}
       </form>
+    </div>
+
+    <div class="gc">
+      <div class="ch">
+        <div><div class="ch-title">Powiadomienia SMS</div><div class="ch-sub">SMSPlanet · przypomnienia przed terminem i po terminie</div></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="tb-btn tb-ghost" id="sms-dry-run">Podgląd wysyłki</button>
+          <button class="tb-btn tb-ghost" id="sms-test">SMS testowy</button>
+          <button class="tb-btn tb-primary" id="sms-run-now">Wyślij teraz</button>
+        </div>
+      </div>
+      <form id="notif-form" class="form-grid">
+        <div class="form-row"><label>Wysyłka aktywna</label><input name="enabled" type="checkbox" ${notificationSettings.enabled ? 'checked' : ''}></div>
+        <div class="form-row"><label>Tryb testowy</label><input name="test_mode" type="checkbox" ${notificationSettings.test_mode ? 'checked' : ''}></div>
+        <div class="form-row"><label>Nadawca</label><input name="sender" value="${escapeHtml(notificationSettings.sender || 'TEST')}"></div>
+        <div class="form-row"><label>Godzina wysyłki</label><input name="send_time" type="time" value="${escapeHtml(notificationSettings.send_time || '09:30')}"></div>
+        <div class="form-row"><label>Dni po terminie</label><input name="overdue_days" type="number" min="0" max="31" step="1" value="${escapeHtml(notificationSettings.overdue_days ?? 1)}"></div>
+        <div class="form-row"><label>Przypomnienie przed terminem</label><input name="reminder_enabled" type="checkbox" ${notificationSettings.reminder_enabled ? 'checked' : ''}></div>
+        <div class="form-row"><label>Dni przed terminem</label><input name="reminder_days_before_due" type="number" min="0" max="31" step="1" value="${escapeHtml(notificationSettings.reminder_days_before_due ?? 3)}"></div>
+        <div class="form-row"><label>Numer testowy</label><input name="test_phone" value="${escapeHtml(notificationSettings.test_phone || '')}" placeholder="+48..."></div>
+        <div class="form-row"><label>Bez polskich znaków</label><input name="clear_polish" type="checkbox" ${notificationSettings.clear_polish ? 'checked' : ''}></div>
+        <div class="form-row"><label>Kanał transakcyjny</label><input name="transactional" type="checkbox" ${notificationSettings.transactional ? 'checked' : ''}></div>
+        <div class="form-row full">
+          <div class="hint">Token API jest czytany z env serwera: ${notificationSettings.token_configured ? 'skonfigurowany' : 'brak tokena'}. Wysyłka obejmuje tylko najemców z telefonem, zgodą SMS i bez wyłączonych powiadomień.</div>
+        </div>
+      </form>
+      <div id="sms-preview" style="padding:0 24px 16px;font-size:12px;color:var(--t3)"></div>
+      <div style="padding:0 24px 22px;overflow-x:auto">
+        <table class="t">
+          <thead><tr><th>Czas</th><th>Typ</th><th>Najemca</th><th>Lokal</th><th>Status</th><th>Próby</th><th>Błąd</th></tr></thead>
+          <tbody>${(notificationLogs || []).map(log => `
+            <tr>
+              <td class="mono">${escapeHtml((log.created_at || '').slice(0, 16))}</td>
+              <td>${escapeHtml(notificationTypeLabel(log.type))}</td>
+              <td>${escapeHtml(log.tenant_name || '—')}</td>
+              <td>${escapeHtml(log.unit_code || log.unit_name || '—')}</td>
+              <td>${chip(notificationStatusChip(log.status), notificationStatusLabel(log.status), log.status === 'sent' || log.status === 'delivered')}</td>
+              <td class="mono">${Number(log.attempts || 0)}</td>
+              <td style="max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(log.error_message || '—')}</td>
+            </tr>`).join('') || `<tr><td colspan="7">${emptyState('Brak historii SMS.')}</td></tr>`}</tbody>
+        </table>
+      </div>
     </div>
 
     <div class="gc">
@@ -2519,18 +2566,88 @@ async function renderSettings(root) {
       management_monthly: costForm.elements.management_monthly.value,
       mortgages,
     };
+    const notifPayload = notificationPayload();
     try {
       await Api.put('/settings', out);
       await Api.put('/settings/owner-costs', ownerPayload);
+      await Api.put('/notifications/settings', notifPayload);
       toast('Zapisano');
+      render();
     }
     catch (e) { toast(e.message, 'err'); }
   };
   document.getElementById('btn-import-preview').onclick = () => previewExcelImport(document.getElementById('xlsx-file').files[0]);
   document.getElementById('btn-do-import').onclick = () => doExcelImport(document.getElementById('xlsx-file').files[0]);
+  document.getElementById('sms-dry-run').onclick = () => previewSmsNotifications();
+  document.getElementById('sms-run-now').onclick = () => runSmsNotificationsNow();
+  document.getElementById('sms-test').onclick = () => sendTestSms();
   fetch('/health').then(r => r.json()).then(j => {
     document.getElementById('dbinfo').textContent = `DB: ${j.db} (${j.tables} tabel)`;
   }).catch(() => {});
+}
+
+function notificationTypeLabel(type) {
+  return ({ due_reminder: 'Przed terminem', overdue: 'Po terminie', test: 'Test' })[type] || type || '—';
+}
+function notificationStatusLabel(status) {
+  return ({ queued: 'Kolejka', sent: 'Wysłane', delivered: 'Dostarczone', failed: 'Błąd', skipped: 'Pominięte' })[status] || status || '—';
+}
+function notificationStatusChip(status) {
+  return ({ queued: 'chip-n', sent: 'chip-e', delivered: 'chip-e', failed: 'chip-r', skipped: 'chip-a' })[status] || 'chip-n';
+}
+function notificationPayload() {
+  const form = document.getElementById('notif-form');
+  return {
+    enabled: form.elements.enabled.checked,
+    sender: form.elements.sender.value,
+    send_time: form.elements.send_time.value,
+    overdue_days: Number(form.elements.overdue_days.value || 1),
+    reminder_enabled: form.elements.reminder_enabled.checked,
+    reminder_days_before_due: Number(form.elements.reminder_days_before_due.value || 3),
+    test_mode: form.elements.test_mode.checked,
+    test_phone: form.elements.test_phone.value,
+    clear_polish: form.elements.clear_polish.checked,
+    transactional: form.elements.transactional.checked,
+  };
+}
+async function saveNotificationSettingsOnly() {
+  await Api.put('/notifications/settings', notificationPayload());
+}
+async function previewSmsNotifications() {
+  const target = document.getElementById('sms-preview');
+  target.textContent = 'Sprawdzam kandydatów…';
+  try {
+    await saveNotificationSettingsOnly();
+    const r = await Api.post('/notifications/run', { type: 'all', dry_run: true });
+    target.innerHTML = r.candidates && r.candidates.length
+      ? `<div><b>Kandydaci:</b> ${r.candidates.length}</div><div style="margin-top:6px">${r.candidates.slice(0, 8).map(x => `${notificationTypeLabel(x.type)} · ${escapeHtml(x.tenant || '—')} · ${escapeHtml(x.unit || '—')} · ${escapeHtml(x.message || '')}`).join('<br>')}</div>`
+      : '<div>Brak kandydatów do wysyłki dzisiaj.</div>';
+  } catch (e) {
+    target.textContent = '';
+    toast(e.message, 'err');
+  }
+}
+async function runSmsNotificationsNow() {
+  const target = document.getElementById('sms-preview');
+  target.textContent = 'Wysyłam…';
+  try {
+    await saveNotificationSettingsOnly();
+    const r = await Api.post('/notifications/run', { type: 'all', dry_run: false });
+    toast(`SMS: wysłane ${r.sent}, błędy ${r.failed}, pominięte ${r.skipped}`, r.failed ? 'err' : 'ok', 4500);
+    render();
+  } catch (e) {
+    target.textContent = '';
+    toast(e.message, 'err');
+  }
+}
+async function sendTestSms() {
+  try {
+    await saveNotificationSettingsOnly();
+    const phone = document.getElementById('notif-form').elements.test_phone.value;
+    await Api.post('/notifications/test', { phone });
+    toast('SMS testowy zlecony');
+    render();
+  } catch (e) { toast(e.message, 'err'); }
 }
 
 async function previewExcelImport(file) {

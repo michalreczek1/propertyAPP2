@@ -91,6 +91,8 @@ CREATE TABLE IF NOT EXISTS tenants (
   name TEXT NOT NULL,
   email TEXT,
   phone TEXT,
+  sms_consent INTEGER DEFAULT 0,
+  sms_disabled INTEGER DEFAULT 0,
   current_unit_id INTEGER,
   status TEXT DEFAULT 'active',
   avatar_color TEXT,
@@ -234,6 +236,38 @@ CREATE TABLE IF NOT EXISTS documents (
 CREATE INDEX IF NOT EXISTS idx_documents_entity
   ON documents(related_entity_type, related_entity_id);
 
+-- ── NOTIFICATION LOGS ───────────────────────────────
+CREATE TABLE IF NOT EXISTS notification_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_user_id INTEGER,
+  payment_id INTEGER,
+  tenant_id INTEGER,
+  unit_id INTEGER,
+  period TEXT,
+  channel TEXT NOT NULL DEFAULT 'sms',
+  type TEXT NOT NULL,
+  recipient_phone TEXT,
+  message_hash TEXT,
+  message_text TEXT,
+  status TEXT NOT NULL DEFAULT 'queued',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  error_code TEXT,
+  error_message TEXT,
+  provider_message_id TEXT,
+  next_attempt_at TIMESTAMP,
+  last_attempt_at TIMESTAMP,
+  sent_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL,
+  FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE SET NULL,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL,
+  FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notification_logs_status
+  ON notification_logs(status, next_attempt_at);
+CREATE INDEX IF NOT EXISTS idx_notification_logs_payment
+  ON notification_logs(payment_id, type, channel);
+
 -- ── SETTINGS ─────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
@@ -289,6 +323,12 @@ function ensureLegacyColumns() {
   }
   if (!columnExists('payments', 'late_fee_manual')) {
     db.prepare('ALTER TABLE payments ADD COLUMN late_fee_manual INTEGER DEFAULT 0').run();
+  }
+  if (!columnExists('tenants', 'sms_consent')) {
+    db.prepare('ALTER TABLE tenants ADD COLUMN sms_consent INTEGER DEFAULT 0').run();
+  }
+  if (!columnExists('tenants', 'sms_disabled')) {
+    db.prepare('ALTER TABLE tenants ADD COLUMN sms_disabled INTEGER DEFAULT 0').run();
   }
 }
 
@@ -370,6 +410,10 @@ function ensureRecurringCostIndex() {
   `).run();
 }
 
+function ensureNotificationLogIndexes() {
+  db.prepare('DROP INDEX IF EXISTS uniq_notification_logs_payment_type').run();
+}
+
 function backfillLateFees() {
   db.prepare(`
     UPDATE payments
@@ -397,6 +441,7 @@ ensureLegacyColumns();
 backfillAdminUser();
 backfillPropertyOwner();
 ensureRecurringCostIndex();
+ensureNotificationLogIndexes();
 backfillLateFees();
 
 function numSetting(key, fallback = 0) {

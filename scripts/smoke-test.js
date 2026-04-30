@@ -109,6 +109,8 @@ async function main() {
     '/api/documents',
     '/api/settings',
     '/api/settings/owner-costs',
+    '/api/notifications/settings',
+    '/api/notifications/logs',
     '/api/import/status',
   ]) {
     await check(`GET  ${p}`, async () => {
@@ -128,8 +130,8 @@ async function main() {
     return `id=${tenantId}`;
   });
   await check('PUT  /api/tenants/:id', async () => {
-    const r = await api('PUT', `/api/tenants/${tenantId}`, { phone: '+48 600 000 000', notes: 'smoke' });
-    expect(r.ok && r.data.phone === '+48 600 000 000', JSON.stringify(r));
+    const r = await api('PUT', `/api/tenants/${tenantId}`, { phone: '+48 600 000 000', sms_consent: 1, sms_disabled: 0, notes: 'smoke' });
+    expect(r.ok && r.data.phone === '+48 600 000 000' && Number(r.data.sms_consent) === 1, JSON.stringify(r));
     return 'ok';
   });
   await check('DEL  /api/tenants/:id', async () => {
@@ -192,6 +194,29 @@ async function main() {
     if (latePaymentId) expect((await api('DELETE', `/api/payments/${latePaymentId}`)).ok, 'payment delete failed');
     if (lateTenantId) expect((await api('DELETE', `/api/tenants/${lateTenantId}`)).ok, 'tenant delete failed');
     return 'ok';
+  });
+
+  console.log('\n══ SMS NOTIFICATIONS ══');
+  await check('PUT  /api/notifications/settings', async () => {
+    const r = await api('PUT', '/api/notifications/settings', {
+      enabled: false,
+      sender: 'TEST',
+      send_time: '09:30',
+      overdue_days: 1,
+      reminder_enabled: true,
+      reminder_days_before_due: 3,
+      test_mode: true,
+      test_phone: '+48600000000',
+      clear_polish: true,
+      transactional: false,
+    });
+    expect(r.ok && r.data.sender === 'TEST' && r.data.test_mode === true, JSON.stringify(r));
+    return 'ok';
+  });
+  await check('POST /api/notifications/run dry-run', async () => {
+    const r = await api('POST', '/api/notifications/run', { type: 'all', dry_run: true, today: '2026-04-01' });
+    expect(r.ok && r.data.dry_run === true && Array.isArray(r.data.candidates), JSON.stringify(r));
+    return `${r.data.candidates.length} kandydatów`;
   });
 
   console.log('\n══ CRUD: property ══');

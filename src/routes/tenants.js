@@ -9,6 +9,8 @@ const TenantSchema = z.object({
   name: z.string().min(1),
   email: z.string().email().optional().nullable().or(z.literal('')),
   phone: z.string().optional().nullable(),
+  sms_consent: z.coerce.number().int().min(0).max(1).optional(),
+  sms_disabled: z.coerce.number().int().min(0).max(1).optional(),
   current_unit_id: z.coerce.number().int().positive().nullable().optional(),
   status: z.enum(['active','inactive']).default('active'),
   avatar_color: z.string().optional().nullable(),
@@ -132,13 +134,15 @@ router.post('/', validate(TenantSchema), (req, res) => {
   const tx = db.transaction(() => {
     assertNoActiveUnitConflict(b);
     const r = db.prepare(`
-      INSERT INTO tenants (owner_user_id,name,email,phone,current_unit_id,status,avatar_color,notes)
-      VALUES (@owner_user_id,@name,@email,@phone,@current_unit_id,@status,@avatar_color,@notes)
+      INSERT INTO tenants (owner_user_id,name,email,phone,sms_consent,sms_disabled,current_unit_id,status,avatar_color,notes)
+      VALUES (@owner_user_id,@name,@email,@phone,@sms_consent,@sms_disabled,@current_unit_id,@status,@avatar_color,@notes)
     `).run({
       owner_user_id: ownerId(req),
       name: b.name,
       email: b.email || null,
       phone: b.phone || null,
+      sms_consent: b.sms_consent ? 1 : 0,
+      sms_disabled: b.sms_disabled ? 1 : 0,
       current_unit_id: b.current_unit_id || null,
       status: b.status,
       avatar_color: b.avatar_color || null,
@@ -158,7 +162,7 @@ router.post('/', validate(TenantSchema), (req, res) => {
 router.put('/:id', validate(TenantSchema.partial()), (req, res) => {
   if (!canAccessTenant(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
   if (!assertRefs(db, req, { unit_id: req.body.current_unit_id })) return res.status(404).json({ error: 'unit_not_found' });
-  const fields = ['name','email','phone','current_unit_id','status','avatar_color','notes']
+  const fields = ['name','email','phone','sms_consent','sms_disabled','current_unit_id','status','avatar_color','notes']
     .filter(f => req.body[f] !== undefined);
   if (!fields.length) return res.status(400).json({ error: 'no_fields' });
   const id = Number(req.params.id);
