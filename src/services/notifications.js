@@ -84,7 +84,8 @@ function validateSettings(body) {
   const testMode = body.test_mode ? '1' : '0';
   const clearPolish = body.clear_polish ? '1' : '0';
   const transactional = body.transactional ? '1' : '0';
-  const sender = String(body.sender || 'TEST').trim();
+  let sender = String(body.sender || 'TEST').trim();
+  if (sender.toLowerCase() === 'test') sender = 'TEST';
   if (!sender) throw Object.assign(new Error('sender_required'), { status: 400 });
   const sendTime = String(body.send_time || '09:30').trim();
   if (!/^\d{2}:\d{2}$/.test(sendTime)) throw Object.assign(new Error('invalid_send_time'), { status: 400 });

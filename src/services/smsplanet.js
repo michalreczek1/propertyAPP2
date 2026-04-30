@@ -20,12 +20,13 @@ function normalizeSmsPlanetResponse(data) {
 
 async function sendSms({ token, from, to, msg, testMode, clearPolish, transactional }) {
   const bearer = token || tokenFromEnv();
+  const sender = String(from || '').trim().toLowerCase() === 'test' ? 'TEST' : String(from || '').trim();
   if (!bearer) {
     const err = new Error('smsplanet_token_required');
     err.code = 'not_configured';
     throw err;
   }
-  if (!from) {
+  if (!sender) {
     const err = new Error('sms_sender_required');
     err.code = 'invalid_sender';
     throw err;
@@ -36,7 +37,7 @@ async function sendSms({ token, from, to, msg, testMode, clearPolish, transactio
     throw err;
   }
   const body = new URLSearchParams();
-  body.set('from', from);
+  body.set('from', sender);
   body.set('to', to);
   body.set('msg', msg);
   if (testMode) body.set('test', '1');
