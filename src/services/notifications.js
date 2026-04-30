@@ -319,10 +319,10 @@ function updateDeliveryStatus(log, delivery) {
   return { id: log.id, status: log.status, changed: false, reason: 'delivery_pending' };
 }
 
-function updateLogFailure(logId, errorCode, errorMessage, attemptsBefore) {
+function updateLogFailure(logId, errorCode, errorMessage, attemptsBefore, noRetry = false) {
   const attempts = attemptsBefore + 1;
   const retryDelay = RETRY_DELAYS_MINUTES[Math.min(attempts - 1, RETRY_DELAYS_MINUTES.length - 1)];
-  const finalStatus = attempts >= MAX_ATTEMPTS ? 'failed' : 'queued';
+  const finalStatus = noRetry || attempts >= MAX_ATTEMPTS ? 'failed' : 'queued';
   db.prepare(`
     UPDATE notification_logs
     SET status = ?,
@@ -348,7 +348,7 @@ async function sendLog(log, settings) {
     updateLogSuccess(log.id, result.messageId, settings.test_mode);
     return { ok: true, id: log.id, message_id: result.messageId, status: settings.test_mode ? 'simulated' : 'sent' };
   }
-  updateLogFailure(log.id, result.errorCode, result.errorMessage, Number(log.attempts || 0));
+  updateLogFailure(log.id, result.errorCode, result.errorMessage, Number(log.attempts || 0), log.type === 'test');
   return { ok: false, id: log.id, error: result.errorMessage, error_code: result.errorCode };
 }
 
@@ -424,6 +424,7 @@ async function processDueRetries(req = null) {
     SELECT *
     FROM notification_logs
     WHERE status = 'queued'
+      AND type <> 'test'
       AND attempts < ?
       AND (next_attempt_at IS NULL OR DATETIME(next_attempt_at) <= DATETIME('now'))
       ${scope.sql}

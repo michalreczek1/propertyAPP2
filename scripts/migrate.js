@@ -423,6 +423,14 @@ function ensureNotificationLogIndexes() {
       AND status = 'sent'
       AND provider_message_id = '12345'
   `).run();
+  db.prepare(`
+    UPDATE notification_logs
+    SET status = 'failed',
+        next_attempt_at = NULL
+    WHERE type = 'test'
+      AND status = 'queued'
+      AND error_message IS NOT NULL
+  `).run();
 }
 
 function backfillLateFees() {
