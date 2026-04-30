@@ -1908,7 +1908,11 @@ window.deleteContractDocument = function(docId, contractId) {
 
 // ═══════════════════════ RAPORTY ═══════════════════════
 async function renderReports(root) {
-  const r = await Api.get(`/reports?period=${State.period}`);
+  const reportYear = String(State.period || currentPeriodISO()).slice(0, 4);
+  const [r, taxReport] = await Promise.all([
+    Api.get(`/reports?period=${State.period}`),
+    Api.get(`/reports/tax-yearly?year=${reportYear}`).catch(() => null),
+  ]);
   const totals = r.totals;
   const margin = totals.margin || 0;
   const palette = ['#06b6d4','#8b5cf6','#f59e0b','#f43f5e','#10b981','#a78bfa'];
@@ -1954,6 +1958,8 @@ async function renderReports(root) {
         <div class="sum-cell"><div class="sc-lbl">Marża netto</div><div class="sc-val">${(margin*100).toFixed(1)}<span class="sc-unit">%</span></div><div class="sc-delta ${margin>=0?'delta-up':'delta-dn'}">netto / przychód</div><div class="sc-bar"><div class="sc-fill" style="width:${Math.max(0,Math.min(100,margin*100))}%;background:${margin>=0?'var(--emerald)':'var(--rose)'}"></div></div></div>
       </div>
     </div>
+
+    ${renderTaxReportCard(taxReport)}
 
     <div class="chart-grid">
       <div class="gc">
@@ -2051,6 +2057,50 @@ async function renderReports(root) {
       options: chartBaseOpts(),
     });
   }
+}
+
+function renderTaxReportCard(report) {
+  if (!report) return '';
+  const monthLabels = report.months.map((period) => PL_MONTHS[Number(period.slice(5, 7)) - 1]);
+  const incomeTotal = report.income && report.income.total ? report.income.total : 0;
+  const rows = (report.properties || []).map((row) => `
+    <tr>
+      <th>${escapeHtml(row.name)}</th>
+      ${row.values.map(value => `<td>${fmtPLN2(value)} zł</td>`).join('')}
+      <td class="tax-total">${fmtPLN2(row.total)} zł</td>
+      <td></td>
+    </tr>`).join('');
+  return `
+    <div class="gc tax-card">
+      <div class="ch">
+        <div>
+          <div class="ch-title">Raport podatkowy ${report.year} r.</div>
+          <div class="ch-sub">Automatycznie z zatwierdzonych wpłat czynszu · ryczałt miesięczny</div>
+        </div>
+        ${chip('chip-a', `Dochód ${fmtPLN2(incomeTotal)} zł`)}
+      </div>
+      <div class="tax-table-wrap">
+        <table class="tax-report-table">
+          <thead>
+            <tr>
+              <th>Podatek ${report.year} r.</th>
+              ${monthLabels.map(label => `<th>${escapeHtml(label)}</th>`).join('')}
+              <th>Sumy</th>
+              <th>Dochód całkowity</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows || `<tr><th>Brak nieruchomości</th><td colspan="14">—</td></tr>`}
+            <tr class="tax-paid-row">
+              <th>Podatek zapłacony</th>
+              ${report.tax_paid.values.map(value => `<td>${fmtPLN(value)} zł</td>`).join('')}
+              <td class="tax-total">${fmtPLN(report.tax_paid.total)} zł</td>
+              <td class="tax-income">${fmtPLN2(incomeTotal)} zł</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>`;
 }
 
 // ═══════════════════════ KOSZTY ═══════════════════════

@@ -78,6 +78,7 @@ test('reports page exposes consistent finance cards', async ({ page }) => {
   await expect(page.getByText('Przychód brutto')).toBeVisible();
   await expect(page.getByText('Łączne koszty')).toBeVisible();
   await expect(page.getByText('Podatek (ryczałt)')).toBeVisible();
+  await expect(page.getByText('Raport podatkowy')).toBeVisible();
 });
 
 test('settings exposes guarded excel import controls', async ({ page }) => {

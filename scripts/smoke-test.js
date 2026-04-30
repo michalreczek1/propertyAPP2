@@ -96,6 +96,7 @@ async function main() {
     '/api/dashboard',
     '/api/reports',
     '/api/reports/yearly?year=2025',
+    '/api/reports/tax-yearly?year=2026',
     '/api/properties',
     '/api/units',
     '/api/tenants',

@@ -574,6 +574,18 @@ html { height: 100%; }
 .cr-bar-fill { height: 3px; border-radius: 2px; }
 .cr-val { font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--t1); white-space: nowrap; }
 
+.tax-card { overflow: hidden; }
+.tax-table-wrap { overflow-x: auto; padding: 0 14px 16px; }
+.tax-report-table { width: 100%; min-width: 1180px; border-collapse: collapse; font-size: 12px; }
+.tax-report-table th, .tax-report-table td { border: 1px solid rgba(255,255,255,0.11); padding: 7px 8px; text-align: right; white-space: nowrap; }
+.tax-report-table thead th { background: rgba(245,158,11,0.22); color: var(--t1); font-weight: 800; }
+.tax-report-table th:first-child { text-align: left; position: sticky; left: 0; z-index: 1; background: #191832; }
+.tax-report-table tbody tr:nth-child(odd) td { background: rgba(245,158,11,0.12); }
+.tax-report-table tbody tr:nth-child(even) td { background: rgba(59,130,246,0.1); }
+.tax-report-table .tax-total { color: var(--rose); font-weight: 800; }
+.tax-report-table .tax-income { color: var(--amber); font-weight: 800; background: rgba(245,158,11,0.18); }
+.tax-paid-row th, .tax-paid-row td { background: rgba(255,255,255,0.05) !important; }
+
 .margin-bar { height: 3px; background: rgba(255,255,255,0.06); border-radius: 2px; margin-top: 5px; overflow: hidden; }
 .margin-fill { height: 3px; border-radius: 2px; }
 
