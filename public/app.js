@@ -1489,8 +1489,17 @@ async function renderTenants(root) {
                 <div><div class="ch-title">${escapeHtml(propName)}</div>
                   <div class="ch-sub">${list.length} ${list.length===1?'najemca':'najemców'}${groupRent?` · ${fmtPLN(groupRent)} zł/mies (aktywni)`:''}</div></div>
               </div>
-              <div class="tc-grid" style="padding:12px">
-                ${list.map(t => tenantCard(t, payByT[t.id] || [])).join('')}
+              <div class="tenant-rows">
+                <div class="tenant-row tenant-row-head">
+                  <div></div>
+                  <div>Najemca</div>
+                  <div>Lokal</div>
+                  <div>Umowa do</div>
+                  <div>Terminowość</div>
+                  <div>Czynsz</div>
+                  <div>Status</div>
+                </div>
+                ${list.map(t => tenantRow(t, payByT[t.id] || [])).join('')}
               </div>
             </div>`;
           }).join('')}
@@ -1542,7 +1551,7 @@ async function renderTenants(root) {
   document.querySelectorAll('[data-tp]').forEach(b => b.onclick = () => { State.tenantsProp = b.dataset.tp; render(); });
 }
 
-function tenantCard(t, payments) {
+function tenantRow(t, payments) {
   const monthly = (t.contract_rent||0) + (t.contract_media||0);
   const paid = payments.filter(p => p.status === 'paid').length;
   const pct = payments.length ? Math.round(paid/payments.length*100) : 0;
@@ -1559,19 +1568,20 @@ function tenantCard(t, payments) {
   const pctColor = pct >= 90 ? 'emerald' : pct >= 70 ? 'amber' : 'rose';
   const endStr = t.contract_end ? fmtDate(t.contract_end) + (isWarn ? ' ⚠' : '') : '—';
   return `
-    <div class="tc${isWarn?' tc-warn':''}" onclick="openTenantDetails(${t.id})">
-      <div class="tc-header">
-        ${(() => { const [bg,fg] = colorForName(t.name); return `<div class="tc-av" style="background:${bg};color:${fg}">${avatarInitial(t.name)}</div>`; })()}
-        <div style="min-width:0;flex:1"><div class="tc-name">${escapeHtml(t.name)}</div><div class="tc-room">${escapeHtml(t.property_name||'—')}${t.unit_code?` / ${escapeHtml(t.unit_code)}`:''}</div></div>
-        <div>${endChip}</div>
+    <div class="tenant-row${isWarn?' tenant-row-warn':''}" onclick="openTenantDetails(${t.id})">
+      <div>${(() => { const [bg,fg] = colorForName(t.name); return `<div class="tc-av" style="background:${bg};color:${fg}">${avatarInitial(t.name)}</div>`; })()}</div>
+      <div class="tr-cell">
+        <div class="tr-val">${escapeHtml(t.name)}</div>
+        <div class="tr-mini">${escapeHtml(t.phone || t.email || '—')}</div>
       </div>
-      <div class="tc-row"><span class="tc-lbl">Umowa do</span><span class="tc-val${isWarn?'" style="color:var(--amber)':''}">${escapeHtml(endStr)}</span></div>
-      <div class="tc-row"><span class="tc-lbl">Terminowość</span><span class="tc-val" style="color:var(--${pctColor})">${pct}% (${paid}/${payments.length})</span></div>
-      <div class="tc-row"><span class="tc-lbl">Status</span><span class="tc-val">${t.status==='active'?'Aktywny':'Historyczny'}</span></div>
-      <div class="tc-footer">
-        <div class="tc-rent">${fmtPLN(monthly)} zł</div>
-        <span class="tc-cta">Szczegóły →</span>
+      <div class="tr-cell">
+        <div class="tr-val">${escapeHtml(t.property_name||'—')}</div>
+        <div class="tr-mini">${escapeHtml(t.unit_code||t.unit_name||'brak lokalu')}</div>
       </div>
+      <div class="tr-cell"><div class="tr-val ${isWarn?'warn':''}">${escapeHtml(endStr)}</div></div>
+      <div class="tr-cell"><div class="tr-val" style="color:var(--${pctColor})">${pct}% (${paid}/${payments.length})</div></div>
+      <div class="tr-cell"><div class="tr-rent">${fmtPLN(monthly)} zł</div></div>
+      <div class="tr-cell tr-status">${endChip}<span class="tc-cta">Szczegóły →</span></div>
     </div>`;
 }
 
