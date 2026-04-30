@@ -18,3 +18,40 @@ playwright-report/
 *.db
 *.sqlite
 *.sqlite3
+
+# Private business data and exports
+*.xlsx
+*.xls
+*.csv
+*.pdf
+*.doc
+*.docx
+*.jpg
+*.jpeg
+*.png
+*.webp
+ROZLICZENIA*
+
+# Private notes/plans/docs
+PLAN.md
+plans.md
+*-PLAN.md
+*PLAN*.md
+IMPORT-NOTES.md
+README.private.md
+README.local.md
+PRIVATE*.md
+private/
+
+# Local deployment/infrastructure notes
+deploy/
+deploy/*.bak*
+deploy/*.local*
+deploy/*private*
+deploy/*secret*
+*.bak
+
+# Old standalone prototypes/exports
+PropertyApp*.html
+design/
+design_nova/
