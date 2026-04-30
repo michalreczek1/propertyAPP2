@@ -189,6 +189,61 @@ async function main() {
     return 'ok';
   });
 
+  console.log('\n══ CONTRACT DOCUMENTS ══');
+  let docPropId = null, docUnitId = null, docTenantId = null, docContractId = null, docId = null;
+  await check('POST contract fixture', async () => {
+    const prop = await api('POST', '/api/properties', { name:`__smoke_docs_${Date.now()}`, district:'Test', type:'mieszkanie' });
+    expect(prop.ok && prop.data.id, JSON.stringify(prop));
+    docPropId = prop.data.id;
+    const unit = await api('POST', '/api/units', { property_id: docPropId, name:'Lokal testowy', code:'D1', status:'vacant' });
+    expect(unit.ok && unit.data.id, JSON.stringify(unit));
+    docUnitId = unit.data.id;
+    const tenant = await api('POST', '/api/tenants', { name:'__smoke_doc_tenant', status:'active' });
+    expect(tenant.ok && tenant.data.id, JSON.stringify(tenant));
+    docTenantId = tenant.data.id;
+    const contract = await api('POST', '/api/contracts', {
+      tenant_id: docTenantId,
+      unit_id: docUnitId,
+      start_date: '2026-01-01',
+      end_date: '2026-12-31',
+      rent: 1000,
+      media_advance: 200,
+      deposit: 1200,
+      pay_by_day: 10,
+      status: 'active',
+    });
+    expect(contract.ok && contract.data.id, JSON.stringify(contract));
+    docContractId = contract.data.id;
+    return `contract=${docContractId}`;
+  });
+  await check('POST /api/contracts/:id/documents', async () => {
+    const fd = new FormData();
+    fd.append('file', new Blob(['%PDF-1.4\n%%EOF'], { type: 'application/pdf' }), 'signed.pdf');
+    fd.append('name', 'Podpisana umowa smoke');
+    const r = await fetch(BASE + `/api/contracts/${docContractId}/documents`, { method: 'POST', body: fd });
+    const data = await r.json().catch(() => ({}));
+    expect(r.ok && data.id, `${r.status} ${JSON.stringify(data)}`);
+    docId = data.id;
+    return `doc=${docId}`;
+  });
+  await check('GET  /api/contracts/:id/documents', async () => {
+    const r = await api('GET', `/api/contracts/${docContractId}/documents`);
+    expect(r.ok && r.data.some(d => d.id === docId), JSON.stringify(r));
+    return `${r.data.length} dokumentów`;
+  });
+  await check('GET  /api/documents/:id/download', async () => {
+    const r = await fetch(BASE + `/api/documents/${docId}/download`);
+    expect(r.ok && (r.headers.get('content-type') || '').includes('application/pdf'), `status=${r.status}`);
+    return `${(await r.arrayBuffer()).byteLength} bajtów`;
+  });
+  await check('DEL  contract document fixture', async () => {
+    if (docId) expect((await api('DELETE', `/api/documents/${docId}`)).ok, 'doc delete failed');
+    if (docContractId) expect((await api('DELETE', `/api/contracts/${docContractId}`)).ok, 'contract delete failed');
+    if (docTenantId) expect((await api('DELETE', `/api/tenants/${docTenantId}`)).ok, 'tenant delete failed');
+    if (docPropId) expect((await api('DELETE', `/api/properties/${docPropId}`)).ok, 'property delete failed');
+    return 'ok';
+  });
+
   console.log('\n══ EKSPORT ══');
   await check('GET  /api/export/payments.csv?period=2025-01', async () => {
     const r = await fetch(BASE + '/api/export/payments.csv?period=2025-01');

@@ -1,9 +1,33 @@
 'use strict';
 const router = require('express').Router();
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const { z } = require('zod');
 const db = require('../db');
 const { validate } = require('../middleware/validate');
-const { assertRefs, canAccessContract, canAccessTenant, canAccessUnit } = require('../utils/scope');
+const { assertRefs, canAccessContract, canAccessTenant, canAccessUnit, ownerId } = require('../utils/scope');
+
+const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, '..', '..', 'data', 'uploads');
+fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+const signedDocumentUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
+    filename: (_req, file, cb) => {
+      const safe = file.originalname.replace(/[^\w\d.\-_]+/g, '_');
+      cb(null, `${Date.now()}-contract-${safe}`);
+    },
+  }),
+  limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = ['application/pdf', 'image/jpeg'].includes(file.mimetype);
+    if (ok) return cb(null, true);
+    const err = new Error('unsupported_file_type_pdf_jpg_only');
+    err.status = 400;
+    cb(err);
+  },
+});
 
 const ContractSchema = z.object({
   tenant_id: z.coerce.number().int().positive(),
@@ -77,6 +101,11 @@ function applyActiveContract(contract) {
   db.prepare('UPDATE units SET status = ? WHERE id = ?').run('rented', contract.unit_id);
 }
 
+function requireContractAccess(req, res, next) {
+  if (!canAccessContract(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
+  next();
+}
+
 router.get('/', (req, res) => {
   const where = [];
   const params = [];
@@ -92,7 +121,8 @@ router.get('/', (req, res) => {
   }
   res.json(db.prepare(`
     SELECT c.*, t.name AS tenant_name, u.name AS unit_name, u.code AS unit_code,
-           p.name AS property_name, p.district
+           p.name AS property_name, p.district,
+           (SELECT COUNT(*) FROM documents d WHERE d.related_entity_type = 'contract' AND d.related_entity_id = c.id) AS documents_count
     FROM contracts c
     LEFT JOIN tenants t ON t.id = c.tenant_id
     LEFT JOIN units u ON u.id = c.unit_id
@@ -105,7 +135,8 @@ router.get('/', (req, res) => {
 router.get('/:id', (req, res) => {
   if (!canAccessContract(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
   const c = db.prepare(`
-    SELECT c.*, t.name AS tenant_name, u.name AS unit_name, u.code AS unit_code, p.name AS property_name
+    SELECT c.*, t.name AS tenant_name, u.name AS unit_name, u.code AS unit_code, p.name AS property_name,
+           (SELECT COUNT(*) FROM documents d WHERE d.related_entity_type = 'contract' AND d.related_entity_id = c.id) AS documents_count
     FROM contracts c
     LEFT JOIN tenants t ON t.id = c.tenant_id
     LEFT JOIN units u ON u.id = c.unit_id
@@ -114,6 +145,44 @@ router.get('/:id', (req, res) => {
   `).get(req.params.id);
   if (!c) return res.status(404).json({ error: 'not_found' });
   res.json(c);
+});
+
+router.get('/:id/documents', requireContractAccess, (req, res) => {
+  const rows = db.prepare(`
+    SELECT *
+    FROM documents
+    WHERE related_entity_type = 'contract'
+      AND related_entity_id = ?
+      ${req.user && req.user.id && req.user.role !== 'admin' ? 'AND owner_user_id = ?' : ''}
+    ORDER BY uploaded_at DESC
+  `).all(req.params.id, ...(req.user && req.user.id && req.user.role !== 'admin' ? [req.user.id] : []));
+  res.json(rows);
+});
+
+router.post('/:id/documents', requireContractAccess, signedDocumentUpload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'no_file' });
+  const contract = db.prepare(`
+    SELECT c.id, t.name AS tenant_name, p.name AS property_name
+    FROM contracts c
+    LEFT JOIN tenants t ON t.id = c.tenant_id
+    LEFT JOIN units u ON u.id = c.unit_id
+    LEFT JOIN properties p ON p.id = u.property_id
+    WHERE c.id = ?
+  `).get(req.params.id);
+  const defaultName = `Umowa podpisana - ${contract.tenant_name || 'najemca'} - ${contract.property_name || 'nieruchomosc'}`;
+  const r = db.prepare(`
+    INSERT INTO documents (owner_user_id, name, file_path, mime_type, size_bytes, related_entity_type, related_entity_id, category, notes)
+    VALUES (?, ?, ?, ?, ?, 'contract', ?, 'umowa', ?)
+  `).run(
+    ownerId(req),
+    req.body.name || defaultName,
+    req.file.filename,
+    req.file.mimetype,
+    req.file.size,
+    req.params.id,
+    req.body.notes || null
+  );
+  res.status(201).json(db.prepare('SELECT * FROM documents WHERE id = ?').get(r.lastInsertRowid));
 });
 
 router.post('/', validate(ContractSchema), (req, res) => {

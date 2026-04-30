@@ -1753,6 +1753,7 @@ async function renderContracts(root) {
               <td class="mono">${fmtPLN(c.media_advance)} zł</td>
               <td class="mono-e">${fmtPLN(total)} zł</td>
               <td><div style="display:flex;gap:4px">
+                <button class="icon-btn" onclick="openContractDocuments(${c.id})" title="Dokumenty umowy"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
                 <button class="icon-btn" onclick="editContract(${c.id})" title="Edytuj"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
                 <button class="icon-btn danger" onclick="deleteContract(${c.id})" title="Usuń"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg></button>
               </div></td>
@@ -1798,6 +1799,79 @@ window.editContract = async function(id) {
 window.deleteContract = function(id) {
   confirmDialog({ title:'Usuń umowę', message:'Czy na pewno usunąć tę umowę?', danger:true,
     onYes: async () => { await Api.del(`/contracts/${id}`); toast('Usunięto', 'info'); render(); }});
+};
+
+window.openContractDocuments = async function(id) {
+  const [contract, docs] = await Promise.all([
+    Api.get(`/contracts/${id}`),
+    Api.get(`/contracts/${id}/documents`),
+  ]);
+  const list = docs.length ? `
+    <div class="doc-grid contract-doc-grid">
+      ${docs.map(d => `
+        <div class="doc-card">
+          <div class="doc-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+          <div class="doc-name" title="${escapeHtml(d.name)}">${escapeHtml(d.name)}</div>
+          <div class="doc-meta">${escapeHtml(d.mime_type || 'plik')} · ${(Number(d.size_bytes || 0)/1024).toFixed(0)} kB · ${fmtDate(d.uploaded_at)}</div>
+          <div class="doc-actions">
+            <a href="/api/documents/${d.id}/download" download>Pobierz</a>
+            <button onclick="deleteContractDocument(${d.id}, ${id})">Usuń</button>
+          </div>
+        </div>`).join('')}
+    </div>` : emptyState('Brak podpisanych dokumentów.', 'Dodaj skan PDF albo JPG podpisanej umowy.');
+
+  const body = `
+    <div class="contract-doc-panel">
+      <div class="contract-doc-summary">
+        <div>
+          <div class="contract-doc-title">${escapeHtml(contract.tenant_name || 'Umowa')}</div>
+          <div class="contract-doc-meta">${escapeHtml(contract.property_name || '—')} · ${fmtDate(contract.start_date)} - ${fmtDate(contract.end_date)}</div>
+        </div>
+        ${chip(contract.status === 'active' ? 'chip-e' : 'chip-n', contract.status === 'active' ? 'Aktywna' : 'Zakończona', contract.status === 'active')}
+      </div>
+      <form id="contract-doc-form" class="form-grid compact">
+        <div class="form-row full"><label>Podpisany dokument PDF/JPG</label><input id="contract-doc-file" type="file" accept=".pdf,.jpg,.jpeg,application/pdf,image/jpeg"></div>
+        <div class="form-row full"><label>Nazwa dokumentu</label><input id="contract-doc-name" value="${escapeHtml(`Umowa podpisana - ${contract.tenant_name || ''}`.trim())}"></div>
+      </form>
+      <div class="contract-doc-list">${list}</div>
+    </div>`;
+  const m = modal({
+    title: 'Dokumenty umowy',
+    body,
+    wide: true,
+    footer: `
+      <button class="tb-btn tb-ghost" id="contract-doc-close">Zamknij</button>
+      <button class="tb-btn tb-primary" id="contract-doc-upload">Dodaj dokument</button>`,
+  });
+  m.root.querySelector('#contract-doc-close').onclick = m.close;
+  m.root.querySelector('#contract-doc-upload').onclick = async () => {
+    const file = m.root.querySelector('#contract-doc-file').files[0];
+    if (!file) return toast('Wybierz plik PDF albo JPG', 'err');
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('name', m.root.querySelector('#contract-doc-name').value || file.name);
+    try {
+      await Api.upload(`/contracts/${id}/documents`, fd);
+      toast('Dokument zapisany');
+      m.close();
+      openContractDocuments(id);
+      render();
+    } catch (e) { toast(e.message || 'Błąd uploadu', 'err'); }
+  };
+};
+
+window.deleteContractDocument = function(docId, contractId) {
+  confirmDialog({
+    title: 'Usuń dokument',
+    message: 'Plik zostanie usunięty z serwera i odpięty od umowy.',
+    danger: true,
+    onYes: async () => {
+      await Api.del(`/documents/${docId}`);
+      toast('Usunięto dokument', 'info');
+      openContractDocuments(contractId);
+      render();
+    },
+  });
 };
 
 // ═══════════════════════ RAPORTY ═══════════════════════
