@@ -2507,13 +2507,13 @@ async function renderSettings(root) {
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="tb-btn tb-ghost" id="sms-dry-run">Podgląd wysyłki</button>
           <button class="tb-btn tb-ghost" id="sms-sync-status">Sprawdź doręczenia</button>
-          <button class="tb-btn tb-ghost" id="sms-test">SMS testowy</button>
+          <button class="tb-btn tb-ghost" id="sms-test">Wyślij SMS testowy</button>
           <button class="tb-btn tb-primary" id="sms-run-now">Wyślij teraz</button>
         </div>
       </div>
       <form id="notif-form" class="form-grid">
         <div class="form-row"><label>Wysyłka aktywna</label><input name="enabled" type="checkbox" ${notificationSettings.enabled ? 'checked' : ''}></div>
-        <div class="form-row"><label>Tryb testowy</label><input name="test_mode" type="checkbox" ${notificationSettings.test_mode ? 'checked' : ''}></div>
+        <div class="form-row"><label>Symulacja API bez wysyłki</label><input name="test_mode" type="checkbox" ${notificationSettings.test_mode ? 'checked' : ''}></div>
         <div class="form-row"><label>Nadawca</label><input name="sender" value="${escapeHtml(notificationSettings.sender || 'TEST')}"></div>
         <div class="form-row"><label>Godzina wysyłki</label><input name="send_time" type="time" value="${escapeHtml(notificationSettings.send_time || '09:30')}"></div>
         <div class="form-row"><label>Dni po terminie</label><input name="overdue_days" type="number" min="0" max="31" step="1" value="${escapeHtml(notificationSettings.overdue_days ?? 1)}"></div>
@@ -2535,7 +2535,7 @@ async function renderSettings(root) {
           <textarea name="template_overdue" rows="3">${escapeHtml(notificationSettings.template_overdue || 'Przypomnienie: nie odnotowano platnosci za {unit} ({period}). Kwota: {amount} zl. Prosimy o uregulowanie.')}</textarea>
         </div>
         <div class="form-row full">
-          <div class="hint">Token API jest czytany z env serwera: ${notificationSettings.token_configured ? 'skonfigurowany' : 'brak tokena'}. Tryb testowy tylko sprawdza API i nie wysyła fizycznego SMS-a. Zmienne w treści: {tenant}, {unit}, {property}, {period}, {due_date}, {amount}.</div>
+          <div class="hint">Token API jest czytany z env serwera: ${notificationSettings.token_configured ? 'skonfigurowany' : 'brak tokena'}. Zaznaczona symulacja sprawdza API bez fizycznej wysyłki SMS-a. Odznacz ją, zapisz i użyj „Wyślij SMS testowy”, aby dostać prawdziwą wiadomość. Zmienne w treści: {tenant}, {unit}, {property}, {period}, {due_date}, {amount}.</div>
         </div>
       </form>
       <div id="sms-preview" style="padding:0 24px 16px;font-size:12px;color:var(--t3)"></div>
@@ -2685,7 +2685,7 @@ async function sendTestSms() {
     const phone = document.getElementById('notif-form').elements.test_phone.value;
     const message = document.getElementById('notif-form').elements.template_test.value;
     const r = await Api.post('/notifications/test', { phone, message });
-    toast(r.status === 'simulated' ? 'SMS testowy: symulacja API OK' : 'SMS testowy wysłany');
+    toast(r.status === 'simulated' ? 'Symulacja API OK, SMS nie został wysłany' : 'SMS testowy wysłany');
     render();
   } catch (e) { toast(e.message, 'err'); }
 }
