@@ -2522,13 +2522,25 @@ async function renderSettings(root) {
         <div class="form-row"><label>Bez polskich znaków</label><input name="clear_polish" type="checkbox" ${notificationSettings.clear_polish ? 'checked' : ''}></div>
         <div class="form-row"><label>Kanał transakcyjny</label><input name="transactional" type="checkbox" ${notificationSettings.transactional ? 'checked' : ''}></div>
         <div class="form-row full">
-          <div class="hint">Token API jest czytany z env serwera: ${notificationSettings.token_configured ? 'skonfigurowany' : 'brak tokena'}. Wysyłka obejmuje tylko najemców z telefonem, zgodą SMS i bez wyłączonych powiadomień.</div>
+          <label>Treść SMS testowego</label>
+          <textarea name="template_test" rows="2">${escapeHtml(notificationSettings.template_test || 'Test SMS PropertyApp: konfiguracja powiadomien dziala.')}</textarea>
+        </div>
+        <div class="form-row full">
+          <label>Treść przypomnienia przed terminem</label>
+          <textarea name="template_due_reminder" rows="3">${escapeHtml(notificationSettings.template_due_reminder || 'Przypomnienie: termin platnosci za {unit} ({period}) uplywa {due_date}. Kwota: {amount} zl.')}</textarea>
+        </div>
+        <div class="form-row full">
+          <label>Treść przypomnienia po terminie</label>
+          <textarea name="template_overdue" rows="3">${escapeHtml(notificationSettings.template_overdue || 'Przypomnienie: nie odnotowano platnosci za {unit} ({period}). Kwota: {amount} zl. Prosimy o uregulowanie.')}</textarea>
+        </div>
+        <div class="form-row full">
+          <div class="hint">Token API jest czytany z env serwera: ${notificationSettings.token_configured ? 'skonfigurowany' : 'brak tokena'}. Tryb testowy tylko sprawdza API i nie wysyła fizycznego SMS-a. Zmienne w treści: {tenant}, {unit}, {property}, {period}, {due_date}, {amount}.</div>
         </div>
       </form>
       <div id="sms-preview" style="padding:0 24px 16px;font-size:12px;color:var(--t3)"></div>
       <div style="padding:0 24px 22px;overflow-x:auto">
         <table class="t">
-          <thead><tr><th>Czas</th><th>Typ</th><th>Najemca</th><th>Lokal</th><th>Status</th><th>Próby</th><th>Błąd</th></tr></thead>
+          <thead><tr><th>Czas</th><th>Typ</th><th>Najemca</th><th>Lokal</th><th>Status</th><th>Próby</th><th>Treść</th><th>Błąd</th></tr></thead>
           <tbody>${(notificationLogs || []).map(log => `
             <tr>
               <td class="mono">${escapeHtml(fmtDateTimeLocal(log.created_at))}</td>
@@ -2537,8 +2549,9 @@ async function renderSettings(root) {
               <td>${escapeHtml(log.unit_code || log.unit_name || '—')}</td>
               <td>${chip(notificationStatusChip(log.status), notificationStatusLabel(log.status), log.status === 'sent' || log.status === 'delivered')}</td>
               <td class="mono">${Number(log.attempts || 0)}</td>
+              <td style="max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escapeHtml(log.message_text || '')}">${escapeHtml(log.message_text || '—')}</td>
               <td style="max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(log.error_message || '—')}</td>
-            </tr>`).join('') || `<tr><td colspan="7">${emptyState('Brak historii SMS.')}</td></tr>`}</tbody>
+            </tr>`).join('') || `<tr><td colspan="8">${emptyState('Brak historii SMS.')}</td></tr>`}</tbody>
         </table>
       </div>
     </div>
@@ -2604,10 +2617,10 @@ function notificationTypeLabel(type) {
   return ({ due_reminder: 'Przed terminem', overdue: 'Po terminie', test: 'Test' })[type] || type || '—';
 }
 function notificationStatusLabel(status) {
-  return ({ queued: 'Kolejka', sent: 'Wysłane', delivered: 'Dostarczone', failed: 'Błąd', skipped: 'Pominięte' })[status] || status || '—';
+  return ({ queued: 'Kolejka', simulated: 'Symulacja', sent: 'Wysłane', delivered: 'Dostarczone', failed: 'Błąd', skipped: 'Pominięte' })[status] || status || '—';
 }
 function notificationStatusChip(status) {
-  return ({ queued: 'chip-n', sent: 'chip-e', delivered: 'chip-e', failed: 'chip-r', skipped: 'chip-a' })[status] || 'chip-n';
+  return ({ queued: 'chip-n', simulated: 'chip-a', sent: 'chip-e', delivered: 'chip-e', failed: 'chip-r', skipped: 'chip-a' })[status] || 'chip-n';
 }
 function notificationPayload() {
   const form = document.getElementById('notif-form');
@@ -2622,6 +2635,9 @@ function notificationPayload() {
     test_phone: form.elements.test_phone.value,
     clear_polish: form.elements.clear_polish.checked,
     transactional: form.elements.transactional.checked,
+    template_test: form.elements.template_test.value,
+    template_due_reminder: form.elements.template_due_reminder.value,
+    template_overdue: form.elements.template_overdue.value,
   };
 }
 async function saveNotificationSettingsOnly() {
@@ -2647,7 +2663,7 @@ async function runSmsNotificationsNow() {
   try {
     await saveNotificationSettingsOnly();
     const r = await Api.post('/notifications/run', { type: 'all', dry_run: false });
-    toast(`SMS: wysłane ${r.sent}, błędy ${r.failed}, pominięte ${r.skipped}`, r.failed ? 'err' : 'ok', 4500);
+    toast(`SMS: wysłane ${r.sent}, symulacje ${r.simulated || 0}, błędy ${r.failed}, pominięte ${r.skipped}`, r.failed ? 'err' : 'ok', 4500);
     render();
   } catch (e) {
     target.textContent = '';
@@ -2658,8 +2674,9 @@ async function sendTestSms() {
   try {
     await saveNotificationSettingsOnly();
     const phone = document.getElementById('notif-form').elements.test_phone.value;
-    await Api.post('/notifications/test', { phone });
-    toast('SMS testowy zlecony');
+    const message = document.getElementById('notif-form').elements.template_test.value;
+    const r = await Api.post('/notifications/test', { phone, message });
+    toast(r.status === 'simulated' ? 'SMS testowy: symulacja API OK' : 'SMS testowy wysłany');
     render();
   } catch (e) { toast(e.message, 'err'); }
 }

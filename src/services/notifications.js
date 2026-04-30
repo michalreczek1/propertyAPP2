@@ -17,7 +17,16 @@ const SETTING_KEYS = [
   'notifications.sms.test_phone',
   'notifications.sms.clear_polish',
   'notifications.sms.transactional',
+  'notifications.sms.template.test',
+  'notifications.sms.template.due_reminder',
+  'notifications.sms.template.overdue',
 ];
+
+const DEFAULT_TEMPLATES = {
+  test: 'Test SMS PropertyApp: konfiguracja powiadomien dziala.',
+  due_reminder: 'Przypomnienie: termin platnosci za {unit} ({period}) uplywa {due_date}. Kwota: {amount} zl.',
+  overdue: 'Przypomnienie: nie odnotowano platnosci za {unit} ({period}). Kwota: {amount} zl. Prosimy o uregulowanie.',
+};
 
 const DEFAULT_SETTINGS = {
   'notifications.sms.enabled': '0',
@@ -30,6 +39,9 @@ const DEFAULT_SETTINGS = {
   'notifications.sms.test_phone': process.env.SMSPLANET_TEST_PHONE || '',
   'notifications.sms.clear_polish': '0',
   'notifications.sms.transactional': '0',
+  'notifications.sms.template.test': DEFAULT_TEMPLATES.test,
+  'notifications.sms.template.due_reminder': DEFAULT_TEMPLATES.due_reminder,
+  'notifications.sms.template.overdue': DEFAULT_TEMPLATES.overdue,
 };
 
 const MAX_ATTEMPTS = 3;
@@ -74,6 +86,9 @@ function getNotificationSettings(req = null) {
     test_phone: out['notifications.sms.test_phone'] || '',
     clear_polish: truthy(out['notifications.sms.clear_polish']),
     transactional: truthy(out['notifications.sms.transactional']),
+    template_test: out['notifications.sms.template.test'] || DEFAULT_TEMPLATES.test,
+    template_due_reminder: out['notifications.sms.template.due_reminder'] || DEFAULT_TEMPLATES.due_reminder,
+    template_overdue: out['notifications.sms.template.overdue'] || DEFAULT_TEMPLATES.overdue,
     token_configured: Boolean(process.env.SMSPLANET_TOKEN || process.env.SMSPLANET_API_TOKEN),
   };
 }
@@ -95,6 +110,9 @@ function validateSettings(body) {
   const reminderDays = Number(body.reminder_days_before_due ?? 3);
   if (!Number.isInteger(overdueDays) || overdueDays < 0 || overdueDays > 31) throw Object.assign(new Error('invalid_overdue_days'), { status: 400 });
   if (!Number.isInteger(reminderDays) || reminderDays < 0 || reminderDays > 31) throw Object.assign(new Error('invalid_reminder_days'), { status: 400 });
+  const templateTest = String(body.template_test || DEFAULT_TEMPLATES.test).trim();
+  const templateDueReminder = String(body.template_due_reminder || DEFAULT_TEMPLATES.due_reminder).trim();
+  const templateOverdue = String(body.template_overdue || DEFAULT_TEMPLATES.overdue).trim();
   return {
     'notifications.sms.enabled': enabled,
     'notifications.sms.sender': sender,
@@ -106,6 +124,9 @@ function validateSettings(body) {
     'notifications.sms.test_phone': String(body.test_phone || '').trim(),
     'notifications.sms.clear_polish': clearPolish,
     'notifications.sms.transactional': transactional,
+    'notifications.sms.template.test': templateTest,
+    'notifications.sms.template.due_reminder': templateDueReminder,
+    'notifications.sms.template.overdue': templateOverdue,
   };
 }
 
@@ -150,14 +171,32 @@ function monthLabel(period) {
   return month && year ? `${month}.${year}` : period;
 }
 
-function buildMessage(type, row) {
+function templateContext(row) {
   const due = row.due_date ? row.due_date.slice(8, 10) + '.' + row.due_date.slice(5, 7) : 'terminu';
   const unit = row.unit_code || row.unit_name || 'lokal';
   const amount = money(Number(row.rent_amount || 0) + Number(row.media_amount || 0) + Number(row.other_amount || 0));
-  if (type === 'due_reminder') {
-    return `Przypomnienie: termin platnosci za ${unit} (${monthLabel(row.period)}) uplywa ${due}. Kwota: ${amount} zl.`;
-  }
-  return `Przypomnienie: nie odnotowano platnosci za ${unit} (${monthLabel(row.period)}). Kwota: ${amount} zl. Prosimy o uregulowanie.`;
+  return {
+    tenant: row.tenant_name || '',
+    unit,
+    property: row.property_name || '',
+    period: monthLabel(row.period),
+    due_date: due,
+    amount,
+  };
+}
+
+function renderTemplate(template, row) {
+  const context = templateContext(row);
+  return String(template || '').replace(/\{([a-z_]+)\}/gi, (match, key) => {
+    return Object.prototype.hasOwnProperty.call(context, key) ? context[key] : match;
+  });
+}
+
+function buildMessage(type, row, settings) {
+  const template = type === 'due_reminder'
+    ? settings.template_due_reminder
+    : settings.template_overdue;
+  return renderTemplate(template, row);
 }
 
 function messageHash(message) {
@@ -232,10 +271,10 @@ function insertLog(row, type, phone, message, status = 'queued', error = null) {
   return db.prepare('SELECT * FROM notification_logs WHERE id = ?').get(result.lastInsertRowid);
 }
 
-function updateLogSuccess(logId, providerMessageId) {
+function updateLogSuccess(logId, providerMessageId, simulated = false) {
   db.prepare(`
     UPDATE notification_logs
-    SET status = 'sent',
+    SET status = ?,
         attempts = attempts + 1,
         provider_message_id = ?,
         error_code = NULL,
@@ -244,7 +283,7 @@ function updateLogSuccess(logId, providerMessageId) {
         last_attempt_at = CURRENT_TIMESTAMP,
         sent_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(providerMessageId || null, logId);
+  `).run(simulated ? 'simulated' : 'sent', providerMessageId || null, logId);
 }
 
 function updateLogFailure(logId, errorCode, errorMessage, attemptsBefore) {
@@ -273,8 +312,8 @@ async function sendLog(log, settings) {
     transactional: settings.transactional,
   });
   if (result.ok) {
-    updateLogSuccess(log.id, result.messageId);
-    return { ok: true, id: log.id, message_id: result.messageId };
+    updateLogSuccess(log.id, result.messageId, settings.test_mode);
+    return { ok: true, id: log.id, message_id: result.messageId, status: settings.test_mode ? 'simulated' : 'sent' };
   }
   updateLogFailure(log.id, result.errorCode, result.errorMessage, Number(log.attempts || 0));
   return { ok: false, id: log.id, error: result.errorMessage, error_code: result.errorCode };
@@ -285,7 +324,7 @@ async function enqueueAndSend(row, type, settings, dryRun = false) {
   const targetPhone = settings.test_mode && normalizePhone(settings.test_phone)
     ? normalizePhone(settings.test_phone)
     : actualPhone;
-  const message = buildMessage(type, row);
+  const message = buildMessage(type, row, settings);
   if (!actualPhone) {
     const skipped = insertLog(row, type, null, message, 'skipped', { code: 'invalid_phone', message: 'invalid_phone' });
     return { status: 'skipped', reason: 'invalid_phone', id: skipped && skipped.id };
@@ -307,13 +346,13 @@ async function enqueueAndSend(row, type, settings, dryRun = false) {
   const log = insertLog(row, type, targetPhone, message);
   if (!log) return { status: 'skipped', reason: 'already_logged' };
   const sent = await sendLog(log, settings);
-  return sent.ok ? { status: 'sent', id: log.id, message_id: sent.message_id } : { status: 'failed', id: log.id, error: sent.error };
+  return sent.ok ? { status: sent.status || 'sent', id: log.id, message_id: sent.message_id } : { status: 'failed', id: log.id, error: sent.error };
 }
 
 async function runNotificationScan({ req = null, type = 'all', dryRun = false, today = todayLocalISO() } = {}) {
   const settings = getNotificationSettings(req);
   const types = type === 'all' ? ['due_reminder', 'overdue'] : [type];
-  const result = { dry_run: dryRun, date: today, settings: { ...settings, token_configured: settings.token_configured }, scanned: 0, sent: 0, failed: 0, skipped: 0, candidates: [] };
+  const result = { dry_run: dryRun, date: today, settings: { ...settings, token_configured: settings.token_configured }, scanned: 0, sent: 0, simulated: 0, failed: 0, skipped: 0, candidates: [] };
   for (const currentType of types) {
     if (currentType === 'due_reminder' && !settings.reminder_enabled) continue;
     const rows = eligiblePayments(currentType, settings, req, today);
@@ -322,6 +361,7 @@ async function runNotificationScan({ req = null, type = 'all', dryRun = false, t
       const item = await enqueueAndSend(row, currentType, settings, dryRun);
       if (dryRun) result.candidates.push({ type: currentType, ...item });
       else if (item.status === 'sent') result.sent += 1;
+      else if (item.status === 'simulated') result.simulated += 1;
       else if (item.status === 'failed') result.failed += 1;
       else result.skipped += 1;
     }
@@ -357,11 +397,12 @@ async function processDueRetries(req = null) {
     ORDER BY created_at ASC
     LIMIT 20
   `).all(MAX_ATTEMPTS, ...scope.params);
-  const result = { retried: 0, sent: 0, failed: 0 };
+  const result = { retried: 0, sent: 0, simulated: 0, failed: 0 };
   for (const log of logs) {
     result.retried += 1;
     const sent = await sendLog(log, settings);
-    if (sent.ok) result.sent += 1;
+    if (sent.ok && sent.status === 'simulated') result.simulated = (result.simulated || 0) + 1;
+    else if (sent.ok) result.sent += 1;
     else result.failed += 1;
   }
   return result;
@@ -371,7 +412,7 @@ async function sendTestSms(req, phone, message) {
   const settings = getNotificationSettings(req);
   const normalized = normalizePhone(phone || settings.test_phone);
   if (!normalized) throw Object.assign(new Error('test_phone_required'), { status: 400 });
-  const text = message || 'Test SMS PropertyApp: konfiguracja powiadomien dziala.';
+  const text = message || settings.template_test || DEFAULT_TEMPLATES.test;
   const fake = {
     id: null,
     owner_user_id: ownerId(req),
