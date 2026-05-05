@@ -55,6 +55,32 @@ app.use('/api/export',     require('./routes/export'));
 
 // Frontend (statyczne)
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+function immutableAsset(res) {
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+}
+
+app.get('/manifest.webmanifest', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/manifest+json');
+  res.sendFile(path.join(PUBLIC_DIR, 'manifest.webmanifest'));
+});
+app.get('/favicon.svg', (_req, res) => {
+  immutableAsset(res);
+  res.type('image/svg+xml');
+  res.sendFile(path.join(PUBLIC_DIR, 'favicon.svg'));
+});
+app.get('/apple-touch-icon.png', (_req, res) => {
+  immutableAsset(res);
+  res.type('image/png');
+  res.sendFile(path.join(PUBLIC_DIR, 'icons', 'apple-touch-icon.png'));
+});
+app.use('/icons', express.static(path.join(PUBLIC_DIR, 'icons'), {
+  index: false,
+  setHeaders(res) {
+    immutableAsset(res);
+  },
+}));
+
 function requirePageAuth(req, res, next) {
   const status = authStatus(req);
   if (!status.enabled || status.user) return next();
