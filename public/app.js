@@ -468,12 +468,18 @@ const VIEW_TITLES = {
 function currentView() { return (location.hash || '#dashboard').slice(1); }
 function navigate(v) { location.hash = v; }
 
-async function render() {
+async function render(opts = {}) {
   const v = currentView();
   syncNavState(v);
   // destroy charts
   for (const k of Object.keys(State.charts)) { try { State.charts[k].destroy(); } catch {} delete State.charts[k]; }
   const root = document.getElementById('view-root');
+  const content = document.querySelector('.content');
+  const preserveScroll = Boolean(opts.preserveScroll);
+  const savedScrollTop = preserveScroll && content ? content.scrollTop : 0;
+  const savedWindowScroll = preserveScroll ? window.scrollY : 0;
+  const previousMinHeight = root.style.minHeight;
+  if (preserveScroll) root.style.minHeight = `${Math.max(root.offsetHeight, content ? content.scrollHeight : 0)}px`;
   const fn = VIEWS[v] || renderDashboard;
   root.innerHTML = spinner();
   try {
@@ -483,6 +489,15 @@ async function render() {
     root.innerHTML = `<div class="gc"><div style="padding:22px;color:var(--rose)">Błąd: ${escapeHtml(e.message)}</div></div>`;
   }
   enhanceResponsiveTables(root);
+  if (preserveScroll) {
+    const restore = () => {
+      if (content) content.scrollTop = savedScrollTop;
+      window.scrollTo(window.scrollX, savedWindowScroll);
+      root.style.minHeight = previousMinHeight;
+    };
+    restore();
+    requestAnimationFrame(restore);
+  }
   refreshNavBadges();
 }
 
@@ -846,7 +861,7 @@ function bindPaymentChecks() {
       try {
         await Api.put(`/payments/${id}/toggle-paid`);
         toast(wasChecked ? 'Zatwierdzono wpłatę' : 'Cofnięto zatwierdzenie');
-        render();
+        render({ preserveScroll: true });
       } catch (err) {
         cb.checked = !wasChecked;
         toast(err.message || 'Błąd', 'err');

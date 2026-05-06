@@ -125,6 +125,38 @@ test('payments table becomes readable cards on phone width', async ({ page, requ
   }
 });
 
+test('payment checkbox keeps the current scroll position', async ({ page, request }) => {
+  const fixtures = [];
+  try {
+    for (let i = 0; i < 14; i += 1) {
+      fixtures.push(await createPaymentFixture(request, `__scroll_payment_${i}`));
+    }
+
+    await page.setViewportSize({ width: 900, height: 600 });
+    await page.goto('/#platnosci');
+
+    const checkbox = page.locator(`input.pay-chk[data-pay-id="${fixtures[fixtures.length - 1].paymentId}"]`);
+    await checkbox.scrollIntoViewIfNeeded();
+
+    const before = await page.evaluate(() => document.querySelector('.content')?.scrollTop || 0);
+    expect(before).toBeGreaterThan(0);
+
+    await checkbox.click();
+    await expect(page.getByText('Zatwierdzono wpłatę')).toBeVisible();
+
+    const after = await page.evaluate(() => new Promise(resolve => {
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        resolve(document.querySelector('.content')?.scrollTop || 0);
+      }));
+    }));
+    expect(after).toBeGreaterThan(before - 40);
+  } finally {
+    for (const fixture of fixtures.reverse()) {
+      await cleanupPaymentFixture(request, fixture);
+    }
+  }
+});
+
 test('tablet views keep large tables inside the app shell', async ({ page }) => {
   await page.setViewportSize({ width: 768, height: 1024 });
   await page.goto('/#raporty');
