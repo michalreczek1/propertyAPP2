@@ -29,13 +29,13 @@
     "setup:dev": "npm run migrate && npm run seed"
   },
   "dependencies": {
+    "@e965/xlsx": "^0.20.3",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.5.0",
     "express": "^4.21.1",
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
     "pdfkit": "^0.15.1",
-    "xlsx": "^0.18.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {

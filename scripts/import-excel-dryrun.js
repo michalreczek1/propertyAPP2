@@ -11,7 +11,7 @@
  */
 const path = require('path');
 const fs = require('fs');
-const XLSX = require('xlsx');
+const XLSX = require('@e965/xlsx');
 
 // inline: te same funkcje co w utils/period.js (żeby nie ładować db.js)
 function normalize(s) {

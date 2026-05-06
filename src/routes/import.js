@@ -10,7 +10,18 @@ const { requireAdmin } = require('../middleware/auth');
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, '..', '..', 'data', 'uploads');
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
-const upload = multer({ dest: UPLOADS_DIR, limits: { fileSize: 25 * 1024 * 1024 } });
+const upload = multer({
+  dest: UPLOADS_DIR,
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    if (ext !== '.xlsx' && ext !== '.xls') {
+      cb(new Error('unsupported_file_type'));
+      return;
+    }
+    cb(null, true);
+  },
+});
 
 function excelImportEnabled() {
   return process.env.ENABLE_EXCEL_IMPORT === '1';
@@ -29,7 +40,7 @@ router.get('/status', (_req, res) => {
   });
 });
 
-router.post('/excel/dry-run', upload.single('file'), async (req, res, next) => {
+router.post('/excel/dry-run', requireAdmin, upload.single('file'), async (req, res, next) => {
   const filePath = req.file ? req.file.path : (req.body && req.body.path);
   try {
     if (!filePath) return res.status(400).json({ error: 'no_file' });

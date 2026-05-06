@@ -19,7 +19,7 @@
 
 const path = require('path');
 const fs = require('fs');
-const XLSX = require('xlsx');
+const XLSX = require('@e965/xlsx');
 const db = require('../src/db');
 const { parsePolishMonthYear, dueDate, normalize } = require('../src/utils/period');
 
