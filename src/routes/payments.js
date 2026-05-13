@@ -41,7 +41,7 @@ function isLatePayment(row) {
 }
 
 function lateFeePaid(row, amount) {
-  return Math.min(num(amount), Math.max(0, num(row.total_paid) - baseAmount(row)));
+  return Math.min(num(amount), Math.max(0, num(row.late_fee_paid)));
 }
 
 function normalizeLateFee(row, previous = null, explicitAmount = false) {
@@ -68,13 +68,14 @@ function hasManualLateFeeChange(body, previous) {
 }
 
 function expectedAmount(row) {
-  return baseAmount(row) + num(row.late_fee_amount);
+  return baseAmount(row);
 }
 
 function paymentJoinSql(where = '') {
   return `
     SELECT p.*,
-      (p.rent_amount + p.media_amount + p.other_amount + COALESCE(p.late_fee_amount, 0)) AS expected_total,
+      (p.rent_amount + p.media_amount + p.other_amount) AS expected_total,
+      (p.rent_amount + p.media_amount + p.other_amount + COALESCE(p.late_fee_amount, 0)) AS expected_with_late_fee,
       MAX(COALESCE(p.late_fee_amount, 0) - COALESCE(p.late_fee_paid, 0), 0) AS late_fee_balance,
       t.name AS tenant_name, t.avatar_color,
       u.name AS unit_name, u.code AS unit_code,
@@ -240,18 +241,14 @@ router.post('/approve-month', (req, res) => {
           ELSE 0
         END,
         late_fee_paid=CASE
-          WHEN COALESCE(late_fee_manual, 0) = 1 THEN COALESCE(late_fee_amount, 0)
-          WHEN due_date IS NOT NULL AND DATE(?) > DATE(due_date) THEN ?
+          WHEN COALESCE(late_fee_manual, 0) = 1 THEN MIN(COALESCE(late_fee_paid, 0), COALESCE(late_fee_amount, 0))
+          WHEN due_date IS NOT NULL AND DATE(?) > DATE(due_date) THEN 0
           ELSE 0
         END,
-        total_paid=(rent_amount + media_amount + other_amount + CASE
-          WHEN COALESCE(late_fee_manual, 0) = 1 THEN COALESCE(late_fee_amount, 0)
-          WHEN due_date IS NOT NULL AND DATE(?) > DATE(due_date) THEN ?
-          ELSE 0
-        END)
+        total_paid=(rent_amount + media_amount + other_amount)
     WHERE period = ? AND status IN ('pending','overdue')
       ${scoped ? 'AND id IN (SELECT pm.id FROM payments pm LEFT JOIN units u ON u.id = pm.unit_id LEFT JOIN properties pr ON pr.id = u.property_id LEFT JOIN tenants t ON t.id = pm.tenant_id WHERE pm.period = ? AND (pm.owner_user_id = ? OR pr.owner_user_id = ? OR t.owner_user_id = ?))' : ''}
-  `).run(today, today, LATE_FEE_AMOUNT, today, LATE_FEE_AMOUNT, today, LATE_FEE_AMOUNT, period, ...(scoped ? [period, req.user.id, req.user.id, req.user.id] : []));
+  `).run(today, today, LATE_FEE_AMOUNT, today, period, ...(scoped ? [period, req.user.id, req.user.id, req.user.id] : []));
   res.json({ period, updated: r.changes });
 });
 

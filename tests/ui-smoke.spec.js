@@ -106,7 +106,7 @@ test('payments table becomes readable cards on phone width', async ({ page, requ
     const table = page.locator('table.t-responsive').first();
     await expect(table).toBeVisible();
     await expect(page.locator('td[data-label="Najemca"]').first()).toBeVisible();
-    await expect(page.locator('td[data-label="Razem"]').first()).toBeVisible();
+    await expect(page.locator('td[data-label="Razem bez kar"]').first()).toBeVisible();
     const metrics = await page.evaluate(() => {
       const content = document.querySelector('.content');
       return {

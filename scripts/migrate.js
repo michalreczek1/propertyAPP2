@@ -474,7 +474,7 @@ function backfillLateFees() {
   db.prepare(`
     UPDATE payments
     SET late_fee_amount = 50,
-        late_fee_paid = MIN(50, MAX(0, COALESCE(total_paid, 0) - (COALESCE(rent_amount, 0) + COALESCE(media_amount, 0) + COALESCE(other_amount, 0))))
+        late_fee_paid = MIN(50, COALESCE(late_fee_paid, 0))
     WHERE COALESCE(late_fee_manual, 0) = 0
       AND status IN ('paid', 'partial')
       AND paid_date IS NOT NULL
@@ -493,6 +493,17 @@ function backfillLateFees() {
   `).run();
 }
 
+function separateAutoLateFeesFromBasePayments() {
+  db.prepare(`
+    UPDATE payments
+    SET total_paid = MAX(0, COALESCE(total_paid, 0) - COALESCE(late_fee_paid, 0)),
+        late_fee_paid = 0
+    WHERE COALESCE(late_fee_manual, 0) = 0
+      AND COALESCE(late_fee_paid, 0) > 0
+      AND COALESCE(total_paid, 0) > (COALESCE(rent_amount, 0) + COALESCE(media_amount, 0) + COALESCE(other_amount, 0))
+  `).run();
+}
+
 ensureLegacyColumns();
 backfillAdminUser();
 backfillPropertyOwner();
@@ -501,6 +512,7 @@ ensureNotificationLogIndexes();
 ensurePaymentIndexes();
 normalizePaymentDueDates();
 backfillLateFees();
+separateAutoLateFeesFromBasePayments();
 
 function numSetting(key, fallback = 0) {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);

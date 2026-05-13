@@ -808,7 +808,7 @@ function paymentsTable(rows, withActions) {
       <thead><tr>
         <th style="width:40px;text-align:center">✓</th>
         <th>Najemca</th><th>Lokal</th><th>Status</th><th>Termin</th>
-        <th>Wpłata</th><th>Czynsz</th><th>Media</th><th>Kara</th><th>Razem</th>
+        <th>Wpłata</th><th>Czynsz</th><th>Media</th><th>Kara</th><th>Razem bez kar</th>
         ${withActions ? '<th></th>' : ''}
       </tr></thead>
       <tbody>${rows.map(p => paymentRow(p, withActions)).join('')}</tbody>
@@ -821,7 +821,7 @@ function paymentsTable(rows, withActions) {
 }
 
 function paymentExpectedTotal(p) {
-  return (p.rent_amount||0) + (p.media_amount||0) + (p.other_amount||0) + (p.late_fee_amount||0);
+  return (p.rent_amount||0) + (p.media_amount||0) + (p.other_amount||0);
 }
 
 function paymentRow(p, withActions) {
@@ -861,7 +861,8 @@ function bindPaymentChecks() {
       try {
         await Api.put(`/payments/${id}/toggle-paid`);
         toast(wasChecked ? 'Zatwierdzono wpłatę' : 'Cofnięto zatwierdzenie');
-        render({ preserveScroll: true });
+        cb.blur();
+        await render({ preserveScroll: true });
       } catch (err) {
         cb.checked = !wasChecked;
         toast(err.message || 'Błąd', 'err');
@@ -1031,8 +1032,8 @@ async function renderPayments(root) {
           <div class="ch"><div><div class="ch-title">Podsumowanie</div><div class="ch-sub">${escapeHtml(periodLabel(State.period))}</div></div></div>
           <div style="padding:16px 20px">
             <div class="summary-row"><span class="lbl">Przychody (zatwierdzone)</span><span class="val" style="color:var(--emerald)">+ ${fmtPLN(r.gross)} zł</span></div>
-            <div class="summary-row"><span class="lbl">Oczekiwane</span><span class="val" style="color:var(--t3)">${fmtPLN(r.expected_with_late_fees||r.expected||0)} zł</span></div>
-            ${r.late_fee_balance ? `<div class="summary-row"><span class="lbl">Kary do potrącenia z kaucji</span><span class="val" style="color:var(--rose)">${fmtPLN(r.late_fee_balance)} zł</span></div>` : ''}
+            <div class="summary-row"><span class="lbl">Oczekiwane bez kar</span><span class="val" style="color:var(--t3)">${fmtPLN(r.expected||0)} zł</span></div>
+            ${(r.late_fee_expected||r.late_fee_balance) ? `<div class="summary-row"><span class="lbl">Kary naliczone / do rozliczenia</span><span class="val" style="color:var(--rose)">${fmtPLN(r.late_fee_expected||0)} zł / ${fmtPLN(r.late_fee_balance||0)} zł</span></div>` : ''}
             <div class="summary-row"><span class="lbl">Podatek</span><span class="val" style="color:var(--rose)">− ${fmtPLN(t.podatek_suma||0)} zł</span></div>
             ${dash && dash.expenses ? `<div class="summary-row"><span class="lbl">Koszty</span><span class="val" style="color:var(--rose)">− ${fmtPLN(dash.expenses.total||0)} zł</span></div>` : ''}
             <div class="summary-row last"><span class="lbl">Netto właściciel</span><span class="val" style="color:var(--emerald);font-size:18px">${fmtPLN(owner)} zł</span></div>
@@ -1070,7 +1071,8 @@ window.editPayment = async function(id) {
       { name:'media_amount', label:'Media', type:'number', step:'0.01' },
       { name:'other_amount', label:'Inne', type:'number', step:'0.01' },
       { name:'late_fee_amount', label:'Kara za opóźnienie', type:'number', step:'0.01', hint:'Automatycznie 50 zł, gdy data wpłaty jest po terminie. Możesz zmienić albo wyzerować.' },
-      { name:'total_paid', label:'Wpłacono', type:'number', step:'0.01' },
+      { name:'late_fee_paid', label:'Zapłacono z kary', type:'number', step:'0.01', hint:'Osobna ewidencja kar. Nie zwiększa przychodu z czynszu w tym miesiącu.' },
+      { name:'total_paid', label:'Wpłacono bez kar', type:'number', step:'0.01' },
       { name:'status', label:'Status', type:'select', options:[{value:'paid',label:'Opłacona'},{value:'pending',label:'Oczekuje'},{value:'overdue',label:'Zaległa'},{value:'partial',label:'Częściowa'}] },
       { name:'notes', label:'Notatka', type:'textarea', full:true },
     ],
@@ -1663,7 +1665,7 @@ window.openTenantDetails = async function(id) {
 
   const paymentsHtml = t.payments && t.payments.length
     ? `<table class="t" style="margin-top:10px">
-        <thead><tr><th>Okres</th><th>Termin</th><th>Czynsz</th><th>Media</th><th>Kara</th><th>Wpłacono</th><th>Status</th></tr></thead>
+        <thead><tr><th>Okres</th><th>Termin</th><th>Czynsz</th><th>Media</th><th>Kara</th><th>Wpłacono bez kar</th><th>Status</th></tr></thead>
         <tbody>${t.payments.slice(0,12).map(p => {
           const st = STATUS_CHIP[p.status] || STATUS_CHIP.pending;
           return `<tr>
@@ -2080,7 +2082,7 @@ async function renderReports(root) {
 
     <div class="gc">
       <div class="sum-grid sum-grid-5">
-        <div class="sum-cell"><div class="sc-lbl">Przychód brutto</div><div class="sc-val">${fmtPLN(totals.revenue)}<span class="sc-unit"> PLN</span></div><div class="sc-delta delta-n">z ${fmtPLN(totals.expected_revenue_with_late_fees||totals.expected_revenue||0)} oczekiwanych</div><div class="sc-bar"><div class="sc-fill" style="width:${(totals.expected_revenue_with_late_fees||totals.expected_revenue)?Math.min(100,totals.revenue/(totals.expected_revenue_with_late_fees||totals.expected_revenue)*100):0}%;background:var(--emerald)"></div></div></div>
+        <div class="sum-cell"><div class="sc-lbl">Przychód brutto</div><div class="sc-val">${fmtPLN(totals.revenue)}<span class="sc-unit"> PLN</span></div><div class="sc-delta delta-n">z ${fmtPLN(totals.expected_revenue||0)} oczekiwanych bez kar</div><div class="sc-bar"><div class="sc-fill" style="width:${totals.expected_revenue?Math.min(100,totals.revenue/totals.expected_revenue*100):0}%;background:var(--emerald)"></div></div></div>
         <div class="sum-cell"><div class="sc-lbl">Łączne koszty</div><div class="sc-val">${fmtPLN(totals.expenses)}<span class="sc-unit"> PLN</span></div><div class="sc-delta delta-n">w okresie</div><div class="sc-bar"><div class="sc-fill" style="width:${totals.revenue?Math.min(100,totals.expenses/totals.revenue*100):0}%;background:var(--rose)"></div></div></div>
         <div class="sum-cell"><div class="sc-lbl">Podatek (ryczałt)</div><div class="sc-val">${fmtPLN(totals.tax_total||0)}<span class="sc-unit"> PLN</span></div><div class="sc-delta delta-n">${(totals.tax_rate||0)}% × ${fmtPLN(totals.rent_paid||0)} zł czynszu${(totals.tax_koscielna||0)>0?` + ${fmtPLN(totals.tax_koscielna)} zł stałe`:''}</div><div class="sc-bar"><div class="sc-fill" style="width:${totals.revenue?Math.min(100,(totals.tax_total||0)/totals.revenue*100):0}%;background:var(--violet)"></div></div></div>
         <div class="sum-cell"><div class="sc-lbl">Netto właściciel</div><div class="sc-val">${fmtPLN(totals.net)}<span class="sc-unit"> PLN</span></div><div class="sc-delta ${totals.net>=0?'delta-up':'delta-dn'}">po kosztach + podatku</div><div class="sc-bar"><div class="sc-fill" style="width:${totals.revenue?Math.max(0,Math.min(100,totals.net/totals.revenue*100)):0}%;background:var(--cyan)"></div></div></div>
@@ -2127,11 +2129,11 @@ async function renderReports(root) {
       <div class="ch"><div><div class="ch-title">Szczegół per lokal</div><div class="ch-sub">${escapeHtml(r.period_label)} · ${r.per_unit.length} pozycji · koszty bezpośrednie + alokowane</div></div></div>
       <div style="overflow-x:auto">
         <table class="t">
-          <thead><tr><th>#</th><th>Lokal</th><th>Najemca</th><th>Czynsz</th><th>Media</th><th>Inne</th><th>Kary</th><th>Razem</th><th>Wpłacono</th><th>Koszty (bezp. + alok.)</th><th>Status</th><th>Marża</th></tr></thead>
+          <thead><tr><th>#</th><th>Lokal</th><th>Najemca</th><th>Czynsz</th><th>Media</th><th>Inne</th><th>Kary</th><th>Razem bez kar</th><th>Wpłacono bez kar</th><th>Koszty (bezp. + alok.)</th><th>Status</th><th>Marża</th></tr></thead>
           <tbody>${r.per_unit.map((u, i) => {
             const st = STATUS_CHIP[u.status] || { cls:'chip-n', label:'—' };
             const rev = (u.status === 'paid'
-              ? (u.rent_amount||0) + (u.media_amount||0) + (u.other_amount||0) + (u.late_fee_paid||0)
+              ? (u.rent_amount||0) + (u.media_amount||0) + (u.other_amount||0)
               : (u.status === 'partial' ? u.total_paid : 0)) || 0;
             const margin = rev ? (rev - (u.expenses||0)) / rev : 0;
             const mc = margin >= 0.7 ? 'emerald' : margin >= 0.5 ? 'cyan' : margin >= 0 ? 'amber' : 'rose';

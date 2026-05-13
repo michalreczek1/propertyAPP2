@@ -22,8 +22,8 @@ function round2(value) {
 
 function paidExpr(alias = 'pm') {
   return `CASE
-    WHEN ${alias}.status='paid' THEN (${alias}.rent_amount + ${alias}.media_amount + ${alias}.other_amount + COALESCE(${alias}.late_fee_paid, 0))
-    WHEN ${alias}.status='partial' THEN ${alias}.total_paid
+    WHEN ${alias}.status='paid' THEN (${alias}.rent_amount + ${alias}.media_amount + ${alias}.other_amount)
+    WHEN ${alias}.status='partial' THEN MIN(${alias}.total_paid, ${alias}.rent_amount + ${alias}.media_amount + ${alias}.other_amount)
     ELSE 0
   END`;
 }
@@ -32,8 +32,8 @@ function paidPartExpr(part, alias = 'pm') {
   return `CASE
     WHEN ${alias}.status='paid' THEN ${alias}.${part}
     WHEN ${alias}.status='partial' THEN
-      CASE WHEN (${alias}.rent_amount + ${alias}.media_amount + ${alias}.other_amount + COALESCE(${alias}.late_fee_amount, 0)) > 0
-        THEN ${alias}.total_paid * ${alias}.${part} * 1.0 / (${alias}.rent_amount + ${alias}.media_amount + ${alias}.other_amount + COALESCE(${alias}.late_fee_amount, 0))
+      CASE WHEN (${alias}.rent_amount + ${alias}.media_amount + ${alias}.other_amount) > 0
+        THEN MIN(${alias}.total_paid, ${alias}.rent_amount + ${alias}.media_amount + ${alias}.other_amount) * ${alias}.${part} * 1.0 / (${alias}.rent_amount + ${alias}.media_amount + ${alias}.other_amount)
         ELSE 0 END
     ELSE 0
   END`;
@@ -163,7 +163,7 @@ function propertiesForPeriod(db, period, tax, ownerCosts, req = null) {
         WHERE u2.property_id = p.id AND pm.period = ?
       ), 0) AS rent_paid,
       COALESCE((
-        SELECT SUM(pm.rent_amount + pm.media_amount + pm.other_amount + COALESCE(pm.late_fee_amount, 0))
+        SELECT SUM(pm.rent_amount + pm.media_amount + pm.other_amount)
         FROM payments pm
         JOIN units u2 ON u2.id = pm.unit_id
         WHERE u2.property_id = p.id AND pm.period = ?
@@ -211,7 +211,7 @@ function perUnitForPeriod(db, period, ownerCosts, req = null) {
            u.property_id, p.name AS property_name, p.district,
            t.name AS tenant_name, t.avatar_color,
            pm.rent_amount, pm.media_amount, pm.other_amount, pm.late_fee_amount, pm.late_fee_paid, pm.total_paid, pm.status,
-           pm.rent_amount + pm.media_amount + pm.other_amount + COALESCE(pm.late_fee_amount, 0) AS gross,
+           pm.rent_amount + pm.media_amount + pm.other_amount AS gross,
            COALESCE((
              SELECT SUM(e.amount)
              FROM expenses e

@@ -123,6 +123,10 @@ for (const [tenantId, unitId, rent, media] of aprilPayments) {
 }
 payment.run('2026-06', tenantIds[0], krId, '2026-06-10', '2026-06-10', 100, 0, 100, 'paid');
 payment.run('2026-06', tenantIds[1], roomIds[0], '2026-06-10', '2026-06-10', 100, 0, 100, 'paid');
+db.prepare(`
+  INSERT INTO payments(period, tenant_id, unit_id, due_day, due_date, paid_date, rent_amount, media_amount, late_fee_amount, late_fee_paid, total_paid, status)
+  VALUES (?, ?, ?, 10, ?, ?, ?, ?, ?, ?, ?, ?)
+`).run('2026-08', tenantIds[0], krId, '2026-08-10', '2026-08-12', 1000, 100, 50, 50, 1100, 'paid');
 
 const expense = db.prepare('INSERT INTO expenses(property_id, category, amount, date, description) VALUES (?, ?, ?, ?, ?)');
 expense.run(chrobregoId, 'czynsz', 1710, '2026-04-01', 'Czynsz Chrobrego');
@@ -174,5 +178,11 @@ const july = monthlyFinanceSummary(db, '2026-07');
 const julyCreditRows = july.costs_by_category.filter(row => row.category === 'kredyt');
 assert.equal(julyCreditRows.length, 1, 'Manual and owner mortgage costs are merged into one credit category');
 near(julyCreditRows[0].total, 4100, 'Credit category includes manual and owner mortgage costs');
+
+const august = monthlyFinanceSummary(db, '2026-08');
+near(august.revenue.gross, 1100, 'Paid late fee is tracked separately from monthly revenue');
+near(august.revenue.late_fee_paid, 50, 'Paid late fee remains visible in late fee ledger');
+near(august.revenue.late_fee_balance, 0, 'Fully paid late fee has no tenant balance');
+near(august.tax.podatek_suma, 85, 'Tax base excludes paid late fee');
 
 console.log('✓ Finance regression tests passed');
