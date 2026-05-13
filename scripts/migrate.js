@@ -508,6 +508,15 @@ function separateAutoLateFeesFromBasePayments() {
   `).run();
 }
 
+function correctKnownPropertyDistricts() {
+  db.prepare(`
+    UPDATE properties
+    SET district = 'Piątkowo'
+    WHERE name LIKE '%Chrobrego%'
+      AND district = 'Rataje'
+  `).run();
+}
+
 ensureLegacyColumns();
 backfillAdminUser();
 backfillPropertyOwner();
@@ -517,6 +526,7 @@ ensurePaymentIndexes();
 normalizePaymentDueDates();
 backfillLateFees();
 separateAutoLateFeesFromBasePayments();
+correctKnownPropertyDistricts();
 
 function numSetting(key, fallback = 0) {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);

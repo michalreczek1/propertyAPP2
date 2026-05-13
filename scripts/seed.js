@@ -13,7 +13,7 @@ const db = require('../src/db');
 
 const properties = [
   { name: 'Kościelna 30/21',      address: 'ul. Kościelna 30/21',      district: 'Centrum', type: 'mieszkanie' },
-  { name: 'Os. B. Chrobrego 28/21', address: 'Os. B. Chrobrego 28/21', district: 'Rataje',  type: 'pokoje' },
+  { name: 'Os. B. Chrobrego 28/21', address: 'Os. B. Chrobrego 28/21', district: 'Piątkowo', type: 'pokoje' },
 ];
 
 const units = [

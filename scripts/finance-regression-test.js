@@ -89,7 +89,7 @@ insertSetting.run('tax.koscielna', '0');
 
 const prop = db.prepare('INSERT INTO properties(name, district, type) VALUES (?, ?, ?)');
 const koscielnaId = prop.run('Kościelna 30/21', 'Centrum', 'mieszkanie').lastInsertRowid;
-const chrobregoId = prop.run('Os. B. Chrobrego 28/21', 'Rataje', 'pokoje').lastInsertRowid;
+const chrobregoId = prop.run('Os. B. Chrobrego 28/21', 'Piątkowo', 'pokoje').lastInsertRowid;
 
 const unit = db.prepare('INSERT INTO units(property_id, name, code, base_rent, base_media, status) VALUES (?, ?, ?, ?, ?, ?)');
 const krId = unit.run(koscielnaId, 'Lokal', 'KR', 2150, 850, 'rented').lastInsertRowid;
