@@ -1,4 +1,6 @@
 'use strict';
+const fs = require('fs');
+const path = require('path');
 const router = require('express').Router();
 const PDFDocument = require('pdfkit');
 const db = require('../db');
@@ -12,6 +14,46 @@ function csvEscape(v) {
   const s = String(v);
   if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
+}
+
+function firstExisting(paths) {
+  return paths.find((p) => p && fs.existsSync(p));
+}
+
+function pdfFontPaths() {
+  const root = path.resolve(__dirname, '..', '..');
+  return {
+    regular: firstExisting([
+      process.env.PDF_FONT_REGULAR,
+      path.join(root, 'assets', 'fonts', 'DejaVuSans.ttf'),
+      '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+      '/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf',
+      '/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf',
+      'C:\\Windows\\Fonts\\arial.ttf',
+      'C:\\Windows\\Fonts\\segoeui.ttf',
+      'C:\\Windows\\Fonts\\calibri.ttf',
+    ]),
+    bold: firstExisting([
+      process.env.PDF_FONT_BOLD,
+      path.join(root, 'assets', 'fonts', 'DejaVuSans-Bold.ttf'),
+      '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+      '/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf',
+      '/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf',
+      'C:\\Windows\\Fonts\\arialbd.ttf',
+      'C:\\Windows\\Fonts\\segoeuib.ttf',
+      'C:\\Windows\\Fonts\\calibrib.ttf',
+    ]),
+  };
+}
+
+function setupPdfFonts(doc) {
+  const fonts = pdfFontPaths();
+  if (!fonts.regular) {
+    return { regular: 'Helvetica', bold: 'Helvetica-Bold' };
+  }
+  doc.registerFont('AppRegular', fonts.regular);
+  doc.registerFont('AppBold', fonts.bold || fonts.regular);
+  return { regular: 'AppRegular', bold: 'AppBold' };
 }
 
 router.get('/payments.csv', (req, res) => {
@@ -61,31 +103,32 @@ router.get('/report.pdf', (req, res) => {
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="raport-${period}.pdf"`);
   doc.pipe(res);
+  const fonts = setupPdfFonts(doc);
 
-  doc.fontSize(20).text('PropertyApp — Raport miesięczny', { align: 'left' });
-  doc.fontSize(12).fillColor('#6b7280').text(periodLabel(period), { align: 'left' });
+  doc.font(fonts.bold).fontSize(20).text('PropertyApp - Raport miesięczny', { align: 'left' });
+  doc.font(fonts.regular).fontSize(12).fillColor('#6b7280').text(periodLabel(period), { align: 'left' });
   doc.moveDown();
   doc.fillColor('#1a1d23');
 
-  doc.fontSize(14).text('Podsumowanie');
-  doc.fontSize(11).text(`Przychód zatwierdzony: ${fmtPLN(summary.revenue.gross)} PLN`);
-  doc.text(`  – Czynsz zatwierdzony: ${fmtPLN(summary.revenue.rent_paid)} PLN`);
-  doc.text(`  – Media + czynsz w przychodach: ${fmtPLN(summary.revenue.media)} PLN`);
-  doc.text(`  – Inne zatwierdzone: ${fmtPLN(summary.revenue.other_paid || 0)} PLN`);
+  doc.font(fonts.bold).fontSize(14).text('Podsumowanie');
+  doc.font(fonts.regular).fontSize(11).text(`Przychód zatwierdzony: ${fmtPLN(summary.revenue.gross)} PLN`);
+  doc.text(`  - Czynsz zatwierdzony: ${fmtPLN(summary.revenue.rent_paid)} PLN`);
+  doc.text(`  - Media + czynsz w przychodach: ${fmtPLN(summary.revenue.media)} PLN`);
+  doc.text(`  - Inne zatwierdzone: ${fmtPLN(summary.revenue.other_paid || 0)} PLN`);
   doc.text(`Oczekiwany przychód: ${fmtPLN(summary.revenue.expected)} PLN`);
   doc.text(`Koszty: ${fmtPLN(summary.expenses.total)} PLN`);
-  if (ownerCosts.management) doc.text(`  – Zarządzanie: ${fmtPLN(ownerCosts.management)} PLN`);
-  if (ownerCosts.mortgage_total) doc.text(`  – Kredyty: ${fmtPLN(ownerCosts.mortgage_total)} PLN`);
+  if (ownerCosts.management) doc.text(`  - Zarządzanie: ${fmtPLN(ownerCosts.management)} PLN`);
+  if (ownerCosts.mortgage_total) doc.text(`  - Kredyty: ${fmtPLN(ownerCosts.mortgage_total)} PLN`);
   doc.text(`Podatek (ryczałt): ${fmtPLN(summary.tax.podatek || 0)} PLN`);
   if (summary.tax.podatek_koscielna) doc.text(`Podatek dodatkowy: ${fmtPLN(summary.tax.podatek_koscielna)} PLN`);
   doc.text(`Podatek razem: ${fmtPLN(summary.tax.podatek_suma || 0)} PLN`);
   doc.text(`Netto dla właściciela: ${fmtPLN(summary.net_for_owner)} PLN`, { underline: true });
   doc.moveDown();
 
-  doc.fontSize(14).text('Per nieruchomość');
-  doc.fontSize(11);
+  doc.font(fonts.bold).fontSize(14).text('Per nieruchomość');
+  doc.font(fonts.regular).fontSize(11);
   for (const p of summary.properties) {
-    doc.text(`• ${p.name} (${p.district || '—'}): przychód ${fmtPLN(p.revenue)} PLN, koszty ${fmtPLN(p.expenses)} PLN, podatek ${fmtPLN(p.tax)} PLN, netto ${fmtPLN(p.net)} PLN`);
+    doc.text(`- ${p.name} (${p.district || '-'}): przychód ${fmtPLN(p.revenue)} PLN, koszty ${fmtPLN(p.expenses)} PLN, podatek ${fmtPLN(p.tax)} PLN, netto ${fmtPLN(p.net)} PLN`);
   }
 
   doc.end();
