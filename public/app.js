@@ -1659,6 +1659,81 @@ window.editTenant = async function(id) {
   });
 };
 
+function lateFeeStatusChip(f) {
+  const balance = Number(f && f.balance) || 0;
+  const paid = Number(f && f.paid) || 0;
+  const resolution = f && f.resolution || 'unpaid';
+  if (resolution === 'waived') return chip('chip-n', 'Anulowana');
+  if (resolution === 'deposit') return chip('chip-v', 'Z kaucji');
+  if (balance <= 0 && paid > 0) return chip('chip-e', 'Rozliczona', true);
+  if (paid > 0) return chip('chip-a', 'Częściowo');
+  return chip('chip-r', 'Do rozliczenia');
+}
+
+window.resolveLateFee = async function(paymentId, tenantId) {
+  const p = await Api.get(`/payments/${paymentId}`);
+  const fee = Number(p.late_fee_amount || 0);
+  const paid = Number(p.late_fee_paid || 0);
+  const balance = Math.max(0, fee - paid);
+  if (!fee) return toast('Ta płatność nie ma naliczonej kary', 'err');
+
+  let finished = false;
+  const actionButton = (action, label, cls = 'tb-ghost') =>
+    `<button class="tb-btn ${cls}" data-lf-action="${action}" style="justify-content:center">${escapeHtml(label)}</button>`;
+  const m = modal({
+    title: `Rozlicz karę · ${p.tenant_name || ''} · ${p.period}`,
+    wide: true,
+    onClose: () => { if (!finished) openTenantDetails(tenantId); },
+    body: `
+      <div style="padding:22px 26px;display:flex;flex-direction:column;gap:16px">
+        <div class="late-fee-summary">
+          <div><span>Naliczono</span><b>${fmtPLN(fee)} zł</b></div>
+          <div><span>Rozliczono</span><b style="color:var(--emerald)">${fmtPLN(paid)} zł</b></div>
+          <div><span>Pozostało</span><b style="color:${balance>0?'var(--rose)':'var(--t1)'}">${fmtPLN(balance)} zł</b></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px">
+          ${actionButton('paid', 'Zapłacono całość', 'tb-primary')}
+          ${actionButton('partial', 'Zapłacono część')}
+          ${actionButton('deposit', 'Potrącono z kaucji')}
+          ${actionButton('waived', 'Anulowano')}
+          ${actionButton('unpaid', 'Cofnij rozliczenie')}
+        </div>
+        <div class="form-grid compact">
+          <div class="form-row">
+            <label>Kwota dla opcji częściowej [PLN]</label>
+            <input id="lf-amount" type="number" step="0.01" min="0" max="${fee}" value="${balance || fee}">
+            <div class="hint">Dla całości, kaucji i anulowania aplikacja rozliczy pełną kwotę kary.</div>
+          </div>
+          <div class="form-row full">
+            <label>Notatka opcjonalna</label>
+            <textarea id="lf-note" placeholder="np. potrącone przy zwrocie kaucji albo zapłacone przelewem"></textarea>
+          </div>
+        </div>
+      </div>`,
+  });
+
+  m.root.querySelectorAll('[data-lf-action]').forEach(btn => {
+    btn.onclick = async () => {
+      const action = btn.dataset.lfAction;
+      const amountEl = m.root.querySelector('#lf-amount');
+      const noteEl = m.root.querySelector('#lf-note');
+      const amount = action === 'partial' ? Number(amountEl.value || 0) : (action === 'unpaid' ? 0 : fee);
+      if (action === 'partial' && amount <= 0) return toast('Wpisz kwotę częściową', 'err');
+      try {
+        finished = true;
+        await Api.put(`/payments/${paymentId}/late-fee`, { action, amount, note: noteEl.value.trim() });
+        toast(action === 'unpaid' ? 'Cofnięto rozliczenie kary' : 'Kara rozliczona');
+        m.close();
+        openTenantDetails(tenantId);
+        render({ preserveScroll: true });
+      } catch (e) {
+        finished = false;
+        toast(e.message || 'Błąd rozliczenia kary', 'err');
+      }
+    };
+  });
+};
+
 window.openTenantDetails = async function(id) {
   const t = await Api.get(`/tenants/${id}`);
   const monthly = (t.contract_rent||0) + (t.contract_media||0);
@@ -1684,11 +1759,11 @@ window.openTenantDetails = async function(id) {
   const lateFeesHtml = t.late_fees && t.late_fees.length
     ? `<div class="late-fee-summary">
         <div><span>Naliczone</span><b>${fmtPLN(feeSummary.total||0)} zł</b></div>
-        <div><span>Zapłacone</span><b style="color:var(--emerald)">${fmtPLN(feeSummary.paid||0)} zł</b></div>
-        <div><span>Do potrącenia</span><b style="color:${(feeSummary.balance||0)>0?'var(--rose)':'var(--t1)'}">${fmtPLN(feeSummary.balance||0)} zł</b></div>
+        <div><span>Rozliczone</span><b style="color:var(--emerald)">${fmtPLN(feeSummary.paid||0)} zł</b></div>
+        <div><span>Pozostało</span><b style="color:${(feeSummary.balance||0)>0?'var(--rose)':'var(--t1)'}">${fmtPLN(feeSummary.balance||0)} zł</b></div>
       </div>
       <table class="t" style="margin-top:10px">
-        <thead><tr><th>Okres</th><th>Termin</th><th>Wpłata</th><th>Kara</th><th>Zapłacono</th><th>Do kaucji</th><th></th></tr></thead>
+        <thead><tr><th>Okres</th><th>Termin</th><th>Wpłata</th><th>Kara</th><th>Rozliczono</th><th>Saldo</th><th>Status</th><th></th></tr></thead>
         <tbody>${t.late_fees.map(f => `<tr>
           <td class="mono">${escapeHtml(f.period)}</td>
           <td class="mono">${fmtDateShort(f.due_date)}</td>
@@ -1696,7 +1771,8 @@ window.openTenantDetails = async function(id) {
           <td class="mono-a">${fmtPLN(f.amount)} zł</td>
           <td class="mono-e">${fmtPLN(f.paid)} zł</td>
           <td class="mono${f.balance>0?'-r':'-m'}">${fmtPLN(f.balance)} zł</td>
-          <td><button class="icon-btn" title="Edytuj płatność" onclick="editPayment(${f.payment_id})"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></td>
+          <td>${lateFeeStatusChip(f)}</td>
+          <td><button class="tb-btn tb-primary" style="height:28px;font-size:11px;padding:0 10px" onclick="resolveLateFee(${f.payment_id}, ${t.id})">Rozlicz</button></td>
         </tr>`).join('')}</tbody>
       </table>`
     : emptyState('Brak kar za opóźnione wpłaty.', 'Gdy wpłata ma datę po terminie, aplikacja naliczy 50 zł automatycznie.');

@@ -101,6 +101,7 @@ router.get('/:id', (req, res) => {
     SELECT p.id AS payment_id, p.period, p.due_date, p.paid_date,
            COALESCE(p.late_fee_amount, 0) AS amount,
            COALESCE(p.late_fee_paid, 0) AS paid,
+           COALESCE(p.late_fee_resolution, 'unpaid') AS resolution,
            MAX(COALESCE(p.late_fee_amount, 0) - COALESCE(p.late_fee_paid, 0), 0) AS balance,
            p.status, p.notes
     FROM payments p

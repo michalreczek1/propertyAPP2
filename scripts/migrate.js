@@ -143,6 +143,7 @@ CREATE TABLE IF NOT EXISTS payments (
   late_fee_amount REAL DEFAULT 0,
   late_fee_paid REAL DEFAULT 0,
   late_fee_manual INTEGER DEFAULT 0,
+  late_fee_resolution TEXT DEFAULT 'unpaid',
   total_paid REAL DEFAULT 0,
   status TEXT DEFAULT 'pending',   -- paid|pending|overdue|partial
   notes TEXT,
@@ -330,6 +331,9 @@ function ensureLegacyColumns() {
   }
   if (!columnExists('payments', 'late_fee_manual')) {
     db.prepare('ALTER TABLE payments ADD COLUMN late_fee_manual INTEGER DEFAULT 0').run();
+  }
+  if (!columnExists('payments', 'late_fee_resolution')) {
+    db.prepare("ALTER TABLE payments ADD COLUMN late_fee_resolution TEXT DEFAULT 'unpaid'").run();
   }
   if (!columnExists('tenants', 'sms_consent')) {
     db.prepare('ALTER TABLE tenants ADD COLUMN sms_consent INTEGER DEFAULT 0').run();

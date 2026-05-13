@@ -183,11 +183,11 @@ async function main() {
     latePaymentId = payment.data.id;
     return `fee=${payment.data.late_fee_amount} balance=${payment.data.late_fee_balance}`;
   });
-  await check('PUT late fee paid updates tenant balance', async () => {
-    const r = await api('PUT', `/api/payments/${latePaymentId}`, { late_fee_paid: 50, late_fee_amount: 50 });
-    expect(r.ok && r.data.total_paid === 120 && r.data.late_fee_paid === 50 && r.data.late_fee_balance === 0, JSON.stringify(r));
+  await check('PUT late fee settlement updates tenant balance', async () => {
+    const r = await api('PUT', `/api/payments/${latePaymentId}/late-fee`, { action: 'deposit', note: 'smoke' });
+    expect(r.ok && r.data.total_paid === 120 && r.data.late_fee_paid === 50 && r.data.late_fee_resolution === 'deposit' && r.data.late_fee_balance === 0, JSON.stringify(r));
     const t = await api('GET', `/api/tenants/${lateTenantId}`);
-    expect(t.ok && t.data.late_fee_summary.total === 50 && t.data.late_fee_summary.balance === 0, JSON.stringify(t));
+    expect(t.ok && t.data.late_fee_summary.total === 50 && t.data.late_fee_summary.balance === 0 && t.data.late_fees[0].resolution === 'deposit', JSON.stringify(t));
     return 'ok';
   });
   await check('DEL  late payment fixture', async () => {

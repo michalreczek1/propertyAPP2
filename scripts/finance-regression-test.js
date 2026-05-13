@@ -51,6 +51,7 @@ db.exec(`
     late_fee_amount REAL DEFAULT 0,
     late_fee_paid REAL DEFAULT 0,
     late_fee_manual INTEGER DEFAULT 0,
+    late_fee_resolution TEXT DEFAULT 'unpaid',
     total_paid REAL DEFAULT 0,
     status TEXT DEFAULT 'pending',
     notes TEXT,

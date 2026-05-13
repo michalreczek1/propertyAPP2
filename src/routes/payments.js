@@ -21,10 +21,17 @@ const PaymentSchema = z.object({
   late_fee_amount: z.coerce.number().min(0).optional(),
   late_fee_paid: z.coerce.number().min(0).optional(),
   late_fee_manual: z.coerce.number().int().min(0).max(1).optional(),
+  late_fee_resolution: z.enum(['unpaid','paid','partial','deposit','waived']).optional(),
   total_paid: z.coerce.number().min(0).default(0),
   status: z.enum(['paid','pending','overdue','partial']).default('pending'),
   notes: z.string().nullable().optional(),
   source: z.string().default('manual'),
+});
+
+const LateFeeSettlementSchema = z.object({
+  action: z.enum(['unpaid','paid','partial','deposit','waived']),
+  amount: z.coerce.number().min(0).optional(),
+  note: z.string().nullable().optional(),
 });
 
 function num(value) {
@@ -142,8 +149,8 @@ router.post('/', validate(PaymentSchema), (req, res) => {
   if (!b.due_date && b.due_day) b.due_date = dueDate(b.period, b.due_day);
   Object.assign(b, normalizeLateFee(b, null, hasManualLateFeeOnCreate(req.body)));
   const r = db.prepare(`
-    INSERT INTO payments (owner_user_id,period,tenant_id,unit_id,due_day,due_date,paid_date,rent_amount,media_amount,other_amount,late_fee_amount,late_fee_paid,late_fee_manual,total_paid,status,notes,source)
-    VALUES (@owner_user_id,@period,@tenant_id,@unit_id,@due_day,@due_date,@paid_date,@rent_amount,@media_amount,@other_amount,@late_fee_amount,@late_fee_paid,@late_fee_manual,@total_paid,@status,@notes,@source)
+    INSERT INTO payments (owner_user_id,period,tenant_id,unit_id,due_day,due_date,paid_date,rent_amount,media_amount,other_amount,late_fee_amount,late_fee_paid,late_fee_manual,late_fee_resolution,total_paid,status,notes,source)
+    VALUES (@owner_user_id,@period,@tenant_id,@unit_id,@due_day,@due_date,@paid_date,@rent_amount,@media_amount,@other_amount,@late_fee_amount,@late_fee_paid,@late_fee_manual,@late_fee_resolution,@total_paid,@status,@notes,@source)
   `).run({
     ...b,
     owner_user_id: ownerId(req),
@@ -152,6 +159,7 @@ router.post('/', validate(PaymentSchema), (req, res) => {
     due_day: b.due_day || null,
     due_date: b.due_date || null,
     paid_date: b.paid_date || null,
+    late_fee_resolution: b.late_fee_resolution || (b.late_fee_paid > 0 ? 'partial' : 'unpaid'),
     notes: b.notes || null,
   });
   res.status(201).json(db.prepare(paymentJoinSql('WHERE p.id = ?')).get(r.lastInsertRowid));
@@ -174,12 +182,45 @@ router.put('/:id', validate(PaymentSchema.partial()), (req, res) => {
     late_fee_paid: next.late_fee_paid,
     late_fee_manual: next.late_fee_manual,
   };
-  const fields = ['period','tenant_id','unit_id','due_day','due_date','paid_date','rent_amount','media_amount','other_amount','late_fee_amount','late_fee_paid','late_fee_manual','total_paid','status','notes','source']
+  const fields = ['period','tenant_id','unit_id','due_day','due_date','paid_date','rent_amount','media_amount','other_amount','late_fee_amount','late_fee_paid','late_fee_manual','late_fee_resolution','total_paid','status','notes','source']
     .filter(f => patch[f] !== undefined);
   if (!fields.length) return res.status(400).json({ error: 'no_fields' });
   const sql = `UPDATE payments SET ${fields.map(f => `${f}=?`).join(',')} WHERE id = ?`;
   const r = db.prepare(sql).run(...fields.map(f => patch[f] === '' ? null : patch[f]), req.params.id);
   if (!r.changes) return res.status(404).json({ error: 'not_found' });
+  res.json(db.prepare(paymentJoinSql('WHERE p.id = ?')).get(req.params.id));
+});
+
+router.put('/:id/late-fee', validate(LateFeeSettlementSchema), (req, res) => {
+  if (!canAccessPayment(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
+  const cur = db.prepare('SELECT * FROM payments WHERE id = ?').get(req.params.id);
+  if (!cur) return res.status(404).json({ error: 'not_found' });
+  const fee = num(cur.late_fee_amount);
+  if (!fee) return res.status(400).json({ error: 'no_late_fee' });
+
+  const action = req.body.action;
+  const rawAmount = req.body.amount == null ? fee : num(req.body.amount);
+  let paid = 0;
+  let resolution = action;
+  if (action === 'paid' || action === 'deposit' || action === 'waived') {
+    paid = fee;
+  } else if (action === 'partial') {
+    paid = Math.min(fee, rawAmount);
+    resolution = paid >= fee ? 'paid' : (paid > 0 ? 'partial' : 'unpaid');
+  }
+  const note = String(req.body.note || '').trim();
+  const noteSuffix = note ? `\n[kara ${cur.period}] ${note}` : '';
+  const notes = noteSuffix ? `${cur.notes || ''}${noteSuffix}`.trim() : cur.notes;
+
+  db.prepare(`
+    UPDATE payments
+    SET late_fee_paid = ?,
+        late_fee_resolution = ?,
+        late_fee_manual = 1,
+        notes = ?
+    WHERE id = ?
+  `).run(paid, resolution, notes || null, req.params.id);
+
   res.json(db.prepare(paymentJoinSql('WHERE p.id = ?')).get(req.params.id));
 });
 
