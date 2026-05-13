@@ -102,6 +102,11 @@ router.get('/report.pdf', (req, res) => {
   const doc = new PDFDocument({ size: 'A4', margin: 50 });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="raport-${period}.pdf"`);
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Surrogate-Control', 'no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   doc.pipe(res);
   const fonts = setupPdfFonts(doc);
 

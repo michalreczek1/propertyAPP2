@@ -2245,7 +2245,9 @@ async function renderReports(root) {
     </div>`;
 
   document.getElementById('btn-refresh').onclick = () => render();
-  document.getElementById('btn-pdf').onclick = () => { window.location = `/api/export/report.pdf?period=${State.period}`; };
+  document.getElementById('btn-pdf').onclick = () => {
+    window.location = `/api/export/report.pdf?period=${State.period}&v=${Date.now()}`;
+  };
   document.querySelectorAll('[data-rp]').forEach(el => el.onclick = () => { State.reportProp = el.dataset.rp; render(); });
 
   const ctx = document.getElementById('r-chart');

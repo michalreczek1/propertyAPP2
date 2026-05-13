@@ -347,7 +347,9 @@ async function main() {
   await check('GET  /api/export/report.pdf?period=2025-01', async () => {
     const r = await fetch(BASE + '/api/export/report.pdf?period=2025-01');
     expect(r.ok && r.headers.get('content-type').includes('application/pdf'), `status=${r.status}`);
+    expect((r.headers.get('cache-control') || '').includes('no-store'), 'PDF must not be cached');
     const buf = await r.arrayBuffer();
+    expect(buf.byteLength > 10_000, `PDF too small, fonts may not be embedded: ${buf.byteLength} bytes`);
     return `${buf.byteLength} bajtów PDF`;
   });
 

@@ -125,6 +125,13 @@ async function main() {
   const api = await fetch(base + '/api/dashboard', { headers: { Cookie: cookie } });
   expect(api.ok, `authenticated API failed: ${api.status}`);
 
+  const pdf = await fetch(base + '/api/export/report.pdf?period=2026-05', { headers: { Cookie: cookie } });
+  expect(pdf.ok, `authenticated PDF export failed: ${pdf.status}`);
+  expect((pdf.headers.get('content-type') || '').includes('application/pdf'), 'PDF export returned wrong content type');
+  expect((pdf.headers.get('cache-control') || '').includes('no-store'), 'PDF export is cacheable');
+  const pdfBytes = await pdf.arrayBuffer();
+  expect(pdfBytes.byteLength > 10_000, `PDF export too small, fonts may not be embedded: ${pdfBytes.byteLength} bytes`);
+
   const adminSettingsSeed = await fetch(base + '/api/settings', {
     method: 'PUT',
     headers: { Cookie: cookie, 'Content-Type': 'application/json' },
