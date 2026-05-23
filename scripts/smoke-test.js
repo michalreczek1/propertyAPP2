@@ -369,12 +369,12 @@ async function main() {
     const propertyAlias = await api('POST', '/api/assistant/aliases', { alias: '__smoke tajna baza', resolves_to_type: 'property', resolves_to_id: fixture.propertyId });
     expect(propertyAlias.ok && propertyAlias.data.id, JSON.stringify(propertyAlias));
     aiAliasIds.push(propertyAlias.data.id);
-    const metricAlias = await api('POST', '/api/assistant/aliases', { alias: '__smoke mamony', resolves_to_type: 'metric', resolves_to_value: 'revenue_paid' });
+    const metricAlias = await api('POST', '/api/assistant/aliases', { alias: '__smoke test mamony', resolves_to_type: 'metric', resolves_to_value: 'revenue_paid' });
     expect(metricAlias.ok && metricAlias.data.id, JSON.stringify(metricAlias));
     aiAliasIds.push(metricAlias.data.id);
     const propertyAnswer = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'podaj dochód z __smoke tajna baza za 2026 r.' });
     expect(propertyAnswer.ok && propertyAnswer.data.report && Number(propertyAnswer.data.report.property_id) === Number(fixture.propertyId), JSON.stringify(propertyAnswer));
-    const metricAnswer = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'ile __smoke mamony w 2026 r.' });
+    const metricAnswer = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'ile __smoke test mamony w 2026 r.' });
     expect(metricAnswer.ok && metricAnswer.data.report && metricAnswer.data.report.metric === 'revenue_paid', JSON.stringify(metricAnswer));
     return `${propertyAlias.data.alias} / ${metricAlias.data.alias}`;
   });

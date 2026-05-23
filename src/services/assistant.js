@@ -1359,7 +1359,8 @@ async function parseAssistantCommand(req, body) {
   };
 
   const targetPeriod = intent.period || periodFromMessage(input.message, period);
-  if (['answer_from_data', 'report_answer'].includes(intent.intent)) {
+  const explicitSearch = /^(szukaj|wyszukaj|znajdz)\b/.test(normalizeText(input.message));
+  if (['answer_from_data', 'report_answer'].includes(intent.intent) || (intent.intent === 'search_global' && !explicitSearch)) {
     const semantic = semanticAnswer(req, input.message, period);
     if (semantic) return { ...semantic, ai };
   }

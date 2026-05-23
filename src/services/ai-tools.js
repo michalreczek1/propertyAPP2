@@ -109,7 +109,7 @@ function resolveMetricAlias(req, question) {
       const alias = normalizeText(row.alias);
       const score = alias && (q.includes(alias) || alias.includes(q))
         ? 20 + Number(row.use_count || 0)
-        : tokensOverlap(q, alias);
+        : 0;
       return { row, score };
     })
     .filter(item => item.score > 0)
