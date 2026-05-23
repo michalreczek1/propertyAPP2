@@ -38,7 +38,7 @@ async function createPaymentFixture(request, prefix, options = {}) {
   expect(tenant.ok()).toBeTruthy();
   const tenantData = await tenant.json();
 
-  const period = currentPeriodISO();
+  const period = options.period || currentPeriodISO();
   const payment = await request.post('/api/payments', {
     data: {
       period,
@@ -50,7 +50,7 @@ async function createPaymentFixture(request, prefix, options = {}) {
       late_fee_amount: options.lateFeeAmount || 0,
       late_fee_paid: options.lateFeePaid || 0,
       late_fee_manual: options.lateFeeAmount ? 1 : 0,
-      total_paid: 0,
+      total_paid: options.totalPaid ?? (options.status === 'paid' ? 1555 : 0),
       status: options.status || 'pending',
     },
   });
@@ -172,6 +172,52 @@ test('topbar command bar answers flexible overdue payment question', async ({ pa
     await expect(result).toBeVisible();
     await expect(result).toContainText('Płatności');
     await expect(result).toContainText(fixture.name);
+  } finally {
+    await cleanupPaymentFixture(request, fixture);
+  }
+});
+
+test('topbar command bar answers paid status question without action', async ({ page, request }) => {
+  const fixture = await createPaymentFixture(request, '__ai_paid_question', { period: '2026-04', status: 'paid', totalPaid: 1555 });
+  try {
+    await page.goto('/#dashboard');
+    await page.locator('#global-search').fill(`czy ${fixture.name} zapłacił za kwiecień?`);
+    await page.locator('#global-search').press('Enter');
+    const result = page.locator('.assistant-result.answer');
+    await expect(result).toBeVisible();
+    await expect(result).toContainText('Tak');
+    await expect(result).toContainText('Opłacona');
+    await expect(page.locator('#assistant-execute')).toHaveCount(0);
+  } finally {
+    await cleanupPaymentFixture(request, fixture);
+  }
+});
+
+test('topbar command bar summarizes tenant payments for a year', async ({ page, request }) => {
+  const fixture = await createPaymentFixture(request, '__ai_year_summary', { period: '2026-04', status: 'paid', totalPaid: 1555 });
+  try {
+    await page.goto('/#dashboard');
+    await page.locator('#global-search').fill(`ile w tym roku zapłacił ${fixture.name}`);
+    await page.locator('#global-search').press('Enter');
+    const result = page.locator('.assistant-result.answer');
+    await expect(result).toBeVisible();
+    await expect(result).toContainText('Wpłaty:');
+    await expect(result).toContainText('zapłacił');
+  } finally {
+    await cleanupPaymentFixture(request, fixture);
+  }
+});
+
+test('topbar command bar answers previous-year tenant count by property', async ({ page, request }) => {
+  const fixture = await createPaymentFixture(request, '__ai_Chrobrego', { period: '2025-06', status: 'paid', totalPaid: 1555 });
+  try {
+    await page.goto('/#dashboard');
+    await page.locator('#global-search').fill('ilu miałem najemców na Chrobrego w zeszłym roku?');
+    await page.locator('#global-search').press('Enter');
+    const result = page.locator('.assistant-result.answer');
+    await expect(result).toBeVisible();
+    await expect(result).toContainText(/Najemcy:/);
+    await expect(result).toContainText(/było [1-9]/);
   } finally {
     await cleanupPaymentFixture(request, fixture);
   }

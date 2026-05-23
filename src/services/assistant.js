@@ -195,6 +195,66 @@ function periodFromMessage(message, fallbackPeriod) {
   return fallbackPeriod;
 }
 
+function shiftPeriodValue(period, delta) {
+  const [year, month] = String(period || todayLocalISO().slice(0, 7)).split('-').map(Number);
+  const d = new Date(year, month - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function periodsBetween(start, end) {
+  if (!/^\d{4}-\d{2}$/.test(String(start || '')) || !/^\d{4}-\d{2}$/.test(String(end || ''))) return [];
+  const out = [];
+  let cur = start;
+  while (cur <= end && out.length < 600) {
+    out.push(cur);
+    cur = shiftPeriodValue(cur, 1);
+  }
+  return out;
+}
+
+function paymentPeriodBounds(req) {
+  const scope = scopeCondition(req, { payment: 'pm', tenant: 't', property: 'pr' });
+  const row = db.prepare(`
+    SELECT MIN(pm.period) AS min_period, MAX(pm.period) AS max_period
+    FROM payments pm
+    LEFT JOIN tenants t ON t.id = pm.tenant_id
+    LEFT JOIN units u ON u.id = pm.unit_id
+    LEFT JOIN properties pr ON pr.id = u.property_id
+    WHERE 1=1 ${scope.sql}
+  `).get(...scope.params);
+  return {
+    min: row && row.min_period || null,
+    max: row && row.max_period || null,
+  };
+}
+
+function dateRangeForPeriods(start, end) {
+  return { start: `${start}-01`, end: monthEnd(end) };
+}
+
+function timeRangeFromMessage(message, fallbackPeriod, req = null) {
+  const text = normalizeText(message);
+  const fallback = fallbackPeriod || todayLocalISO().slice(0, 7);
+  const fallbackYear = Number(String(fallback).slice(0, 4));
+  const bounds = req ? paymentPeriodBounds(req) : { min: null, max: null };
+  if (includesAny(text, ['od poczatku', 'od początku', 'od startu', 'od poczatku danych', 'od początku danych', 'caly okres', 'cały okres', 'wszystkie lata', 'wszystkich danych'])) {
+    const start = bounds.min || `${fallbackYear}-01`;
+    const end = bounds.max || fallback;
+    return { mode: 'all', start, end, label: 'od początku danych', periods: periodsBetween(start, end) };
+  }
+  const explicitYear = String(message || '').match(/\b(20\d{2})\b/);
+  if (explicitYear || includesAny(text, ['w tym roku', 'ten rok', 'biezacy rok', 'bieżący rok', 'obecny rok', 'aktualny rok', 'w zeszlym roku', 'w zeszłym roku', 'zeszlym roku', 'zeszłym roku', 'poprzedni rok', 'poprzednim roku'])) {
+    const year = explicitYear ? Number(explicitYear[1]) : (includesAny(text, ['w zeszlym roku', 'w zeszłym roku', 'zeszlym roku', 'zeszłym roku', 'poprzedni rok', 'poprzednim roku']) ? fallbackYear - 1 : fallbackYear);
+    return { mode: 'year', year, start: `${year}-01`, end: `${year}-12`, label: `${year}`, periods: periodsBetween(`${year}-01`, `${year}-12`) };
+  }
+  if (includesAny(text, ['poprzedni miesiac', 'poprzedni miesiąc', 'zeszly miesiac', 'zeszły miesiąc'])) {
+    const period = shiftPeriodValue(fallback, -1);
+    return { mode: 'period', period, start: period, end: period, label: periodLabel(period), periods: [period] };
+  }
+  const period = periodFromMessage(message, fallback);
+  return { mode: 'period', period, start: period, end: period, label: periodLabel(period), periods: [period] };
+}
+
 function yearFromMessage(message, fallbackPeriod) {
   const m = String(message || '').match(/\b(20\d{2})\b/);
   return m ? Number(m[1]) : Number(String(fallbackPeriod || todayLocalISO().slice(0, 7)).slice(0, 4));
@@ -258,6 +318,57 @@ function publicCandidates(rows) {
   }));
 }
 
+function publicTenantCandidates(rows, query) {
+  const q = normalizeText(query || '');
+  return rows
+    .filter(row => !q || normalizeText(`${row.name || ''} ${row.unit_code || ''} ${row.property_name || ''}`).includes(q) || rowMatchesText({ tenant_name: row.name }, q))
+    .slice(0, 30)
+    .map(row => ({
+      tenant_id: row.id,
+      tenant_name: row.name,
+      unit: row.unit_code || row.unit_name || null,
+      property: row.property_name || null,
+      status: row.status || null,
+      has_phone: Boolean(row.phone),
+      sms_consent: Number(row.sms_consent || 0) === 1,
+    }));
+}
+
+function publicPropertyCandidates(rows, query) {
+  const q = normalizeText(query || '');
+  return rows
+    .filter(row => !q || normalizeText(`${row.name || ''} ${row.district || ''}`).includes(q))
+    .slice(0, 20)
+    .map(row => ({
+      property_id: row.id,
+      property_name: row.name,
+      district: row.district || null,
+      units_count: row.units_count || 0,
+    }));
+}
+
+function assistantContext(req, message, period) {
+  const targetPeriod = periodFromMessage(message, period);
+  const query = extractSearchQuery(message) || cleanEntityName(message);
+  return {
+    current_period: period,
+    inferred_period: targetPeriod,
+    inferred_range: timeRangeFromMessage(message, period, req),
+    period_bounds: paymentPeriodBounds(req),
+    payment_candidates: publicCandidates(scopedPaymentRows(req, targetPeriod)).slice(0, 30),
+    tenant_candidates: publicTenantCandidates(scopedTenants(req), query),
+    property_candidates: publicPropertyCandidates(scopedProperties(req), query),
+    supported_read_tools: DATA_TOOLS,
+    notes: [
+      'Use ids only from candidates.',
+      'For questions like "czy X zapłacił" use answer_from_data/payments with status payment_status, not mark_payment_paid.',
+      'For "ile X zapłacił" use answer_from_data/payments with status tenant_payment_summary.',
+      'For tenant counts by property/time use answer_from_data/tenants with status tenant_count.',
+      'For yearly/all-time tax summaries use report_answer with query tax_summary.',
+    ],
+  };
+}
+
 function localIntent(message) {
   const text = normalizeText(message);
   const period = periodFromMessage(message, null);
@@ -265,7 +376,22 @@ function localIntent(message) {
   const base = { query, period, confidence: 0.7 };
   if (/^(szukaj|wyszukaj|znajdz)\b/.test(text)) return { intent: 'search_global', ...base, confidence: 0.9 };
   if (/\b(sms|wiadomosc|przypomnienie|przypomnij)\b/.test(text)) return { intent: 'send_sms_reminder', tenant_name: extractTargetName(message), ...base, confidence: 0.84 };
-  if (/\b(zaplacil|zaplacila|zaplacone|oplacil|oplacila|wplacil|wplacila|wplata)\b/.test(text)) {
+  if (isPaymentStatusQuestion(message, text)) {
+    const tenantName = extractPaymentSubject(message);
+    return { intent: 'answer_from_data', tool: 'payments', status: 'payment_status', ...base, tenant_name: tenantName, query: tenantName, confidence: 0.9 };
+  }
+  if (isTenantPaymentSummaryQuestion(text)) {
+    const tenantName = extractPaymentSubject(message);
+    return { intent: 'answer_from_data', tool: 'payments', status: 'tenant_payment_summary', ...base, tenant_name: tenantName, query: tenantName, confidence: 0.88 };
+  }
+  if (/\bilu\b/.test(text) && /\bnajemcow\b/.test(text)) {
+    const propertyName = cleanEntityName(message);
+    return { intent: 'answer_from_data', tool: 'tenants', status: 'tenant_count', ...base, query: propertyName, property_name: propertyName, confidence: 0.86 };
+  }
+  if (isTaxSummaryQuestion(text)) {
+    return { intent: 'report_answer', query: 'tax_summary', ...base, year: yearFromMessage(message, period || todayLocalISO().slice(0, 7)), confidence: 0.88 };
+  }
+  if (isPaymentVerb(text)) {
     return { intent: 'mark_payment_paid', tenant_name: extractTargetName(message), ...base, confidence: 0.84 };
   }
   if (/\b(podatek|podatku|ryczalt|ryczaltu)\b/.test(text)) return { intent: 'explain_tax', ...base, confidence: 0.84 };
@@ -327,6 +453,53 @@ function extractTargetName(message) {
   return null;
 }
 
+function cleanEntityName(value) {
+  return String(value || '')
+    .replace(/[?!.:,;]+/g, ' ')
+    .replace(/\b(czy|ile|ilu|mia[łl]em|sprawd[zź]|podsumuj|poka[zż]|status|dla|do|za|na|w)\b/gi, ' ')
+    .replace(/\b(ten|ta|to|tym|roku|rok|miesi[aą]cu|miesi[aą]c|poprzedni|zesz[łl]y|bie[zż][aą]cy|obecny|aktualny|od|pocz[aą]tku|danych|ca[łl]y|okres)\b/gi, ' ')
+    .replace(/\b(20\d{2}-\d{2}|20\d{2})\b/g, ' ')
+    .replace(/\b(stycz[eńn]|luty|marzec|kwiecien|kwiecie[nń]|maj|czerwiec|lipiec|sierpien|sierpie[nń]|wrzesien|wrzesie[nń]|pazdziernik|pa[zź]dziernik|listopad|grudzien|grudzie[nń])\b/gi, ' ')
+    .replace(/\b(zap[łl]aci[łl]a?|zap[łl]acili|op[łl]aci[łl]a?|wp[łl]aci[łl]a?|wp[łl]acili|p[łl]atno[śs][ćc]|p[łl]atno[śs]ci|najemc[oó]w|najemcy|najemca|podatek|podatku)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractPaymentSubject(message) {
+  const raw = String(message || '').trim();
+  const action = /\b(?:zap[łl]aci[łl]a?|zap[łl]acili|op[łl]aci[łl]a?|wp[łl]aci[łl]a?|wp[łl]acili)\b/i;
+  const parts = raw.split(action);
+  const before = cleanEntityName(parts[0] || '');
+  const after = cleanEntityName(parts.slice(1).join(' ') || '');
+  if (after && !includesAny(normalizeText(after), ['kwota', 'suma'])) return after;
+  return before || after || extractTargetName(message);
+}
+
+function isPaymentVerb(text) {
+  return /\b(zaplacil|zaplacila|zaplacili|zaplacone|oplacil|oplacila|wplacil|wplacila|wplacili|wplata)\b/.test(text);
+}
+
+function isQuestionLike(message, text) {
+  return String(message || '').includes('?')
+    || /^(czy|ile|ilu|jaki|jaka|ktory|ktora|sprawdz|podsumuj|pokaz|pokaż|status)\b/.test(text)
+    || includesAny(text, ['czy ', 'ile ', 'podsumuj', 'sprawdz czy']);
+}
+
+function isTaxSummaryQuestion(text) {
+  return /\b(podatek|podatku|ryczalt|ryczaltu)\b/.test(text)
+    && (includesAny(text, ['podsumuj', 'zaplacilem', 'w tym roku', 'ten rok', 'biezacy rok', 'zeszlym roku', 'poprzedni rok', 'poprzednim roku', 'od poczatku', 'caly okres', 'rocznie']) || /\b20\d{2}\b/.test(text));
+}
+
+function isTenantPaymentSummaryQuestion(text) {
+  return isPaymentVerb(text)
+    && isQuestionLike('', text)
+    && (/\b(ile|podsumuj)\b/.test(text) || includesAny(text, ['w tym roku', 'zeszlym roku', 'poprzedni rok', 'poprzednim roku', 'od poczatku']) || /\b20\d{2}\b/.test(text));
+}
+
+function isPaymentStatusQuestion(message, text) {
+  return isPaymentVerb(text) && (String(message || '').includes('?') || /^(czy|sprawdz|status)\b/.test(text) || includesAny(text, ['sprawdz czy', 'czy ']));
+}
+
 function extractAmount(message) {
   const m = String(message || '').replace(',', '.').match(/\b(\d+(?:\.\d{1,2})?)\b/);
   return m ? Number(m[1]) : null;
@@ -347,7 +520,7 @@ function extractExpenseCategory(message) {
   return 'inne';
 }
 
-async function classifyWithGroq(message, period, candidates) {
+async function classifyWithGroq(message, period, context) {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return { ...localIntent(message), ai_used: false, ai_configured: false, warning: 'GROQ_API_KEY nie jest skonfigurowany - używam lokalnego rozpoznawania v1.' };
 
@@ -357,8 +530,10 @@ async function classifyWithGroq(message, period, candidates) {
     'Return only JSON. Do not invent ids. Use payment_id or tenant_id only from provided candidates.',
     'If tenant/payment is ambiguous or missing, return the intent with tenant_name if visible, but no invented id.',
     `For flexible read-only data questions use intent answer_from_data and one tool from: ${DATA_TOOLS.join(', ')}.`,
-    'Read-only tool guide: payments for paid/pending/overdue/partial payment questions; tenants for tenant lists and missing data; units for unit availability; contracts for agreements; expenses for cost lists and summaries; late_fees for penalties/kary/opóźnienia; finance for monthly revenue/net/tax; quality for data-quality audits; search for broad lookup.',
+    'Read-only tool guide: payments for paid/pending/overdue/partial payment questions, payment_status questions, and tenant_payment_summary aggregations; tenants for tenant lists, missing data, and tenant_count questions by property/time; units for unit availability; contracts for agreements; expenses for cost lists and summaries; late_fees for penalties/kary/opóźnienia; finance for monthly revenue/net/tax; quality for data-quality audits; search for broad lookup.',
     'For navigation/search/filter/report commands, fill query, entity_type, status, period, year or property_name when visible.',
+    'Use status payment_status for questions like "czy Hubert zapłacił za kwiecień?". Use status tenant_payment_summary for "ile Hubert zapłacił w tym roku/od początku?". Use status tenant_count for "ilu najemców miałem na Chrobrego w zeszłym roku?".',
+    'Use query tax_summary for yearly, previous-year, explicit-year, or all-time tax summaries.',
     'For create_task/add_expense, fill title/description/amount/category/date only when visible.',
     'Schema includes: intent, tool, tenant_name, tenant_id, payment_id, query, entity_type, status, period, year, property_name, title, description, category, amount, date, priority, tone, filters, confidence.',
     'Never request direct SQL. All writes must be one of the explicit write intents and will require confirmation.',
@@ -370,7 +545,7 @@ async function classifyWithGroq(message, period, candidates) {
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: system },
-      { role: 'user', content: JSON.stringify({ message, period, candidates }, null, 2) },
+      { role: 'user', content: JSON.stringify({ message, period, context }, null, 2) },
     ],
   };
 
@@ -568,6 +743,17 @@ function scopedTenants(req) {
   `).all(...scope.params);
 }
 
+function scopedProperties(req) {
+  const scope = scopeCondition(req, { property: 'p' });
+  return db.prepare(`
+    SELECT p.*,
+      (SELECT COUNT(*) FROM units u WHERE u.property_id = p.id) AS units_count
+    FROM properties p
+    WHERE 1=1 ${scope.sql}
+    ORDER BY p.name
+  `).all(...scope.params);
+}
+
 function scopedUnits(req) {
   const scope = scopeCondition(req, { property: 'p' });
   return db.prepare(`
@@ -645,6 +831,163 @@ function itemTenant(row, subtitle) {
   return { type: 'tenant', id: row.tenant_id || row.id, title: row.tenant_name || row.name || 'Najemca', subtitle, view: 'najemcy' };
 }
 
+function paidValue(row) {
+  const expected = amount(row);
+  if (row.status === 'paid') return expected;
+  if (row.status === 'partial') return Math.min(Number(row.total_paid || 0), expected);
+  return Math.max(0, Number(row.total_paid || 0));
+}
+
+function matchTenants(req, name) {
+  const q = normalizeText(name || '');
+  if (!q) return [];
+  return scopedTenants(req).filter(row => rowMatchesText({ tenant_name: row.name }, q) || normalizeText(`${row.name || ''} ${row.unit_code || ''} ${row.property_name || ''}`).includes(q));
+}
+
+function matchProperties(req, name) {
+  const q = normalizeText(name || '');
+  if (!q) return [];
+  const qTokens = q.split(/\s+/).filter(part => part.length >= 4);
+  return scopedProperties(req).filter(row => {
+    const propertyText = normalizeText(`${row.name || ''} ${row.district || ''}`);
+    const propertyTokens = propertyText.split(/\s+/).filter(part => part.length >= 4);
+    return propertyText.includes(q)
+      || q.includes(normalizeText(row.name || ''))
+      || qTokens.some(token => propertyText.includes(token))
+      || propertyTokens.some(token => q.includes(token));
+  });
+}
+
+function paymentStatusAnswer(req, model, message, period) {
+  const targetPeriod = model.period || periodFromMessage(message, period);
+  const name = model.tenant_name || model.query || extractPaymentSubject(message);
+  const rows = scopedPaymentRows(req, targetPeriod).filter(row => rowMatchesText(row, name || message));
+  const tenantIds = new Set(rows.map(row => row.tenant_id).filter(Boolean));
+  if (!rows.length) {
+    return resultList('answer_from_data', `Status płatności ${periodLabel(targetPeriod)}`, `Nie znalazłem płatności dla: ${name || message}.`, [], { view: 'platnosci', state: { paymentsQ: name || '', period: targetPeriod } }, { status: 'answer', report: { count: 0, period: targetPeriod } });
+  }
+  if (rows.length > 1 || tenantIds.size > 1) {
+    return resultList('answer_from_data', 'Doprecyzuj płatność', 'Znalazłem więcej niż jedną pasującą płatność.', rows.slice(0, 10).map(row => ({ type: 'payment', id: row.payment_id, title: row.tenant_name || 'Płatność', subtitle: `${row.unit_code || ''} · ${periodLabel(row.period)} · ${row.status} · ${Math.round(amount(row))} zł`, view: 'platnosci' })), { view: 'platnosci', state: { paymentsQ: name || '', period: targetPeriod } }, { status: 'results', report: { count: rows.length, period: targetPeriod } });
+  }
+  const row = rows[0];
+  const statusLabel = STATUS_CHIP_LABELS[row.status] || row.status || 'brak statusu';
+  const paid = paidValue(row);
+  const yesNo = row.status === 'paid' ? 'Tak' : (row.status === 'partial' || paid > 0 ? 'Częściowo' : 'Nie');
+  return {
+    ok: true,
+    status: 'answer',
+    intent: 'answer_from_data',
+    title: `Status płatności ${periodLabel(targetPeriod)}`,
+    message: `${yesNo}. ${row.tenant_name || 'Najemca'} ma status: ${statusLabel}; lokal ${row.unit_code || 'brak lokalu'}; kwota ${Math.round(amount(row))} zł${paid ? `, odnotowano ${Math.round(paid)} zł` : ''}.`,
+    execute_required: false,
+    payment: publicCandidates([row])[0],
+    report: { period: targetPeriod, status: row.status, expected: amount(row), paid },
+  };
+}
+
+const STATUS_CHIP_LABELS = {
+  paid: 'opłacona',
+  pending: 'oczekuje',
+  overdue: 'zaległa',
+  partial: 'częściowa',
+};
+
+function tenantPaymentSummary(req, model, message, period) {
+  const range = timeRangeFromMessage(message, period, req);
+  const name = model.tenant_name || model.query || extractPaymentSubject(message);
+  const tenants = matchTenants(req, name);
+  if (!tenants.length) {
+    return resultList('answer_from_data', 'Wpłaty najemcy', `Nie znalazłem najemcy: ${name || message}.`, [], { view: 'najemcy', state: { tenantsQ: name || '' } }, { status: 'answer', report: { count: 0, range } });
+  }
+  if (tenants.length > 1) {
+    return resultList('answer_from_data', 'Doprecyzuj najemcę', 'Znalazłem więcej niż jednego pasującego najemcę.', tenants.slice(0, 10).map(t => ({ type: 'tenant', id: t.id, title: t.name, subtitle: `${t.unit_code || 'bez lokalu'} · ${t.property_name || ''}`, view: 'najemcy' })), { view: 'najemcy', state: { tenantsQ: name || '' } }, { status: 'results', report: { count: tenants.length, range } });
+  }
+  const tenant = tenants[0];
+  const rows = range.periods.flatMap(p => scopedPaymentRows(req, p).filter(row => Number(row.tenant_id) === Number(tenant.id)));
+  const expected = rows.reduce((sum, row) => sum + amount(row), 0);
+  const paid = rows.reduce((sum, row) => sum + paidValue(row), 0);
+  const lateFeePaid = rows.reduce((sum, row) => sum + Number(row.late_fee_paid || 0), 0);
+  const paidCount = rows.filter(row => row.status === 'paid').length;
+  const partialCount = rows.filter(row => row.status === 'partial').length;
+  const balance = Math.max(0, expected - paid);
+  const label = range.mode === 'all' ? range.label : range.label;
+  return resultList(
+    'answer_from_data',
+    `Wpłaty: ${tenant.name}`,
+    `${tenant.name} zapłacił ${Math.round(paid)} zł za ${label}. Oczekiwano ${Math.round(expected)} zł, saldo ${Math.round(balance)} zł${lateFeePaid ? `, kary zapłacone ${Math.round(lateFeePaid)} zł` : ''}.`,
+    rows.slice(0, 24).map(row => ({ type: 'payment', id: row.payment_id, title: `${periodLabel(row.period)} · ${row.tenant_name}`, subtitle: `${row.unit_code || ''} · ${STATUS_CHIP_LABELS[row.status] || row.status} · wpłacono ${Math.round(paidValue(row))}/${Math.round(amount(row))} zł`, view: 'platnosci' })),
+    { view: 'platnosci', state: { paymentsQ: tenant.name, period: range.end || period } },
+    { status: 'answer', report: { tenant_id: tenant.id, tenant_name: tenant.name, range, count: rows.length, paid_count: paidCount, partial_count: partialCount, expected, paid, balance, late_fee_paid: lateFeePaid } }
+  );
+}
+
+function tenantCountAnswer(req, model, message, period) {
+  const range = timeRangeFromMessage(message, period, req);
+  const propertyQuery = model.property_name || model.query || extractSearchQuery(message) || cleanEntityName(message);
+  const properties = matchProperties(req, propertyQuery);
+  if (!properties.length) {
+    return resultList('answer_from_data', 'Liczba najemców', `Nie znalazłem nieruchomości pasującej do: ${propertyQuery || message}.`, publicPropertyCandidates(scopedProperties(req), '').map(p => ({ type: 'property', id: p.property_id, title: p.property_name, subtitle: `${p.district || ''} · ${p.units_count} lokali`, view: 'nieruchomosci' })), { view: 'nieruchomosci' }, { status: 'answer', report: { count: 0, range } });
+  }
+  const propertyIds = properties.map(p => Number(p.id));
+  const placeholders = propertyIds.map(() => '?').join(',');
+  const scoped = req.user && req.user.id && req.user.role !== 'admin';
+  const uid = ownerId(req);
+  const dateRange = dateRangeForPeriods(range.start, range.end);
+  const paymentRows = db.prepare(`
+    SELECT DISTINCT t.id, t.name, u.code AS unit_code, p.name AS property_name
+    FROM payments pm
+    JOIN tenants t ON t.id = pm.tenant_id
+    JOIN units u ON u.id = pm.unit_id
+    JOIN properties p ON p.id = u.property_id
+    WHERE p.id IN (${placeholders})
+      AND pm.period BETWEEN ? AND ?
+      ${scoped ? 'AND (pm.owner_user_id = ? OR t.owner_user_id = ? OR p.owner_user_id = ?)' : ''}
+  `).all(...propertyIds, range.start, range.end, ...(scoped ? [uid, uid, uid] : []));
+  const contractRows = db.prepare(`
+    SELECT DISTINCT t.id, t.name, u.code AS unit_code, p.name AS property_name
+    FROM contracts c
+    JOIN tenants t ON t.id = c.tenant_id
+    JOIN units u ON u.id = c.unit_id
+    JOIN properties p ON p.id = u.property_id
+    WHERE p.id IN (${placeholders})
+      AND COALESCE(c.start_date, '1900-01-01') <= ?
+      AND COALESCE(c.end_date, '9999-12-31') >= ?
+      ${scoped ? 'AND (t.owner_user_id = ? OR p.owner_user_id = ?)' : ''}
+  `).all(...propertyIds, dateRange.end, dateRange.start, ...(scoped ? [uid, uid] : []));
+  const byTenant = new Map();
+  for (const row of [...paymentRows, ...contractRows]) if (row.id) byTenant.set(Number(row.id), row);
+  const tenants = [...byTenant.values()].sort((a, b) => String(a.name).localeCompare(String(b.name), 'pl'));
+  const propLabel = properties.map(p => p.name).join(', ');
+  return resultList(
+    'answer_from_data',
+    `Najemcy: ${propLabel}`,
+    `Na ${propLabel} w okresie ${range.label} było ${tenants.length} unikalnych najemców.`,
+    tenants.slice(0, 30).map(t => ({ type: 'tenant', id: t.id, title: t.name, subtitle: `${t.unit_code || 'bez lokalu'} · ${t.property_name || ''}`, view: 'najemcy' })),
+    { view: 'najemcy', state: { tenantsQ: propLabel, tenantsStatus: 'active' } },
+    { status: 'answer', report: { property_ids: propertyIds, property_name: propLabel, range, count: tenants.length } }
+  );
+}
+
+function taxSummaryAnswer(req, message, period) {
+  const range = timeRangeFromMessage(message, period, req);
+  const months = range.periods || [];
+  const rows = months.map(p => {
+    const s = monthlyFinanceSummary(db, p, req);
+    return { period: p, tax: s.tax.podatek_suma || 0, base: s.tax.base || 0, rent_paid: s.revenue.rent_paid || 0 };
+  });
+  const taxTotal = rows.reduce((sum, row) => sum + Number(row.tax || 0), 0);
+  const baseTotal = rows.reduce((sum, row) => sum + Number(row.base || 0), 0);
+  const monthsWithTax = rows.filter(row => Number(row.tax || 0) > 0).length;
+  return resultList(
+    'report_answer',
+    `Podatek ${range.label}`,
+    `Wyliczony podatek za ${range.label}: ${Math.round(taxTotal)} zł. Podstawa opodatkowania: ${Math.round(baseTotal)} zł, miesięcy z podatkiem: ${monthsWithTax}.`,
+    rows.filter(row => Number(row.tax || 0) > 0).slice(-24).map(row => ({ type: 'report', title: periodLabel(row.period), subtitle: `podatek ${Math.round(row.tax)} zł · podstawa ${Math.round(row.base)} zł`, view: 'raporty' })),
+    { view: 'raporty', state: { period: range.end || period } },
+    { status: 'answer', report: { range, tax_total: taxTotal, tax_base: baseTotal, months: rows } }
+  );
+}
+
 function answerFromDataTool(req, model, message, period) {
   const tool = model.tool || 'search';
   const targetPeriod = model.period || periodFromMessage(message, period);
@@ -671,6 +1014,8 @@ function answerFromDataTool(req, model, message, period) {
     );
   }
   if (tool === 'payments') {
+    if (status === 'payment_status') return paymentStatusAnswer(req, model, message, targetPeriod);
+    if (status === 'tenant_payment_summary') return tenantPaymentSummary(req, model, message, targetPeriod);
     const paymentQuery = status === 'overdue' ? '' : query;
     const payments = scopedPaymentRows(req, targetPeriod).filter(row => {
       const computedOverdue = row.status !== 'paid' && row.due_date && row.due_date < todayLocalISO();
@@ -689,6 +1034,7 @@ function answerFromDataTool(req, model, message, period) {
     );
   }
   if (tool === 'tenants') {
+    if (status === 'tenant_count') return tenantCountAnswer(req, model, message, targetPeriod);
     const lateTenantIds = new Set(scopedLateFeeRows(req, null).filter(row => status !== 'unpaid' || Number(row.balance || 0) > 0).map(row => Number(row.tenant_id)));
     const tenants = scopedTenants(req).filter(t => {
       if (status === 'missing_phone' && String(t.phone || '').trim()) return false;
@@ -781,6 +1127,9 @@ function filterResponse(req, intent, model, message, period) {
 function reportAnswer(req, model, message, period) {
   const targetPeriod = model.period || periodFromMessage(message, period);
   const text = normalizeText(message);
+  if (model.query === 'tax_summary' || isTaxSummaryQuestion(text)) {
+    return taxSummaryAnswer(req, message, targetPeriod);
+  }
   if (model.query === 'late_fees' || includesAny(text, ['zestawienie kar', 'raport kar', 'kary najemcow', 'kar najemcow', 'kary za opoznienie'])) {
     const explicitPeriod = periodFromMessage(message, null);
     const rows = scopedLateFeeRows(req, explicitPeriod);
@@ -902,7 +1251,7 @@ async function parseAssistantCommand(req, body) {
   const useLocalIntent = local.intent !== 'unsupported' && Number(local.confidence || 0) >= 0.8;
   const classified = useLocalIntent
     ? { ...local, ai_used: false, ai_configured: Boolean(process.env.GROQ_API_KEY), warning: null }
-    : await classifyWithGroq(input.message, period, publicCandidates(rows));
+    : await classifyWithGroq(input.message, period, assistantContext(req, input.message, period));
   const merged = useLocalIntent || (classified.intent === 'unsupported' && local.intent !== 'unsupported')
     ? { ...classified, ...local }
     : { ...local, ...classified };
