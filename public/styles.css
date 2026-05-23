@@ -952,8 +952,20 @@ select.slim { font-size: 12.5px; padding: 6px 10px; border: 1px solid var(--bord
     justify-self: stretch;
     max-width: 100%;
     overflow-x: auto;
+    gap: 6px;
     padding-bottom: 2px;
   }
+  .topbar-right .tb-btn { padding: 7px 10px; }
+  .topbar-right #account-btn {
+    width: 34px;
+    flex: 0 0 34px;
+    justify-content: center;
+    padding: 0;
+    font-size: 0;
+    gap: 0;
+  }
+  .topbar-right #account-btn svg { width: 15px; height: 15px; }
+  .topbar-right #logout-btn { display: none; }
   .content { padding: 16px 16px calc(84px + env(safe-area-inset-bottom)); gap: 16px; }
   .assistant-input-row { grid-template-columns: 1fr; }
   .assistant-grid { grid-template-columns: 1fr 1fr; }
