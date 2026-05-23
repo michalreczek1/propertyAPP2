@@ -180,6 +180,12 @@ test('topbar command bar answers flexible overdue payment question', async ({ pa
 test('mobile topbar keeps AI command bar visible and usable', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/#dashboard');
+  const topbar = page.locator('#topbar');
+  await expect(topbar).toBeVisible();
+  const box = await topbar.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.height).toBeGreaterThan(80);
   const search = page.locator('#global-search');
   await expect(search).toBeVisible();
   await expect(search).toHaveCSS('display', /block|inline-block/);
