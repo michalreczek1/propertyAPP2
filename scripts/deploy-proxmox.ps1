@@ -158,8 +158,8 @@ pct exec "`$CT_ID" -- bash -lc "set -e
   cd '`$APP_DIR'
   if [ -f .deploy-manifest ]; then
     while IFS= read -r rel; do
-      case \"`$rel\" in ''|/*|*'..'*) continue ;; esac
-      rm -f -- \"`$rel\"
+      case \"\`$rel\" in ''|/*|*'..'*) continue ;; esac
+      rm -f -- \"\`$rel\"
     done < .deploy-manifest
   else
     rm -rf public src scripts tests
