@@ -5,6 +5,7 @@ const { z } = require('zod');
 const db = require('../db');
 const { monthlyFinanceSummary } = require('./finance-summary');
 const { semanticAnswer } = require('./ai-tools');
+const { parsePeriodRange: parseAiPeriodRange } = require('./ai-preprocess');
 const { previewPaymentReminder, sendPaymentReminder } = require('./notifications');
 const { todayLocalISO, parsePolishMonthYear, previousPeriod, periodLabel } = require('../utils/period');
 const { canAccessPayment, ownerId } = require('../utils/scope');
@@ -265,26 +266,8 @@ function dateRangeForPeriods(start, end) {
 }
 
 function timeRangeFromMessage(message, fallbackPeriod, req = null) {
-  const text = normalizeText(message);
-  const fallback = fallbackPeriod || todayLocalISO().slice(0, 7);
-  const fallbackYear = Number(String(fallback).slice(0, 4));
   const bounds = req ? paymentPeriodBounds(req) : { min: null, max: null };
-  if (includesAny(text, ['od poczatku', 'od początku', 'od startu', 'od poczatku danych', 'od początku danych', 'caly okres', 'cały okres', 'wszystkie lata', 'wszystkich danych'])) {
-    const start = bounds.min || `${fallbackYear}-01`;
-    const end = bounds.max || fallback;
-    return { mode: 'all', start, end, label: 'od początku danych', periods: periodsBetween(start, end) };
-  }
-  const explicitYear = String(message || '').match(/\b(20\d{2})\b/);
-  if (explicitYear || includesAny(text, ['w tym roku', 'ten rok', 'biezacy rok', 'bieżący rok', 'obecny rok', 'aktualny rok', 'w zeszlym roku', 'w zeszłym roku', 'zeszlym roku', 'zeszłym roku', 'poprzedni rok', 'poprzednim roku'])) {
-    const year = explicitYear ? Number(explicitYear[1]) : (includesAny(text, ['w zeszlym roku', 'w zeszłym roku', 'zeszlym roku', 'zeszłym roku', 'poprzedni rok', 'poprzednim roku']) ? fallbackYear - 1 : fallbackYear);
-    return { mode: 'year', year, start: `${year}-01`, end: `${year}-12`, label: `${year}`, periods: periodsBetween(`${year}-01`, `${year}-12`) };
-  }
-  if (includesAny(text, ['poprzedni miesiac', 'poprzedni miesiąc', 'zeszly miesiac', 'zeszły miesiąc'])) {
-    const period = shiftPeriodValue(fallback, -1);
-    return { mode: 'period', period, start: period, end: period, label: periodLabel(period), periods: [period] };
-  }
-  const period = periodFromMessage(message, fallback);
-  return { mode: 'period', period, start: period, end: period, label: periodLabel(period), periods: [period] };
+  return parseAiPeriodRange(message, fallbackPeriod, bounds);
 }
 
 function yearFromMessage(message, fallbackPeriod) {

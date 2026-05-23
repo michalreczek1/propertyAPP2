@@ -67,6 +67,41 @@ function periodsBetween(start, end) {
   return out;
 }
 
+function earlierPeriod(left, right) {
+  if (!left) return right;
+  if (!right) return left;
+  return String(left) <= String(right) ? left : right;
+}
+
+function wantsFullYear(text) {
+  return includesAny(text, [
+    'caly rok', 'calym roku', 'za caly', 'pelny rok', 'pelnym roku',
+    'do konca roku', 'prognoza', 'prognoze', 'prognozowany', 'planowany',
+    'ile zarobie', 'ile zarobimy', 'oczekiwany', 'oczekiwane', 'naleznosci',
+    'co powinno wplynac',
+  ]);
+}
+
+function yearRange(year, fallback, text, mode = 'year') {
+  const fallbackYear = Number(String(fallback).slice(0, 4));
+  const start = `${year}-01`;
+  const requestedEnd = `${year}-12`;
+  const capToCurrent = year === fallbackYear && !wantsFullYear(text);
+  const end = capToCurrent ? earlierPeriod(fallback, requestedEnd) : requestedEnd;
+  const label = capToCurrent ? `${year} do ${periodLabel(end)}` : `${year}`;
+  return {
+    mode,
+    year,
+    start,
+    end,
+    requested_end: requestedEnd,
+    capped_to_current: capToCurrent,
+    label,
+    periods: periodsBetween(start, end),
+    source: 'rule',
+  };
+}
+
 function monthEnd(period) {
   const [year, month] = String(period).split('-').map(Number);
   const d = new Date(year, month, 0);
@@ -110,7 +145,7 @@ function parsePeriodRange(message, fallbackPeriod, bounds = {}) {
   const explicitYear = String(message || '').match(/\b(20\d{2})\b/);
   if (explicitYear || includesAny(text, ['w tym roku', 'ten rok', 'biezacy rok', 'obecny rok', 'aktualny rok', 'w zeszlym roku', 'zeszlym roku', 'poprzedni rok', 'poprzednim roku'])) {
     const year = explicitYear ? Number(explicitYear[1]) : (includesAny(text, ['w zeszlym roku', 'zeszlym roku', 'poprzedni rok', 'poprzednim roku']) ? fallbackYear - 1 : fallbackYear);
-    return { mode: 'year', year, start: `${year}-01`, end: `${year}-12`, label: `${year}`, periods: periodsBetween(`${year}-01`, `${year}-12`), source: 'rule' };
+    return yearRange(year, fallback, text, 'year');
   }
   if (includesAny(text, ['poprzedni miesiac', 'zeszly miesiac'])) {
     const period = shiftPeriod(fallback, -1);

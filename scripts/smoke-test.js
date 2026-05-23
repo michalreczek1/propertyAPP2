@@ -336,9 +336,24 @@ async function main() {
     });
     expect(extra.ok && extra.data.id, JSON.stringify(extra));
     aiFixtures.push({ paymentId: extra.data.id });
+    const future = await api('POST', '/api/payments', {
+      period: '2026-12',
+      tenant_id: fixture.tenantId,
+      unit_id: fixture.unitId,
+      due_day: 10,
+      rent_amount: 5000,
+      media_amount: 0,
+      other_amount: 0,
+      total_paid: 5000,
+      status: 'paid',
+      source: 'smoke-ai',
+    });
+    expect(future.ok && future.data.id, JSON.stringify(future));
+    aiFixtures.push({ paymentId: future.data.id });
     const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: `ile w tym roku zapłacił __smoke_ai_roczny` });
     expect(r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report, JSON.stringify(r));
-    expect(r.data.report.paid >= 2100 && r.data.report.count >= 2, JSON.stringify(r.data));
+    expect(r.data.report.range && r.data.report.range.start === '2026-01' && r.data.report.range.end === '2026-05', JSON.stringify(r.data.report));
+    expect(r.data.report.paid >= 2100 && r.data.report.paid < 7000 && r.data.report.count === 2, JSON.stringify(r.data));
     return `${r.data.report.paid} zł`;
   });
   await check('POST /api/assistant/parse tax yearly summary', async () => {
@@ -347,7 +362,12 @@ async function main() {
       api('GET', '/api/reports/tax-yearly?year=2026'),
     ]);
     expect(assistant.ok && assistant.data.intent === 'report_answer' && assistant.data.status === 'answer' && assistant.data.report, JSON.stringify(assistant));
-    expect(taxYear.ok && Math.round(assistant.data.report.tax_total) === Math.round(taxYear.data.tax_paid.total), JSON.stringify({ assistant, taxYear }));
+    const includedMonths = assistant.data.report.range.periods || [];
+    const expectedTax = includedMonths.reduce((sum, period) => {
+      const monthIndex = Number(String(period).slice(5, 7)) - 1;
+      return sum + Number(taxYear.data.tax_paid.values[monthIndex] || 0);
+    }, 0);
+    expect(taxYear.ok && assistant.data.report.range.end === '2026-05' && Math.round(assistant.data.report.tax_total) === Math.round(expectedTax), JSON.stringify({ assistant, taxYear, expectedTax }));
     return `${assistant.data.report.tax_total} zł`;
   });
   await check('POST /api/assistant/parse tenant count previous year by property', async () => {
