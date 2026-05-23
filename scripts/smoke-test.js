@@ -272,6 +272,9 @@ async function main() {
       rent_amount: 1000,
       media_amount: 200,
       other_amount: 0,
+      late_fee_amount: opts.lateFeeAmount || 0,
+      late_fee_paid: opts.lateFeePaid || 0,
+      late_fee_manual: opts.lateFeeAmount ? 1 : 0,
       total_paid: 0,
       status: 'pending',
       source: 'smoke-ai',
@@ -344,6 +347,13 @@ async function main() {
     const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'ile zarobiłem netto w tym miesiącu?' });
     expect(r.ok && r.data.intent === 'report_answer' && r.data.status === 'answer' && r.data.report, JSON.stringify(r));
     return r.data.title;
+  });
+  await check('POST /api/assistant/parse late fee report', async () => {
+    await createAiPaymentFixture(`__smoke_ai_kary_${Date.now()}`, { code: 'KAR', lateFeeAmount: 50, lateFeePaid: 20 });
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'zrób zestawienie kar najemców' });
+    expect(r.ok && r.data.intent === 'report_answer' && r.data.status === 'answer' && r.data.report && r.data.report.total >= 50, JSON.stringify(r));
+    expect(Array.isArray(r.data.items) && r.data.items.some(item => String(item.title || '').includes('__smoke_ai_kary')), JSON.stringify(r.data));
+    return `${r.data.report.total} zł`;
   });
   await check('POST /api/assistant/parse data quality audit', async () => {
     const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'sprawdź błędy w danych' });

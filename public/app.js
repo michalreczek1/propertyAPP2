@@ -304,10 +304,6 @@ function setTopbar(title, sub, actions) {
     </button>
     <button class="tb-btn tb-ghost" data-period="+1" title="Następny miesiąc">›</button>
     ${actions || ''}
-    <button class="tb-btn tb-ghost" id="assistant-btn" title="AI komendy">
-      <svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15z"/></svg>
-      AI
-    </button>
     <button class="tb-btn tb-ghost" id="account-btn" title="Konto">
       <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       Konto
@@ -320,7 +316,6 @@ function setTopbar(title, sub, actions) {
     b.onclick = () => { State.period = shiftPeriod(State.period, +b.dataset.period); render(); };
   });
   right.querySelector('#period-btn').onclick = () => openPeriodPicker();
-  right.querySelector('#assistant-btn').onclick = () => openAssistantPanel();
   right.querySelector('#account-btn').onclick = () => openAccountPanel();
   right.querySelector('#logout-btn').onclick = () => logout();
 }
@@ -342,38 +337,13 @@ function openPeriodPicker() {
   });
 }
 
-function openAssistantPanel() {
+function openAssistantResultPanel() {
   const body = `
     <div class="assistant-panel">
-      <form id="assistant-form" class="assistant-form">
-        <label for="assistant-message">Komenda</label>
-        <div class="assistant-input-row">
-          <textarea id="assistant-message" name="message" placeholder="Np. Kowalski zapłacił, ile wynosi podatek, wyślij SMS do Kowalskiego"></textarea>
-          <button class="tb-btn tb-primary" type="submit">Sprawdź</button>
-        </div>
-        <div class="assistant-period">Okres: ${escapeHtml(periodTitleCase(State.period))}</div>
-      </form>
       <div id="assistant-result">${assistantResultHtml(State.assistantLastResult)}</div>
     </div>`;
-  const m = modal({ title: 'AI komendy', body, wide: true });
-  const form = m.root.querySelector('#assistant-form');
-  form.onsubmit = async (e) => {
-    e.preventDefault();
-    const message = form.message.value.trim();
-    if (!message) return toast('Wpisz komendę', 'err');
-    const resultRoot = m.root.querySelector('#assistant-result');
-    resultRoot.innerHTML = spinner();
-    try {
-      const result = await Api.post('/assistant/parse', { message, period: State.period });
-      State.assistantLastResult = result;
-      resultRoot.innerHTML = assistantResultHtml(result);
-      bindAssistantResult(resultRoot, m);
-    } catch (err) {
-      resultRoot.innerHTML = `<div class="assistant-result blocked"><div class="assistant-result-title">Błąd</div><div class="assistant-result-message">${escapeHtml(err.message || 'Nie udało się rozpoznać komendy')}</div></div>`;
-    }
-  };
+  const m = modal({ title: 'Wynik komendy', body, wide: true });
   bindAssistantResult(m.root.querySelector('#assistant-result'), m);
-  setTimeout(() => m.root.querySelector('#assistant-message')?.focus(), 0);
 }
 
 function assistantResultHtml(result) {
@@ -434,7 +404,7 @@ function assistantResultHtml(result) {
     </div>` : '';
   return `
     <div class="assistant-result ${escapeHtml(cls)}">
-      <div class="assistant-result-title">${escapeHtml(result.title || 'AI komendy')}</div>
+      <div class="assistant-result-title">${escapeHtml(result.title || 'Wynik komendy')}</div>
       <div class="assistant-result-message">${escapeHtml(result.message || '')}</div>
       ${aiNote}
       ${tax}
@@ -452,10 +422,11 @@ function bindAssistantResult(root, modalRef) {
   if (!root) return;
   root.querySelectorAll('[data-example]').forEach(btn => {
     btn.onclick = () => {
-      const input = modalRef.root.querySelector('#assistant-message');
+      const input = document.getElementById('global-search');
       if (input) {
         input.value = btn.dataset.example;
         input.focus();
+        modalRef.close();
       }
     };
   });
@@ -512,7 +483,7 @@ async function runCommandBar(message) {
       toast(result.title || 'Gotowe');
       return;
     }
-    openAssistantPanel();
+    openAssistantResultPanel();
   } catch (err) {
     toast(err.message || 'Nie udało się wykonać komendy', 'err');
   } finally {

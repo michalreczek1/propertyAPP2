@@ -47,6 +47,9 @@ async function createPaymentFixture(request, prefix, options = {}) {
       due_day: 10,
       rent_amount: 1234,
       media_amount: 321,
+      late_fee_amount: options.lateFeeAmount || 0,
+      late_fee_paid: options.lateFeePaid || 0,
+      late_fee_manual: options.lateFeeAmount ? 1 : 0,
       total_paid: 0,
       status: options.status || 'pending',
     },
@@ -89,10 +92,9 @@ test('reports page exposes consistent finance cards', async ({ page }) => {
 
 test('AI assistant explains tax from the topbar', async ({ page }) => {
   await page.goto('/#dashboard');
-  await page.getByRole('button', { name: 'AI' }).click();
-  await expect(page.getByText('AI komendy')).toBeVisible();
-  await page.locator('#assistant-message').fill('Ile wynosi podatek za ten miesiąc?');
-  await page.getByRole('button', { name: 'Sprawdź' }).click();
+  await expect(page.getByRole('button', { name: 'AI' })).toHaveCount(0);
+  await page.locator('#global-search').fill('Ile wynosi podatek za ten miesiąc?');
+  await page.locator('#global-search').press('Enter');
   await expect(page.getByText(/Podatek za/)).toBeVisible();
   await expect(page.getByText('Podstawa')).toBeVisible();
   await expect(page.getByText('Razem')).toBeVisible();
@@ -102,9 +104,8 @@ test('AI assistant confirms and marks a payment as paid', async ({ page, request
   const fixture = await createPaymentFixture(request, '__ai_paid');
   try {
     await page.goto('/#platnosci');
-    await page.getByRole('button', { name: 'AI' }).click();
-    await page.locator('#assistant-message').fill(`${fixture.name} zapłacił`);
-    await page.getByRole('button', { name: 'Sprawdź' }).click();
+    await page.locator('#global-search').fill(`${fixture.name} zapłacił`);
+    await page.locator('#global-search').press('Enter');
     await expect(page.getByText('Oznaczyć płatność jako opłaconą?')).toBeVisible();
     await page.locator('#assistant-execute').click();
     await expect(page.getByText('Oznaczono płatność jako opłaconą')).toBeVisible();
@@ -135,12 +136,27 @@ test('AI assistant shows SMS preview in test mode', async ({ page, request }) =>
     });
     expect(settings.ok()).toBeTruthy();
     await page.goto('/#dashboard');
-    await page.getByRole('button', { name: 'AI' }).click();
-    await page.locator('#assistant-message').fill(`${fixture.name} wyślij SMS z przypomnieniem`);
-    await page.getByRole('button', { name: 'Sprawdź' }).click();
+    await page.locator('#global-search').fill(`${fixture.name} wyślij SMS z przypomnieniem`);
+    await page.locator('#global-search').press('Enter');
     await expect(page.getByText('Wysłać SMS z przypomnieniem?')).toBeVisible();
     await expect(page.getByText('Tryb testowy')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Wyślij SMS' })).toBeVisible();
+  } finally {
+    await cleanupPaymentFixture(request, fixture);
+  }
+});
+
+test('topbar command bar shows tenant late fee report', async ({ page, request }) => {
+  const fixture = await createPaymentFixture(request, '__ai_late_fees', { lateFeeAmount: 50, lateFeePaid: 10 });
+  try {
+    await page.goto('/#dashboard');
+    await page.locator('#global-search').fill('zrób zestawienie kar najemców');
+    await page.locator('#global-search').press('Enter');
+    const result = page.locator('.assistant-result.answer');
+    await expect(result).toBeVisible();
+    await expect(result).toContainText('Zestawienie kar najemców');
+    await expect(result).toContainText(fixture.name);
+    await expect(result).toContainText('pozostało');
   } finally {
     await cleanupPaymentFixture(request, fixture);
   }

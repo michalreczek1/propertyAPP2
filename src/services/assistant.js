@@ -240,6 +240,9 @@ function localIntent(message) {
   if (includesAny(text, ['konczace sie umowy', 'kończące się umowy', 'umowy konczace'])) return { intent: 'filter_contracts', status: 'ending_soon', ...base, confidence: 0.85 };
   if (includesAny(text, ['otworz karte najemcy', 'otwórz kartę najemcy'])) return { intent: 'navigate_to_entity', entity_type: 'tenant', ...base, confidence: 0.82 };
   if (includesAny(text, ['pokaz koszty', 'koszty za'])) return { intent: 'filter_expenses', entity_type: 'expense', ...base, confidence: 0.8 };
+  if (includesAny(text, ['zestawienie kar', 'raport kar', 'kary najemcow', 'kar najemcow', 'kary za opoznienie', 'kary za opóźnienie'])) {
+    return { intent: 'report_answer', ...base, query: 'late_fees', year: yearFromMessage(message, period || todayLocalISO().slice(0, 7)), confidence: 0.88 };
+  }
   if (includesAny(text, ['ile zarobilem', 'ile zarobiłem', 'netto', 'przychod', 'przychód', 'porownaj', 'porównaj', 'najwiekszy koszt', 'największy koszt'])) {
     return { intent: 'report_answer', ...base, year: yearFromMessage(message, period || todayLocalISO().slice(0, 7)), confidence: 0.82 };
   }
@@ -551,6 +554,39 @@ function scopedExpenses(req, period) {
   `).all(period, ...(req.user && req.user.id && req.user.role !== 'admin' ? [req.user.id, req.user.id, req.user.id] : []));
 }
 
+function scopedLateFeeRows(req, period) {
+  const scoped = req.user && req.user.id && req.user.role !== 'admin';
+  const params = [];
+  const where = ['COALESCE(pm.late_fee_amount, 0) > 0'];
+  if (period) {
+    where.push('pm.period = ?');
+    params.push(period);
+  }
+  if (scoped) {
+    where.push('(pm.owner_user_id = ? OR t.owner_user_id = ? OR pr.owner_user_id = ?)');
+    params.push(req.user.id, req.user.id, req.user.id);
+  }
+  return db.prepare(`
+    SELECT
+      t.id AS tenant_id,
+      COALESCE(t.name, 'Bez najemcy') AS tenant_name,
+      u.code AS unit_code,
+      pr.name AS property_name,
+      COUNT(pm.id) AS count,
+      COALESCE(SUM(COALESCE(pm.late_fee_amount, 0)), 0) AS total,
+      COALESCE(SUM(COALESCE(pm.late_fee_paid, 0)), 0) AS paid,
+      COALESCE(SUM(MAX(COALESCE(pm.late_fee_amount, 0) - COALESCE(pm.late_fee_paid, 0), 0)), 0) AS balance,
+      GROUP_CONCAT(pm.period, ', ') AS periods
+    FROM payments pm
+    LEFT JOIN tenants t ON t.id = pm.tenant_id
+    LEFT JOIN units u ON u.id = pm.unit_id
+    LEFT JOIN properties pr ON pr.id = u.property_id
+    WHERE ${where.join(' AND ')}
+    GROUP BY t.id, t.name, u.code, pr.name
+    ORDER BY balance DESC, total DESC, tenant_name
+  `).all(...params);
+}
+
 function searchGlobal(req, query, period) {
   const q = normalizeText(query || '');
   const tenants = scopedTenants(req)
@@ -607,6 +643,32 @@ function filterResponse(req, intent, model, message, period) {
 function reportAnswer(req, model, message, period) {
   const targetPeriod = model.period || periodFromMessage(message, period);
   const text = normalizeText(message);
+  if (model.query === 'late_fees' || includesAny(text, ['zestawienie kar', 'raport kar', 'kary najemcow', 'kar najemcow', 'kary za opoznienie'])) {
+    const explicitPeriod = periodFromMessage(message, null);
+    const rows = scopedLateFeeRows(req, explicitPeriod);
+    const total = rows.reduce((sum, row) => sum + Number(row.total || 0), 0);
+    const paid = rows.reduce((sum, row) => sum + Number(row.paid || 0), 0);
+    const balance = rows.reduce((sum, row) => sum + Number(row.balance || 0), 0);
+    const suffix = explicitPeriod ? ` za ${periodLabel(explicitPeriod)}` : '';
+    return {
+      ok: true,
+      status: 'answer',
+      intent: 'report_answer',
+      title: `Zestawienie kar najemców${suffix}`,
+      message: rows.length
+        ? `Naliczono ${Math.round(total)} zł kar, zapłacono ${Math.round(paid)} zł, pozostało ${Math.round(balance)} zł.`
+        : `Brak naliczonych kar${suffix}.`,
+      report: { total, paid, balance, count: rows.reduce((sum, row) => sum + Number(row.count || 0), 0), period: explicitPeriod || null },
+      items: rows.slice(0, 20).map(row => ({
+        type: 'tenant',
+        id: row.tenant_id,
+        title: row.tenant_name,
+        subtitle: `${row.unit_code || 'bez lokalu'} · naliczono ${Math.round(row.total || 0)} zł · zapłacono ${Math.round(row.paid || 0)} zł · pozostało ${Math.round(row.balance || 0)} zł · ${row.periods || ''}`,
+        view: 'najemcy',
+      })),
+      execute_required: false,
+    };
+  }
   if (text.includes('porownaj') || text.includes('porownanie')) {
     const cur = monthlyFinanceSummary(db, targetPeriod, req);
     const prevP = previousPeriod(targetPeriod);
