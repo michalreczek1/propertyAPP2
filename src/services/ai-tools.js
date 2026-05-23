@@ -100,6 +100,25 @@ function aliasScore(req, type, query, idOrValue) {
   }, 0);
 }
 
+function resolveMetricAlias(req, question) {
+  const q = normalizeText(question);
+  if (!q) return null;
+  const scored = userAliases(req, 'metric')
+    .filter(row => row.resolves_to_value && METRICS[row.resolves_to_value])
+    .map(row => {
+      const alias = normalizeText(row.alias);
+      const score = alias && (q.includes(alias) || alias.includes(q))
+        ? 20 + Number(row.use_count || 0)
+        : tokensOverlap(q, alias);
+      return { row, score };
+    })
+    .filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score);
+  if (!scored.length) return null;
+  const key = scored[0].row.resolves_to_value;
+  return { key, metric: METRICS[key], ambiguous: false, source: 'user_alias' };
+}
+
 function resolveProperty(req, query) {
   const q = normalizeText(query);
   if (!q) return { status: 'missing', matches: [] };
@@ -359,7 +378,7 @@ function semanticAnswer(req, question, currentPeriod) {
   const started = Date.now();
   const bounds = paymentPeriodBounds(req);
   const range = parsePeriodRange(question, currentPeriod, bounds);
-  const metricHit = inferMetric(question);
+  const metricHit = inferMetric(question) || resolveMetricAlias(req, question);
   const text = normalizeText(question);
   const toolsCalled = [];
   const propertySubject = extractPropertySubject(question);

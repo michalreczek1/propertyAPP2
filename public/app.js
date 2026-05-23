@@ -2814,12 +2814,13 @@ async function uploadDocDialog() {
 
 // ═══════════════════════ USTAWIENIA ═══════════════════════
 async function renderSettings(root) {
-  const [s, importStatus, ownerCosts, notificationSettings, notificationLogs] = await Promise.all([
+  const [s, importStatus, ownerCosts, notificationSettings, notificationLogs, aiAliases] = await Promise.all([
     Api.get('/settings'),
     Api.get('/import/status').catch(() => ({ excel_import_enabled: false, dry_run_enabled: true })),
     Api.get('/settings/owner-costs').catch(() => ({ valid_from_period: '2026-01', management_monthly: 0, mortgages: [] })),
     Api.get('/notifications/settings').catch(() => ({ enabled: false, sender: 'TEST', send_time: '09:30', overdue_days: 1, reminder_enabled: true, reminder_days_before_due: 3, test_mode: true, test_phone: '', clear_polish: false, transactional: false, token_configured: false })),
     Api.get('/notifications/logs?limit=12').catch(() => []),
+    Api.get('/assistant/aliases').catch(() => ({ aliases: [], candidates: { properties: [], tenants: [], metrics: [] } })),
   ]);
   setTopbar(VIEW_TITLES.ustawienia, 'Dane firmy, podatki, preferencje',
     `<button class="tb-btn tb-primary" id="set-save"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Zapisz</button>`);
@@ -2909,6 +2910,30 @@ async function renderSettings(root) {
     </div>
 
     <div class="gc">
+      <div class="ch">
+        <div><div class="ch-title">AI aliasy</div><div class="ch-sub">własne nazwy dla nieruchomości, najemców i metryk</div></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="tb-btn tb-ghost" id="ai-alias-seed">Uzupełnij domyślne</button>
+          <button class="tb-btn tb-primary" id="ai-alias-add">Dodaj alias</button>
+        </div>
+      </div>
+      <div style="padding:0 24px 22px;overflow-x:auto">
+        <table class="t">
+          <thead><tr><th>Alias</th><th>Typ</th><th>Cel</th><th>Użycia</th><th></th></tr></thead>
+          <tbody>${(aiAliases.aliases || []).slice(0, 80).map(row => `
+            <tr>
+              <td><b>${escapeHtml(row.alias)}</b><div class="muted mono">${escapeHtml(row.normalized_alias || '')}</div></td>
+              <td>${escapeHtml(aiAliasTypeLabel(row.resolves_to_type))}</td>
+              <td>${escapeHtml(row.target_label || row.resolves_to_value || row.resolves_to_id || '—')}</td>
+              <td class="mono">${Number(row.use_count || 0)}</td>
+              <td style="text-align:right"><button class="tb-btn tb-ghost" data-ai-alias-delete="${row.id}">Usuń</button></td>
+            </tr>`).join('') || `<tr><td colspan="5">${emptyState('Brak aliasów AI.')}</td></tr>`}</tbody>
+        </table>
+        <div class="hint" style="margin-top:10px">Przykład: alias „moja baza” może wskazywać nieruchomość, a „kasa” metrykę „Przychód brutto z wpłat”.</div>
+      </div>
+    </div>
+
+    <div class="gc">
       <div class="ch"><div><div class="ch-title">Import danych z Excela</div><div class="ch-sub">ROZLICZENIA Z NAJEMCAMI.xlsx</div></div></div>
       <div style="padding:20px 24px">
         <input type="file" id="xlsx-file" accept=".xlsx,.xls" style="margin-bottom:12px;color:var(--t2)">
@@ -2961,9 +2986,60 @@ async function renderSettings(root) {
   document.getElementById('sms-sync-status').onclick = () => syncSmsDeliveryStatuses();
   document.getElementById('sms-run-now').onclick = () => runSmsNotificationsNow();
   document.getElementById('sms-test').onclick = () => sendTestSms();
+  document.getElementById('ai-alias-add').onclick = () => openAiAliasModal(aiAliases);
+  document.getElementById('ai-alias-seed').onclick = () => seedAiAliases();
+  document.querySelectorAll('[data-ai-alias-delete]').forEach(btn => {
+    btn.onclick = () => deleteAiAlias(btn.dataset.aiAliasDelete);
+  });
   fetch('/health').then(r => r.json()).then(j => {
     document.getElementById('dbinfo').textContent = `DB: ${j.db} (${j.tables} tabel)`;
   }).catch(() => {});
+}
+
+function aiAliasTypeLabel(type) {
+  return ({ property: 'Nieruchomość', tenant: 'Najemca', metric: 'Metryka' })[type] || type || '—';
+}
+function aiAliasTargetOptions(data) {
+  const c = data && data.candidates || {};
+  return [
+    ...(c.properties || []).map(p => ({ value: `property:${p.id}`, label: `Nieruchomość · ${p.name}` })),
+    ...(c.tenants || []).map(t => ({ value: `tenant:${t.id}`, label: `Najemca · ${t.name}` })),
+    ...(c.metrics || []).map(m => ({ value: `metric:${m.key}`, label: `Metryka · ${m.label}` })),
+  ];
+}
+function openAiAliasModal(data) {
+  const options = aiAliasTargetOptions(data);
+  if (!options.length) return toast('Brak celów dla aliasu', 'err');
+  formModal({
+    title: 'Dodaj alias AI',
+    fields: [
+      { name:'alias', label:'Alias', type:'text', placeholder:'np. moja baza, kasa, u Huberta', required:true, full:true },
+      { name:'target', label:'Cel', type:'select', options, full:true },
+    ],
+    onSubmit: async ({ alias, target }) => {
+      const [type, value] = String(target || '').split(':');
+      const payload = { alias, resolves_to_type: type };
+      if (type === 'metric') payload.resolves_to_value = value;
+      else payload.resolves_to_id = Number(value);
+      await Api.post('/assistant/aliases', payload);
+      toast('Alias zapisany');
+      render();
+    },
+  });
+}
+async function deleteAiAlias(id) {
+  try {
+    await Api.del(`/assistant/aliases/${id}`);
+    toast('Alias usunięty');
+    render();
+  } catch (e) { toast(e.message, 'err'); }
+}
+async function seedAiAliases() {
+  try {
+    const r = await Api.post('/assistant/aliases/seed', {});
+    toast(`Aliasy domyślne: dodano ${r.added || 0}`);
+    render();
+  } catch (e) { toast(e.message, 'err'); }
 }
 
 function notificationTypeLabel(type) {

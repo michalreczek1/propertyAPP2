@@ -250,6 +250,7 @@ async function main() {
 
   console.log('\n══ AI ASSISTANT ══');
   const aiFixtures = [];
+  const aiAliasIds = [];
   async function createAiPaymentFixture(name, opts = {}) {
     const prop = await api('POST', '/api/properties', { name: `${name}_property`, district: 'AI', type: 'mieszkanie' });
     expect(prop.ok && prop.data.id, JSON.stringify(prop));
@@ -362,6 +363,20 @@ async function main() {
     expect(r.data.report.metric === 'net_income' && r.data.report.range && r.data.report.range.start === '2026-01' && r.data.report.range.end === '2026-05', JSON.stringify(r.data));
     expect(!String(r.data.title || '').startsWith('Wynik netto maj 2026'), JSON.stringify(r.data));
     return `${r.data.report.net} zł`;
+  });
+  await check('POST /api/assistant/aliases property and metric aliases', async () => {
+    const fixture = await createAiPaymentFixture(`__smoke_ai_alias_${Date.now()}`, { period: '2026-05', status: 'paid', totalPaid: 1200, code: 'AL' });
+    const propertyAlias = await api('POST', '/api/assistant/aliases', { alias: '__smoke tajna baza', resolves_to_type: 'property', resolves_to_id: fixture.propertyId });
+    expect(propertyAlias.ok && propertyAlias.data.id, JSON.stringify(propertyAlias));
+    aiAliasIds.push(propertyAlias.data.id);
+    const metricAlias = await api('POST', '/api/assistant/aliases', { alias: '__smoke mamony', resolves_to_type: 'metric', resolves_to_value: 'revenue_paid' });
+    expect(metricAlias.ok && metricAlias.data.id, JSON.stringify(metricAlias));
+    aiAliasIds.push(metricAlias.data.id);
+    const propertyAnswer = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'podaj dochód z __smoke tajna baza za 2026 r.' });
+    expect(propertyAnswer.ok && propertyAnswer.data.report && Number(propertyAnswer.data.report.property_id) === Number(fixture.propertyId), JSON.stringify(propertyAnswer));
+    const metricAnswer = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'ile __smoke mamony w 2026 r.' });
+    expect(metricAnswer.ok && metricAnswer.data.report && metricAnswer.data.report.metric === 'revenue_paid', JSON.stringify(metricAnswer));
+    return `${propertyAlias.data.alias} / ${metricAlias.data.alias}`;
   });
   await check('POST /api/assistant/parse tax yearly summary', async () => {
     const [assistant, taxYear] = await Promise.all([
@@ -485,6 +500,7 @@ async function main() {
   await check('DEL  AI assistant fixtures', async () => {
     if (aiTaskId) await api('DELETE', `/api/tasks/${aiTaskId}`).catch(() => {});
     if (aiExpenseId) await api('DELETE', `/api/expenses/${aiExpenseId}`).catch(() => {});
+    for (const id of aiAliasIds.reverse()) await api('DELETE', `/api/assistant/aliases/${id}`).catch(() => {});
     for (const fixture of aiFixtures.reverse()) {
       if (fixture.paymentId) await api('DELETE', `/api/payments/${fixture.paymentId}`).catch(() => {});
       if (fixture.tenantId) await api('DELETE', `/api/tenants/${fixture.tenantId}`).catch(() => {});

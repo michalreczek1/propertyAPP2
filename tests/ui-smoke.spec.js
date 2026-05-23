@@ -317,6 +317,8 @@ test('topbar command bar creates a task after confirmation', async ({ page, requ
 test('settings exposes guarded excel import controls', async ({ page }) => {
   await page.goto('/#ustawienia');
   await expect(page.getByText('Import danych z Excela')).toBeVisible();
+  await expect(page.getByText('AI aliasy')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Dodaj alias' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Sprawdź import' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Importuj zapis' })).toBeDisabled();
 });
