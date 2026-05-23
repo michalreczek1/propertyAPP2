@@ -83,7 +83,7 @@ Run "scp `"$archivePath`" ${SshHost}:$remoteArchive"
 
 if (-not [string]::IsNullOrWhiteSpace($GroqApiKey)) {
   $keyPath = Join-Path $env:TEMP "propertyapp-groq-key-$timestamp.txt"
-  Set-Content -NoNewline -Path $keyPath -Value $GroqApiKey
+  [System.IO.File]::WriteAllText($keyPath, $GroqApiKey, [System.Text.UTF8Encoding]::new($false))
   Run "scp `"$keyPath`" ${SshHost}:$remoteKey" -Secret
   Remove-Item $keyPath -Force
 }
@@ -130,21 +130,26 @@ tar -tf "`$ARCHIVE" | sed 's#^\./##' | grep -v '/$' > "`$STAGE/.deploy-manifest"
 echo "== update Groq config if provided =="
 if [ -f "`$REMOTE_KEY" ]; then
   pct push "`$CT_ID" "`$REMOTE_KEY" /tmp/propertyapp-groq-key.txt -perms 0600
-  pct exec "`$CT_ID" -- bash -lc "set -e
-    key=`$(tr -d '\r\n' < /tmp/propertyapp-groq-key.txt)
-    touch '`$ENV_FILE'
-    chmod 600 '`$ENV_FILE'
-    tmp=`$(mktemp)
-    grep -v -E '^(GROQ_API_KEY|GROQ_BASE_URL|GROQ_MODEL)=' '`$ENV_FILE' > \"`$tmp\" || true
-    cat >> \"`$tmp\" <<EOF
+  cat > "`$STAGE/set-groq.sh" <<'GROQ_SCRIPT'
+set -eu
+env_file="`$1"
+key=`$(tr -d '\r\n' < /tmp/propertyapp-groq-key.txt)
+touch "`$env_file"
+chmod 600 "`$env_file"
+tmp=`$(mktemp)
+grep -v -E '^(GROQ_API_KEY|GROQ_BASE_URL|GROQ_MODEL)=' "`$env_file" > "`$tmp" || true
+cat >> "`$tmp" <<EOF
 GROQ_API_KEY=`$key
 GROQ_BASE_URL=https://api.groq.com/openai/v1
 GROQ_MODEL=openai/gpt-oss-120b
 EOF
-    cat \"`$tmp\" > '`$ENV_FILE'
-    rm -f \"`$tmp\" /tmp/propertyapp-groq-key.txt
-    chown root:root '`$ENV_FILE'
-  "
+cat "`$tmp" > "`$env_file"
+rm -f "`$tmp" /tmp/propertyapp-groq-key.txt
+chown root:root "`$env_file"
+GROQ_SCRIPT
+  pct push "`$CT_ID" "`$STAGE/set-groq.sh" /tmp/propertyapp-set-groq.sh -perms 0700
+  pct exec "`$CT_ID" -- bash /tmp/propertyapp-set-groq.sh "`$ENV_FILE"
+  pct exec "`$CT_ID" -- rm -f /tmp/propertyapp-set-groq.sh
   rm -f "`$REMOTE_KEY"
 fi
 
@@ -183,7 +188,7 @@ echo "App backup: `$APP_BACKUP_DIR/app.tar"
 "@
 
 $localRemoteScript = Join-Path $env:TEMP "propertyapp-deploy-$commit-$timestamp.sh"
-Set-Content -Path $localRemoteScript -Value $remoteScriptContent -NoNewline
+[System.IO.File]::WriteAllText($localRemoteScript, $remoteScriptContent, [System.Text.UTF8Encoding]::new($false))
 Run "scp `"$localRemoteScript`" ${SshHost}:$remoteScript"
 Remove-Item $localRemoteScript -Force
 
