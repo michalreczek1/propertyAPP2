@@ -503,6 +503,22 @@ async function main() {
     expect(r.ok && r.data.intent === 'data_quality_check' && Array.isArray(r.data.checks), JSON.stringify(r));
     return `${r.data.checks.length} kontroli`;
   });
+  await check('POST /api/assistant/parse range data completeness audit', async () => {
+    const auditName = `__smoke_ai_audyt_${Date.now()}`;
+    await createAiPaymentFixture(auditName, { period: '2026-04', status: 'paid', code: 'AUD' });
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'sprawdź czy dane są kompletne za 2026 r.' });
+    expect(r.ok && r.data.intent === 'data_quality_check' && r.data.report && r.data.report.range.start === '2026-01', JSON.stringify(r));
+    const missing = (r.data.checks || []).find(c => c.key === 'property_missing_months');
+    expect(missing && missing.count >= 1, JSON.stringify(r.data));
+    expect(Array.isArray(r.data.items) && r.data.items.some(item => String(item.title || '').includes(auditName) || String(item.subtitle || '').includes('2026-01')), JSON.stringify(r.data));
+    return `${missing.count} braków`;
+  });
+  await check('POST /api/assistant/parse finance explanation', async () => {
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'dlaczego wynik w maju 2026?' });
+    expect(r.ok && r.data.intent === 'report_answer' && r.data.status === 'answer' && r.data.report && r.data.report.delta, JSON.stringify(r));
+    expect(String(r.data.title || '').includes('Wyjaśnienie'), JSON.stringify(r.data));
+    return r.data.title;
+  });
   let aiTaskId = null, aiExpenseId = null;
   await check('POST /api/assistant/execute creates task', async () => {
     const parsed = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'dodaj zadanie sprawdzić licznik prądu' });

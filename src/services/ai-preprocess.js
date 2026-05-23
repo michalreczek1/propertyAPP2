@@ -142,6 +142,16 @@ function parsePeriodRange(message, fallbackPeriod, bounds = {}) {
     const start = shiftPeriod(fallback, -11);
     return { mode: 'rolling', start, end: fallback, label: `ostatnie 12 miesięcy (${periodLabel(start)} - ${periodLabel(fallback)})`, periods: periodsBetween(start, fallback), source: 'rule' };
   }
+  const directPeriod = String(message || '').match(/\b(20\d{2})-(0[1-9]|1[0-2])\b/);
+  if (directPeriod) {
+    const period = directPeriod[0];
+    return { mode: 'period', period, start: period, end: period, label: periodLabel(period), periods: [period], source: 'rule' };
+  }
+  const monthPeriod = parsePolishMonthYear(message);
+  if (monthPeriod) {
+    const period = monthPeriod.period;
+    return { mode: 'period', period, start: period, end: period, label: periodLabel(period), periods: [period], source: 'rule' };
+  }
   const explicitYear = String(message || '').match(/\b(20\d{2})\b/);
   if (explicitYear || includesAny(text, ['w tym roku', 'ten rok', 'biezacy rok', 'obecny rok', 'aktualny rok', 'w zeszlym roku', 'zeszlym roku', 'poprzedni rok', 'poprzednim roku'])) {
     const year = explicitYear ? Number(explicitYear[1]) : (includesAny(text, ['w zeszlym roku', 'zeszlym roku', 'poprzedni rok', 'poprzednim roku']) ? fallbackYear - 1 : fallbackYear);

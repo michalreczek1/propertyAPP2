@@ -306,7 +306,7 @@ function scopedPaymentRows(req, period) {
     SELECT p.id AS payment_id, p.period, p.tenant_id, p.unit_id, p.status, p.due_date,
            p.rent_amount, p.media_amount, p.other_amount, p.total_paid,
            t.name AS tenant_name, t.phone, t.sms_consent, t.sms_disabled,
-           u.name AS unit_name, u.code AS unit_code, pr.name AS property_name
+           u.name AS unit_name, u.code AS unit_code, pr.id AS property_id, pr.name AS property_name
     FROM payments p
     LEFT JOIN tenants t ON t.id = p.tenant_id
     LEFT JOIN units u ON u.id = p.unit_id
@@ -407,6 +407,9 @@ function localIntent(message) {
   if (isTaxSummaryQuestion(text)) {
     return { intent: 'report_answer', query: 'tax_summary', ...base, year: yearFromMessage(message, period || todayLocalISO().slice(0, 7)), confidence: 0.88 };
   }
+  if (isFinanceExplanationQuestion(text)) {
+    return { intent: 'report_answer', query: 'finance_explanation', ...base, confidence: 0.86 };
+  }
   if (isPropertyFinanceQuestion(text)) {
     const propertyName = extractPropertySubject(message);
     return { intent: 'report_answer', query: 'property_finance_summary', ...base, property_name: propertyName, confidence: 0.87 };
@@ -443,7 +446,7 @@ function localIntent(message) {
   if (includesAny(text, ['ile zarobilem', 'ile zarobiłem', 'netto', 'przychod', 'przychód', 'dochod', 'dochód', 'porownaj', 'porównaj', 'najwiekszy koszt', 'największy koszt'])) {
     return { intent: 'report_answer', ...base, year: yearFromMessage(message, period || todayLocalISO().slice(0, 7)), confidence: 0.82 };
   }
-  if (includesAny(text, ['sprawdz bledy', 'bledy w danych', 'kontrola danych', 'jakosc danych', 'audyt danych', 'sprawdz dane', 'nietypowo wysokie koszty', 'brak harmonogramu'])) {
+  if (includesAny(text, ['sprawdz bledy', 'bledy w danych', 'kontrola danych', 'jakosc danych', 'audyt danych', 'sprawdz dane', 'kompletnosc danych', 'dane kompletne', 'czy dane sa kompletne', 'nietypowo wysokie koszty', 'brak harmonogramu'])) {
     return { intent: 'data_quality_check', ...base, confidence: 0.86 };
   }
   if (includesAny(text, ['sprawdz brak telefonu', 'sprawdz brak zgody', 'sprawdz bez telefonu', 'sprawdz bez zgody', 'sprawdz bez lokalu', 'sprawdz bez umowy'])) {
@@ -520,6 +523,15 @@ function isTaxSummaryQuestion(text) {
 function isPropertyFinanceQuestion(text) {
   return /\b(dochod|dochodow|przychod|przychodow|wplywy|wpływy|utarg|netto|koszty|kosztow|podatku|podatek)\b/.test(text)
     && (/\b(z|ze|na|przy|dla)\b/.test(text) || /\b20\d{2}\b/.test(text) || includesAny(text, ['w tym roku', 'zeszlym roku', 'poprzedni rok', 'od poczatku']));
+}
+
+function isFinanceExplanationQuestion(text) {
+  return includesAny(text, [
+    'dlaczego wynik', 'czemu wynik', 'wyjasnij wynik', 'wyjasnij finanse',
+    'dlaczego marza', 'czemu marza', 'marza spadla', 'marza wzrosla',
+    'wynik spadl', 'wynik wzrosl', 'co najbardziej obciazylo', 'co obciazylo',
+    'co wplynelo na wynik', 'skad taki wynik', 'dlaczego zarobilem',
+  ]);
 }
 
 function isTenantPaymentSummaryQuestion(text) {
@@ -814,9 +826,9 @@ function scopedContracts(req) {
 }
 
 function scopedExpenses(req, period) {
-  const scope = scopeCondition(req, { property: 'p' });
   return db.prepare(`
-    SELECT e.*, p.name AS property_name, u.code AS unit_code, u.name AS unit_name
+    SELECT e.*, COALESCE(e.property_id, up.id) AS resolved_property_id,
+           COALESCE(p.name, up.name) AS property_name, u.code AS unit_code, u.name AS unit_name
     FROM expenses e
     LEFT JOIN properties p ON p.id = e.property_id
     LEFT JOIN units u ON u.id = e.unit_id
@@ -1000,6 +1012,103 @@ function tenantCountAnswer(req, model, message, period) {
   );
 }
 
+function rangeForYear(year) {
+  const start = `${year}-01`;
+  const end = `${year}-12`;
+  return { mode: 'year', year, start, end, label: `${year}`, periods: periodsBetween(start, end), source: 'rule' };
+}
+
+function previousComparableRange(range) {
+  if (range && range.mode === 'year' && range.year) return rangeForYear(Number(range.year) - 1);
+  const count = Math.max(1, (range.periods || []).length);
+  const end = shiftPeriodValue(range.start || range.period || todayLocalISO().slice(0, 7), -1);
+  const start = shiftPeriodValue(end, -(count - 1));
+  return {
+    mode: 'previous',
+    start,
+    end,
+    label: `${periodLabel(start)} - ${periodLabel(end)}`,
+    periods: periodsBetween(start, end),
+    source: 'rule',
+  };
+}
+
+function summarizeFinanceRange(req, range) {
+  const months = (range.periods || []).map(p => {
+    const summary = monthlyFinanceSummary(db, p, req);
+    return {
+      period: p,
+      revenue: Number(summary.revenue.gross || 0),
+      expected: Number(summary.revenue.expected || 0),
+      expenses: Number(summary.expenses.total || 0),
+      tax: Number(summary.tax.podatek_suma || 0),
+      net: Number(summary.net_for_owner || 0),
+      categories: summary.costs_by_category || [],
+    };
+  });
+  const totals = months.reduce((acc, row) => {
+    acc.revenue += row.revenue;
+    acc.expected += row.expected;
+    acc.expenses += row.expenses;
+    acc.tax += row.tax;
+    acc.net += row.net;
+    for (const cat of row.categories) {
+      const key = cat.category || 'inne';
+      acc.expense_categories[key] = (acc.expense_categories[key] || 0) + Number(cat.total || 0);
+    }
+    return acc;
+  }, { revenue: 0, expected: 0, expenses: 0, tax: 0, net: 0, expense_categories: {} });
+  totals.margin = totals.revenue ? totals.net / totals.revenue : 0;
+  return { range, months, totals };
+}
+
+function financeExplanationAnswer(req, message, period) {
+  const years = [...new Set((String(message || '').match(/\b20\d{2}\b/g) || []).map(Number))];
+  const currentRange = years.length >= 2 ? rangeForYear(years[0]) : timeRangeFromMessage(message, period, req);
+  const previousRange = years.length >= 2 ? rangeForYear(years[1]) : previousComparableRange(currentRange);
+  const current = summarizeFinanceRange(req, currentRange);
+  const previous = summarizeFinanceRange(req, previousRange);
+  const cur = current.totals;
+  const prev = previous.totals;
+  const delta = {
+    revenue: cur.revenue - prev.revenue,
+    expenses: cur.expenses - prev.expenses,
+    tax: cur.tax - prev.tax,
+    net: cur.net - prev.net,
+    margin: cur.margin - prev.margin,
+  };
+  const drivers = [
+    { key: 'revenue', label: 'wpłaty', impact: delta.revenue, raw: delta.revenue },
+    { key: 'expenses', label: 'koszty', impact: -delta.expenses, raw: delta.expenses },
+    { key: 'tax', label: 'podatek', impact: -delta.tax, raw: delta.tax },
+  ].sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact));
+  const topCategories = Object.entries(cur.expense_categories)
+    .map(([category, total]) => ({ category, total }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 3);
+  const direction = delta.net >= 0 ? 'lepszy' : 'gorszy';
+  const driverText = drivers.map(d => {
+    const verb = d.impact >= 0 ? 'pomogły' : 'obciążyły wynik';
+    return `${d.label} ${verb} o ok. ${Math.round(Math.abs(d.impact))} zł`;
+  }).join(', ');
+  const categoryText = topCategories.length
+    ? ` Największe kategorie kosztów w analizowanym okresie: ${topCategories.map(c => `${c.category} ${Math.round(c.total)} zł`).join(', ')}.`
+    : '';
+  return resultList(
+    'report_answer',
+    `Wyjaśnienie wyniku ${currentRange.label}`,
+    `Wynik netto za ${currentRange.label} to ${Math.round(cur.net)} zł, a dla porównania ${previousRange.label}: ${Math.round(prev.net)} zł. Jest ${direction} o ${Math.round(Math.abs(delta.net))} zł. Główne czynniki: ${driverText}.${categoryText} Marża: ${Math.round(cur.margin * 1000) / 10}% vs ${Math.round(prev.margin * 1000) / 10}%.`,
+    drivers.map(d => ({
+      type: 'report',
+      title: d.label,
+      subtitle: `zmiana ${Math.round(d.raw)} zł · wpływ na netto ${Math.round(d.impact)} zł`,
+      view: 'raporty',
+    })),
+    { view: 'raporty', state: { period: currentRange.end || period } },
+    { status: 'answer', report: { current: cur, previous: prev, delta, current_range: currentRange, previous_range: previousRange, top_expense_categories: topCategories } }
+  );
+}
+
 function taxSummaryAnswer(req, message, period) {
   const range = timeRangeFromMessage(message, period, req);
   const months = range.periods || [];
@@ -1064,7 +1173,7 @@ function answerFromDataTool(req, model, message, period) {
   const query = model.query || extractSearchQuery(message) || '';
   const status = model.status || null;
   if (tool === 'search') return searchGlobal(req, query || message, targetPeriod);
-  if (tool === 'quality') return dataQualityReport(req, targetPeriod);
+  if (tool === 'quality') return dataQualityReport(req, message, targetPeriod);
   if (tool === 'finance') return reportAnswer(req, model, message, targetPeriod);
   if (tool === 'late_fees') {
     const explicitPeriod = model.period || periodFromMessage(message, null);
@@ -1197,6 +1306,9 @@ function filterResponse(req, intent, model, message, period) {
 function reportAnswer(req, model, message, period) {
   const targetPeriod = model.period || periodFromMessage(message, period);
   const text = normalizeText(message);
+  if (model.query === 'finance_explanation' || isFinanceExplanationQuestion(text)) {
+    return financeExplanationAnswer(req, message, targetPeriod);
+  }
   if (model.query === 'property_finance_summary' || (isPropertyFinanceQuestion(text) && extractPropertySubject(message))) {
     return propertyFinanceAnswer(req, model, message, targetPeriod);
   }
@@ -1268,28 +1380,109 @@ function reportAnswer(req, model, message, period) {
   };
 }
 
-function dataQualityReport(req, period) {
+function qualityRangeFromInput(input, fallbackPeriod, req) {
+  if (/^\d{4}-\d{2}$/.test(String(input || ''))) {
+    return { mode: 'period', period: input, start: input, end: input, label: periodLabel(input), periods: [input], source: 'rule' };
+  }
+  return timeRangeFromMessage(input || fallbackPeriod, fallbackPeriod, req);
+}
+
+function dataQualityReport(req, input, fallbackPeriod = null) {
+  const range = qualityRangeFromInput(input, fallbackPeriod || todayLocalISO().slice(0, 7), req);
   const tenants = scopedTenants(req);
   const units = scopedUnits(req);
-  const payments = scopedPaymentRows(req, period);
-  const expenses = scopedExpenses(req, period);
+  const properties = scopedProperties(req);
+  const payments = range.periods.flatMap(p => scopedPaymentRows(req, p));
+  const expenses = range.periods.flatMap(p => scopedExpenses(req, p));
   const avgExpense = expenses.length ? expenses.reduce((sum, e) => sum + Number(e.amount || 0), 0) / expenses.length : 0;
+  const propertyIssues = [];
+  for (const property of properties) {
+    const propertyPayments = payments.filter(p => Number(p.property_id) === Number(property.id));
+    if (!propertyPayments.length) continue;
+    const monthsWithPayments = new Set(propertyPayments.map(p => p.period));
+    const missing = range.periods.filter(p => !monthsWithPayments.has(p));
+    if (missing.length) {
+      propertyIssues.push({
+        type: 'report',
+        title: property.name,
+        subtitle: `brak wpływów w ${missing.join(', ')}`,
+        view: 'raporty',
+      });
+    }
+  }
+  const activeTenantScheduleMissing = [];
+  const activeTenantsWithUnits = tenants.filter(t => t.status === 'active' && t.current_unit_id);
+  for (const tenant of activeTenantsWithUnits) {
+    const tenantPayments = payments.filter(p => Number(p.tenant_id) === Number(tenant.id));
+    const monthsWithPayments = new Set(tenantPayments.map(p => p.period));
+    const missing = range.periods.filter(p => !monthsWithPayments.has(p));
+    if (missing.length && range.periods.length <= 12) {
+      activeTenantScheduleMissing.push({
+        type: 'tenant',
+        id: tenant.id,
+        title: tenant.name,
+        subtitle: `${tenant.unit_code || 'bez lokalu'} · brak harmonogramu: ${missing.slice(0, 6).join(', ')}${missing.length > 6 ? '…' : ''}`,
+        view: 'najemcy',
+      });
+    }
+  }
+  const mediaExpenseIssues = [];
+  for (const property of properties) {
+    const propertyPayments = payments.filter(p => Number(p.property_id) === Number(property.id));
+    if (!propertyPayments.length) continue;
+    for (const p of range.periods) {
+      if (!propertyPayments.some(row => row.period === p)) continue;
+      const hasMediaExpense = expenses.some(e =>
+        Number(e.resolved_property_id || e.property_id || 0) === Number(property.id)
+        && String(e.date || '').startsWith(p)
+        && ['inne', 'prad', 'internet', 'czynsz'].includes(String(e.category || ''))
+      );
+      if (!hasMediaExpense) {
+        mediaExpenseIssues.push({ type: 'report', title: `${property.name} · ${periodLabel(p)}`, subtitle: 'wpływy są, ale nie widzę kosztów eksploatacyjnych/mediów', view: 'koszty' });
+      }
+    }
+  }
+  const monthlySummaries = range.periods.map(p => ({ period: p, summary: monthlyFinanceSummary(db, p, req) }));
+  const taxGaps = monthlySummaries
+    .filter(row => Number(row.summary.revenue.rent_paid || 0) > 0 && Number(row.summary.tax.podatek_suma || 0) <= 0)
+    .map(row => ({ type: 'report', title: periodLabel(row.period), subtitle: `podstawa ${Math.round(row.summary.revenue.rent_paid || 0)} zł, podatek 0 zł`, view: 'raporty' }));
+  const expectedGaps = monthlySummaries
+    .filter(row => Number(row.summary.revenue.expected || 0) > Number(row.summary.revenue.gross || 0))
+    .map(row => ({ type: 'report', title: periodLabel(row.period), subtitle: `oczekiwano ${Math.round(row.summary.revenue.expected || 0)} zł, wpłaty ${Math.round(row.summary.revenue.gross || 0)} zł`, view: 'platnosci' }));
+  const emptyMonths = range.periods.filter(p => !payments.some(row => row.period === p));
+  const highExpenses = avgExpense ? expenses.filter(e => Number(e.amount || 0) > Math.max(500, avgExpense * 3)) : [];
   const checks = [
     { key: 'missing_phone', label: 'Aktywni najemcy bez telefonu', count: tenants.filter(t => t.status === 'active' && !String(t.phone || '').trim()).length },
     { key: 'missing_sms_consent', label: 'Aktywni najemcy bez zgody SMS', count: tenants.filter(t => t.status === 'active' && Number(t.sms_consent || 0) !== 1).length },
     { key: 'tenant_without_unit', label: 'Aktywni najemcy bez lokalu', count: tenants.filter(t => t.status === 'active' && !t.current_unit_id).length },
     { key: 'unit_without_contract', label: 'Lokale bez aktywnej umowy', count: units.filter(u => Number(u.active_contracts || 0) === 0).length },
     { key: 'payment_without_tenant', label: 'Płatności bez najemcy', count: payments.filter(p => !p.tenant_id).length },
-    { key: 'high_expenses', label: 'Nietypowo wysokie koszty', count: avgExpense ? expenses.filter(e => Number(e.amount || 0) > avgExpense * 3 && Number(e.amount || 0) > 500).length : 0 },
-    { key: 'missing_schedule', label: `Brak harmonogramu płatności na ${periodLabel(period)}`, count: payments.length === 0 ? 1 : 0 },
+    { key: 'property_missing_months', label: 'Nieruchomości z brakującymi miesiącami wpływów', count: propertyIssues.length },
+    { key: 'missing_schedule', label: `Brak harmonogramu u aktywnych najemców (${range.label})`, count: activeTenantScheduleMissing.length },
+    { key: 'empty_months', label: 'Miesiące bez żadnych płatności', count: emptyMonths.length },
+    { key: 'expected_vs_paid_gap', label: 'Miesiące z różnicą oczekiwane vs wpłaty', count: expectedGaps.length },
+    { key: 'missing_media_expenses', label: 'Miesiące z wpływami bez kosztów eksploatacyjnych', count: mediaExpenseIssues.length },
+    { key: 'high_expenses', label: 'Nietypowo wysokie koszty', count: highExpenses.length },
+    { key: 'tax_gap', label: 'Wpłaty czynszowe bez podatku', count: taxGaps.length },
   ];
+  const items = [
+    ...propertyIssues,
+    ...activeTenantScheduleMissing,
+    ...expectedGaps,
+    ...mediaExpenseIssues,
+    ...highExpenses.map(e => ({ type: 'expense', id: e.id, title: e.description || e.category, subtitle: `${Math.round(e.amount || 0)} zł · ${e.property_name || ''} · ${e.date}`, view: 'koszty' })),
+    ...taxGaps,
+  ].slice(0, 24);
+  const issueCount = checks.reduce((sum, c) => sum + Number(c.count || 0), 0);
   return {
     ok: true,
     status: 'audit',
     intent: 'data_quality_check',
-    title: 'Kontrola jakości danych',
-    message: checks.some(c => c.count) ? 'Znalazłem rzeczy warte sprawdzenia.' : 'Nie znalazłem oczywistych problemów.',
+    title: `Kontrola jakości danych ${range.label}`,
+    message: issueCount ? `Znalazłem ${issueCount} sygnałów do sprawdzenia. Najważniejsze pozycje masz poniżej.` : 'Nie znalazłem oczywistych problemów.',
     checks,
+    items,
+    report: { range, issue_count: issueCount, empty_months: emptyMonths },
     execute_required: false,
   };
 }
@@ -1360,7 +1553,9 @@ async function parseAssistantCommand(req, body) {
 
   const targetPeriod = intent.period || periodFromMessage(input.message, period);
   const explicitSearch = /^(szukaj|wyszukaj|znajdz)\b/.test(normalizeText(input.message));
-  if (['answer_from_data', 'report_answer'].includes(intent.intent) || (intent.intent === 'search_global' && !explicitSearch)) {
+  const shouldTrySemantic = !['finance_explanation'].includes(intent.query || '')
+    && ['answer_from_data', 'report_answer'].includes(intent.intent);
+  if (shouldTrySemantic || (intent.intent === 'search_global' && !explicitSearch)) {
     const semantic = semanticAnswer(req, input.message, period);
     if (semantic) return { ...semantic, ai };
   }
@@ -1382,7 +1577,7 @@ async function parseAssistantCommand(req, body) {
   }
   if (intent.intent === 'answer_from_data') return { ...answerFromDataTool(req, intent, input.message, targetPeriod), ai };
   if (intent.intent === 'report_answer') return { ...reportAnswer(req, intent, input.message, targetPeriod), ai };
-  if (intent.intent === 'data_quality_check') return { ...dataQualityReport(req, targetPeriod), ai };
+  if (intent.intent === 'data_quality_check') return { ...dataQualityReport(req, input.message, targetPeriod), ai };
   if (['create_task','add_expense','generate_payments'].includes(intent.intent)) {
     return { ...actionPreview(req, intent.intent, intent, input.message, targetPeriod), ai };
   }

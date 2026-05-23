@@ -245,6 +245,27 @@ test('topbar command bar summarizes property income by year', async ({ page }) =
   await expect(result).not.toContainText('Wynik netto maj 2026');
 });
 
+test('topbar command bar explains finance result drivers', async ({ page }) => {
+  await page.goto('/#dashboard');
+  await page.locator('#global-search').fill('dlaczego wynik w maju 2026?');
+  await page.locator('#global-search').press('Enter');
+  const result = page.locator('.assistant-result.answer');
+  await expect(result).toBeVisible();
+  await expect(result).toContainText('Wyjaśnienie wyniku');
+  await expect(result).toContainText('Główne czynniki');
+  await expect(result).toContainText('Marża');
+});
+
+test('topbar command bar shows range data quality audit', async ({ page }) => {
+  await page.goto('/#dashboard');
+  await page.locator('#global-search').fill('sprawdź czy dane są kompletne za 2026 r.');
+  await page.locator('#global-search').press('Enter');
+  const result = page.locator('.assistant-result');
+  await expect(result).toBeVisible();
+  await expect(result).toContainText('Kontrola jakości danych');
+  await expect(result).toContainText('Nieruchomości z brakującymi miesiącami wpływów');
+});
+
 test('mobile topbar keeps AI command bar visible and usable', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/#dashboard');
