@@ -364,6 +364,20 @@ async function main() {
     expect(r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report && r.data.report.count >= 1, JSON.stringify(r));
     return `${r.data.report.count} najemców`;
   });
+  await check('POST /api/assistant/parse inflected property tenant count', async () => {
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'ilu miałem najemców na Kościelnej w zeszłym roku?' });
+    expect(r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report, JSON.stringify(r));
+    expect(String(r.data.title || '').toLowerCase().includes('kościelna') || String(r.data.title || '').toLowerCase().includes('koscielna'), JSON.stringify(r.data));
+    return r.data.title;
+  });
+  await check('POST /api/assistant/parse property income yearly summary', async () => {
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'podaj sumę dochodów z chrobrego za 2025 r.' });
+    expect(r.ok && r.data.intent === 'report_answer' && r.data.status === 'answer' && r.data.report, JSON.stringify(r));
+    expect(String(r.data.report.property_name || '').toLowerCase().includes('chrobrego'), JSON.stringify(r.data));
+    expect(r.data.report.range && r.data.report.range.start === '2025-01' && r.data.report.range.end === '2025-12', JSON.stringify(r.data.report));
+    expect(Number(r.data.report.revenue || 0) >= 0 && !String(r.data.title || '').includes('maj 2026'), JSON.stringify(r.data));
+    return `${r.data.report.property_name}: ${r.data.report.revenue} zł`;
+  });
   await check('POST /api/assistant/parse SMS preview', async () => {
     aiSmsFixture = await createAiPaymentFixture(`__smoke_ai_sms_${Date.now()}`, { smsConsent: true, code: 'SMS' });
     const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: '__smoke_ai_sms wyślij SMS z przypomnieniem' });

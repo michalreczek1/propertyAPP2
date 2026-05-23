@@ -170,6 +170,37 @@ function normalizeText(value) {
     .trim();
 }
 
+function comparableToken(value) {
+  return normalizeText(value)
+    .replace(/(skiego|ckiego|owej|ego|ami|ach|owi|em|ej|ie|ow|ów|a|e|y|i)$/i, '');
+}
+
+function matchTokens(value) {
+  const stop = new Set([
+    'czy', 'ile', 'ilu', 'mialem', 'mial', 'najemca', 'najemcy', 'najemcow', 'najemco', 'najemc',
+    'zeszly', 'zeszlym', 'poprzedni', 'poprzednim', 'roku', 'rok', 'tym', 'ten', 'tego',
+    'miesiac', 'miesiacu', 'platnosc', 'platnosci', 'podatek', 'podatku',
+  ]);
+  return normalizeText(value)
+    .split(/\s+/)
+    .map(comparableToken)
+    .filter(token => token.length >= 3 && !stop.has(token));
+}
+
+function tokensOverlap(left, right) {
+  const a = matchTokens(left);
+  const b = matchTokens(right);
+  if (!a.length || !b.length) return 0;
+  let score = 0;
+  for (const leftToken of a) {
+    for (const rightToken of b) {
+      if (leftToken === rightToken) score += 3;
+      else if (leftToken.length >= 4 && rightToken.length >= 4 && (leftToken.includes(rightToken) || rightToken.includes(leftToken))) score += 1;
+    }
+  }
+  return score;
+}
+
 function includesAny(text, words) {
   return words.some(word => text.includes(word));
 }
@@ -337,7 +368,7 @@ function publicTenantCandidates(rows, query) {
 function publicPropertyCandidates(rows, query) {
   const q = normalizeText(query || '');
   return rows
-    .filter(row => !q || normalizeText(`${row.name || ''} ${row.district || ''}`).includes(q))
+    .filter(row => !q || normalizeText(`${row.name || ''} ${row.district || ''}`).includes(q) || tokensOverlap(q, `${row.name || ''} ${row.district || ''}`) > 0)
     .slice(0, 20)
     .map(row => ({
       property_id: row.id,
@@ -365,6 +396,7 @@ function assistantContext(req, message, period) {
       'For "ile X zapłacił" use answer_from_data/payments with status tenant_payment_summary.',
       'For tenant counts by property/time use answer_from_data/tenants with status tenant_count.',
       'For yearly/all-time tax summaries use report_answer with query tax_summary.',
+      'For property finance questions like "suma dochodów z Chrobrego za 2025" use report_answer with query property_finance_summary and property_name.',
     ],
   };
 }
@@ -385,11 +417,15 @@ function localIntent(message) {
     return { intent: 'answer_from_data', tool: 'payments', status: 'tenant_payment_summary', ...base, tenant_name: tenantName, query: tenantName, confidence: 0.88 };
   }
   if (/\bilu\b/.test(text) && /\bnajemcow\b/.test(text)) {
-    const propertyName = cleanEntityName(message);
+    const propertyName = extractPropertySubject(message);
     return { intent: 'answer_from_data', tool: 'tenants', status: 'tenant_count', ...base, query: propertyName, property_name: propertyName, confidence: 0.86 };
   }
   if (isTaxSummaryQuestion(text)) {
     return { intent: 'report_answer', query: 'tax_summary', ...base, year: yearFromMessage(message, period || todayLocalISO().slice(0, 7)), confidence: 0.88 };
+  }
+  if (isPropertyFinanceQuestion(text)) {
+    const propertyName = extractPropertySubject(message);
+    return { intent: 'report_answer', query: 'property_finance_summary', ...base, property_name: propertyName, confidence: 0.87 };
   }
   if (isPaymentVerb(text)) {
     return { intent: 'mark_payment_paid', tenant_name: extractTargetName(message), ...base, confidence: 0.84 };
@@ -420,7 +456,7 @@ function localIntent(message) {
   if (includesAny(text, ['zestawienie kar', 'raport kar', 'kary najemcow', 'kar najemcow', 'kary za opoznienie', 'kary za opóźnienie', 'najemcy z karami', 'nierozliczone kary'])) {
     return { intent: 'answer_from_data', tool: 'late_fees', status: text.includes('nierozliczone') ? 'unpaid' : null, ...base, query: null, confidence: 0.88 };
   }
-  if (includesAny(text, ['ile zarobilem', 'ile zarobiłem', 'netto', 'przychod', 'przychód', 'porownaj', 'porównaj', 'najwiekszy koszt', 'największy koszt'])) {
+  if (includesAny(text, ['ile zarobilem', 'ile zarobiłem', 'netto', 'przychod', 'przychód', 'dochod', 'dochód', 'porownaj', 'porównaj', 'najwiekszy koszt', 'największy koszt'])) {
     return { intent: 'report_answer', ...base, year: yearFromMessage(message, period || todayLocalISO().slice(0, 7)), confidence: 0.82 };
   }
   if (includesAny(text, ['sprawdz bledy', 'bledy w danych', 'kontrola danych', 'jakosc danych', 'audyt danych', 'sprawdz dane', 'nietypowo wysokie koszty', 'brak harmonogramu'])) {
@@ -456,11 +492,11 @@ function extractTargetName(message) {
 function cleanEntityName(value) {
   return String(value || '')
     .replace(/[?!.:,;]+/g, ' ')
-    .replace(/\b(czy|ile|ilu|mia[łl]em|sprawd[zź]|podsumuj|poka[zż]|status|dla|do|za|na|w)\b/gi, ' ')
+    .replace(/\b(czy|ile|ilu|podaj|mia[łl]em|sprawd[zź]|podsumuj|poka[zż]|status|dla|do|za|z|ze|na|w)\b/gi, ' ')
     .replace(/\b(ten|ta|to|tym|roku|rok|miesi[aą]cu|miesi[aą]c|poprzedni|zesz[łl]y|bie[zż][aą]cy|obecny|aktualny|od|pocz[aą]tku|danych|ca[łl]y|okres)\b/gi, ' ')
     .replace(/\b(20\d{2}-\d{2}|20\d{2})\b/g, ' ')
     .replace(/\b(stycz[eńn]|luty|marzec|kwiecien|kwiecie[nń]|maj|czerwiec|lipiec|sierpien|sierpie[nń]|wrzesien|wrzesie[nń]|pazdziernik|pa[zź]dziernik|listopad|grudzien|grudzie[nń])\b/gi, ' ')
-    .replace(/\b(zap[łl]aci[łl]a?|zap[łl]acili|op[łl]aci[łl]a?|wp[łl]aci[łl]a?|wp[łl]acili|p[łl]atno[śs][ćc]|p[łl]atno[śs]ci|najemc[oó]w|najemcy|najemca|podatek|podatku)\b/gi, ' ')
+    .replace(/\b(suma|sum[eę]|razem|dochod[oó]w?|przychod[oó]w?|wp[łl]yw[oó]w?|zap[łl]aci[łl]a?|zap[łl]acili|op[łl]aci[łl]a?|wp[łl]aci[łl]a?|wp[łl]acili|p[łl]atno[śs][ćc]|p[łl]atno[śs]ci|najemc[oó]w|najemcy|najemca|podatek|podatku)\b/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -473,6 +509,13 @@ function extractPaymentSubject(message) {
   const after = cleanEntityName(parts.slice(1).join(' ') || '');
   if (after && !includesAny(normalizeText(after), ['kwota', 'suma'])) return after;
   return before || after || extractTargetName(message);
+}
+
+function extractPropertySubject(message) {
+  const raw = String(message || '').trim();
+  const afterPreposition = raw.match(/\b(?:z|ze|na|przy|dla|w)\s+(.+?)(?:\s+\b(?:w|we|za|od)\b\s+(?:tym|zesz[łl]ym|poprzednim|20\d{2}|pocz[aą]tku)|[?.,;:]|$)/i);
+  const candidate = afterPreposition ? afterPreposition[1] : raw;
+  return cleanEntityName(candidate);
 }
 
 function isPaymentVerb(text) {
@@ -488,6 +531,11 @@ function isQuestionLike(message, text) {
 function isTaxSummaryQuestion(text) {
   return /\b(podatek|podatku|ryczalt|ryczaltu)\b/.test(text)
     && (includesAny(text, ['podsumuj', 'zaplacilem', 'w tym roku', 'ten rok', 'biezacy rok', 'zeszlym roku', 'poprzedni rok', 'poprzednim roku', 'od poczatku', 'caly okres', 'rocznie']) || /\b20\d{2}\b/.test(text));
+}
+
+function isPropertyFinanceQuestion(text) {
+  return /\b(dochod|dochodow|przychod|przychodow|wplywy|wpływy|utarg|netto|koszty|kosztow|podatku|podatek)\b/.test(text)
+    && (/\b(z|ze|na|przy|dla)\b/.test(text) || /\b20\d{2}\b/.test(text) || includesAny(text, ['w tym roku', 'zeszlym roku', 'poprzedni rok', 'od poczatku']));
 }
 
 function isTenantPaymentSummaryQuestion(text) {
@@ -534,6 +582,7 @@ async function classifyWithGroq(message, period, context) {
     'For navigation/search/filter/report commands, fill query, entity_type, status, period, year or property_name when visible.',
     'Use status payment_status for questions like "czy Hubert zapłacił za kwiecień?". Use status tenant_payment_summary for "ile Hubert zapłacił w tym roku/od początku?". Use status tenant_count for "ilu najemców miałem na Chrobrego w zeszłym roku?".',
     'Use query tax_summary for yearly, previous-year, explicit-year, or all-time tax summaries.',
+    'Use query property_finance_summary with property_name for property revenue/income/net/cost/tax questions such as "podaj sumę dochodów z Chrobrego za 2025".',
     'For create_task/add_expense, fill title/description/amount/category/date only when visible.',
     'Schema includes: intent, tool, tenant_name, tenant_id, payment_id, query, entity_type, status, period, year, property_name, title, description, category, amount, date, priority, tone, filters, confidence.',
     'Never request direct SQL. All writes must be one of the explicit write intents and will require confirmation.',
@@ -847,15 +896,14 @@ function matchTenants(req, name) {
 function matchProperties(req, name) {
   const q = normalizeText(name || '');
   if (!q) return [];
-  const qTokens = q.split(/\s+/).filter(part => part.length >= 4);
-  return scopedProperties(req).filter(row => {
+  return scopedProperties(req).map(row => {
     const propertyText = normalizeText(`${row.name || ''} ${row.district || ''}`);
-    const propertyTokens = propertyText.split(/\s+/).filter(part => part.length >= 4);
-    return propertyText.includes(q)
-      || q.includes(normalizeText(row.name || ''))
-      || qTokens.some(token => propertyText.includes(token))
-      || propertyTokens.some(token => q.includes(token));
-  });
+    const exactScore = propertyText.includes(q) || q.includes(normalizeText(row.name || '')) ? 10 : 0;
+    return { row, score: exactScore + tokensOverlap(q, propertyText) };
+  })
+    .filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score || String(a.row.name).localeCompare(String(b.row.name), 'pl'))
+    .map(item => item.row);
 }
 
 function paymentStatusAnswer(req, model, message, period) {
@@ -985,6 +1033,44 @@ function taxSummaryAnswer(req, message, period) {
     rows.filter(row => Number(row.tax || 0) > 0).slice(-24).map(row => ({ type: 'report', title: periodLabel(row.period), subtitle: `podatek ${Math.round(row.tax)} zł · podstawa ${Math.round(row.base)} zł`, view: 'raporty' })),
     { view: 'raporty', state: { period: range.end || period } },
     { status: 'answer', report: { range, tax_total: taxTotal, tax_base: baseTotal, months: rows } }
+  );
+}
+
+function propertyFinanceAnswer(req, model, message, period) {
+  const range = timeRangeFromMessage(message, period, req);
+  const propertyQuery = model.property_name || extractPropertySubject(message) || model.query || '';
+  const properties = matchProperties(req, propertyQuery);
+  if (!properties.length) {
+    return resultList('report_answer', 'Finanse nieruchomości', `Nie znalazłem nieruchomości pasującej do: ${propertyQuery || message}.`, publicPropertyCandidates(scopedProperties(req), '').map(p => ({ type: 'property', id: p.property_id, title: p.property_name, subtitle: `${p.district || ''} · ${p.units_count} lokali`, view: 'nieruchomosci' })), { view: 'nieruchomosci' }, { status: 'answer', report: { count: 0, range } });
+  }
+  const ids = new Set(properties.map(p => Number(p.id)));
+  const rows = [];
+  for (const p of range.periods) {
+    const summary = monthlyFinanceSummary(db, p, req);
+    const matched = (summary.properties || []).filter(property => ids.has(Number(property.id)));
+    const revenue = matched.reduce((sum, property) => sum + Number(property.revenue || 0), 0);
+    const expected = matched.reduce((sum, property) => sum + Number(property.expected_revenue || 0), 0);
+    const expenses = matched.reduce((sum, property) => sum + Number(property.expenses || 0), 0);
+    const tax = matched.reduce((sum, property) => sum + Number(property.tax || 0), 0);
+    const net = matched.reduce((sum, property) => sum + Number(property.net || 0), 0);
+    if (revenue || expected || expenses || tax || net) rows.push({ period: p, revenue, expected, expenses, tax, net });
+  }
+  const total = rows.reduce((sum, row) => sum + row.revenue, 0);
+  const expected = rows.reduce((sum, row) => sum + row.expected, 0);
+  const expenses = rows.reduce((sum, row) => sum + row.expenses, 0);
+  const tax = rows.reduce((sum, row) => sum + row.tax, 0);
+  const net = rows.reduce((sum, row) => sum + row.net, 0);
+  const label = properties.map(p => p.name).join(', ');
+  const text = normalizeText(message);
+  const primary = text.includes('netto') ? net : text.includes('koszt') ? expenses : text.includes('podatek') ? tax : total;
+  const primaryLabel = text.includes('netto') ? 'netto' : text.includes('koszt') ? 'koszty' : text.includes('podatek') ? 'podatek' : 'dochód/przychód z wpłat';
+  return resultList(
+    'report_answer',
+    `${primaryLabel[0].toUpperCase()}${primaryLabel.slice(1)}: ${label}`,
+    `${primaryLabel[0].toUpperCase()}${primaryLabel.slice(1)} za ${range.label}: ${Math.round(primary)} zł. Wpłaty/przychód: ${Math.round(total)} zł, oczekiwano ${Math.round(expected)} zł, koszty ${Math.round(expenses)} zł, podatek ${Math.round(tax)} zł, netto ${Math.round(net)} zł.`,
+    rows.slice(-24).map(row => ({ type: 'report', title: periodLabel(row.period), subtitle: `wpłaty ${Math.round(row.revenue)} zł · koszty ${Math.round(row.expenses)} zł · podatek ${Math.round(row.tax)} zł · netto ${Math.round(row.net)} zł`, view: 'raporty' })),
+    { view: 'raporty', state: { period: range.end || period } },
+    { status: 'answer', report: { property_ids: [...ids], property_name: label, range, revenue: total, expected, expenses, tax, net, months: rows } }
   );
 }
 
@@ -1127,6 +1213,9 @@ function filterResponse(req, intent, model, message, period) {
 function reportAnswer(req, model, message, period) {
   const targetPeriod = model.period || periodFromMessage(message, period);
   const text = normalizeText(message);
+  if (model.query === 'property_finance_summary' || (isPropertyFinanceQuestion(text) && extractPropertySubject(message))) {
+    return propertyFinanceAnswer(req, model, message, targetPeriod);
+  }
   if (model.query === 'tax_summary' || isTaxSummaryQuestion(text)) {
     return taxSummaryAnswer(req, message, targetPeriod);
   }

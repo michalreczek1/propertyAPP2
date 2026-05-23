@@ -223,6 +223,28 @@ test('topbar command bar answers previous-year tenant count by property', async 
   }
 });
 
+test('topbar command bar matches inflected property names', async ({ page }) => {
+  await page.goto('/#dashboard');
+  await page.locator('#global-search').fill('ilu miałem najemców na Kościelnej w zeszłym roku?');
+  await page.locator('#global-search').press('Enter');
+  const result = page.locator('.assistant-result.answer');
+  await expect(result).toBeVisible();
+  await expect(result).toContainText(/Kościelna|Koscielna/);
+  await expect(result).not.toContainText('Nie znalazłem nieruchomości');
+});
+
+test('topbar command bar summarizes property income by year', async ({ page }) => {
+  await page.goto('/#dashboard');
+  await page.locator('#global-search').fill('podaj sumę dochodów z chrobrego za 2025 r.');
+  await page.locator('#global-search').press('Enter');
+  const result = page.locator('.assistant-result.answer');
+  await expect(result).toBeVisible();
+  await expect(result).toContainText(/Chrobrego/i);
+  await expect(result).toContainText(/2025/);
+  await expect(result).toContainText(/Wpłaty|przychód|dochód/i);
+  await expect(result).not.toContainText('Wynik netto maj 2026');
+});
+
 test('mobile topbar keeps AI command bar visible and usable', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/#dashboard');
