@@ -192,6 +192,11 @@ test('mobile topbar keeps AI command bar visible and usable', async ({ page }) =
   expect(searchBox).not.toBeNull();
   expect(searchBox.width).toBeGreaterThan(300);
   expect(searchBox.height).toBeGreaterThan(30);
+  const titleBox = await page.locator('.topbar-left').boundingBox();
+  const rightBox = await page.locator('#topbar-actions').boundingBox();
+  expect(titleBox).toBeNull();
+  expect(rightBox).not.toBeNull();
+  expect(rightBox.y).toBeGreaterThan(searchBox.y + searchBox.height - 1);
   const search = page.locator('#global-search');
   await expect(search).toBeVisible();
   await expect(search).toHaveCSS('display', /block|inline-block/);
