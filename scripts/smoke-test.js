@@ -329,7 +329,47 @@ async function main() {
     expect(r.ok && r.data.status === 'clarify' && Array.isArray(r.data.candidates) && r.data.candidates.length >= 2, JSON.stringify(r));
     return `${r.data.candidates.length} kandydatów`;
   });
+  await check('POST /api/assistant/parse global search results', async () => {
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'szukaj __smoke_ai_sms' });
+    expect(r.ok && ['search_global','navigate_to_entity'].includes(r.data.intent) && Array.isArray(r.data.items), JSON.stringify(r));
+    expect(r.data.items.some(item => String(item.title || '').includes('__smoke_ai_sms')), JSON.stringify(r.data));
+    return `${r.data.items.length} wyników`;
+  });
+  await check('POST /api/assistant/parse payment filter navigation', async () => {
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'pokaż tylko zaległości' });
+    expect(r.ok && r.data.status === 'navigate' && r.data.navigation.view === 'platnosci' && r.data.navigation.state.paymentsFilter === 'overdue', JSON.stringify(r));
+    return r.data.navigation.view;
+  });
+  await check('POST /api/assistant/parse finance answer', async () => {
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'ile zarobiłem netto w tym miesiącu?' });
+    expect(r.ok && r.data.intent === 'report_answer' && r.data.status === 'answer' && r.data.report, JSON.stringify(r));
+    return r.data.title;
+  });
+  await check('POST /api/assistant/parse data quality audit', async () => {
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'sprawdź błędy w danych' });
+    expect(r.ok && r.data.intent === 'data_quality_check' && Array.isArray(r.data.checks), JSON.stringify(r));
+    return `${r.data.checks.length} kontroli`;
+  });
+  let aiTaskId = null, aiExpenseId = null;
+  await check('POST /api/assistant/execute creates task', async () => {
+    const parsed = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'dodaj zadanie sprawdzić licznik prądu' });
+    expect(parsed.ok && parsed.data.action && parsed.data.action.token, JSON.stringify(parsed));
+    const r = await api('POST', '/api/assistant/execute', { token: parsed.data.action.token });
+    expect(r.ok && r.data.task && r.data.task.title.includes('sprawdzi'), JSON.stringify(r));
+    aiTaskId = r.data.task.id;
+    return `task=${aiTaskId}`;
+  });
+  await check('POST /api/assistant/execute adds expense', async () => {
+    const parsed = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'dodaj koszt prąd 123 zł' });
+    expect(parsed.ok && parsed.data.action && parsed.data.action.token, JSON.stringify(parsed));
+    const r = await api('POST', '/api/assistant/execute', { token: parsed.data.action.token });
+    expect(r.ok && r.data.expense && Number(r.data.expense.amount) === 123, JSON.stringify(r));
+    aiExpenseId = r.data.expense.id;
+    return `expense=${aiExpenseId}`;
+  });
   await check('DEL  AI assistant fixtures', async () => {
+    if (aiTaskId) await api('DELETE', `/api/tasks/${aiTaskId}`).catch(() => {});
+    if (aiExpenseId) await api('DELETE', `/api/expenses/${aiExpenseId}`).catch(() => {});
     for (const fixture of aiFixtures.reverse()) {
       if (fixture.paymentId) await api('DELETE', `/api/payments/${fixture.paymentId}`).catch(() => {});
       if (fixture.tenantId) await api('DELETE', `/api/tenants/${fixture.tenantId}`).catch(() => {});

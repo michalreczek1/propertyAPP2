@@ -413,6 +413,21 @@ function assistantResultHtml(result) {
     <div class="assistant-candidates">
       ${result.candidates.slice(0, 6).map(c => `<div>${escapeHtml(c.tenant_name || '—')} · ${escapeHtml(c.unit || '—')} · ${escapeHtml(c.status || '—')} · ${fmtPLN(c.amount)} zł</div>`).join('')}
     </div>` : '';
+  const items = result.items && result.items.length ? `
+    <div class="assistant-candidates">
+      ${result.items.slice(0, 10).map(item => `<button class="assistant-item" type="button" data-item-view="${escapeHtml(item.view || '')}" data-item-title="${escapeHtml(item.title || '')}">
+        <b>${escapeHtml(item.title || '—')}</b>
+        <span>${escapeHtml(item.subtitle || item.type || '')}</span>
+      </button>`).join('')}
+    </div>` : '';
+  const checks = result.checks && result.checks.length ? `
+    <div class="assistant-grid assistant-checks">
+      ${result.checks.map(c => `<div><span>${escapeHtml(c.label)}</span><b>${fmtPLN(c.count || 0)}</b></div>`).join('')}
+    </div>` : '';
+  const nav = result.navigation ? `
+    <div class="assistant-actions">
+      <button class="tb-btn tb-ghost" id="assistant-navigate">Przejdź do widoku</button>
+    </div>` : '';
   const action = result.action && result.action.token ? `
     <div class="assistant-actions">
       <button class="tb-btn tb-primary" id="assistant-execute" data-token="${escapeHtml(result.action.token)}">${escapeHtml(result.action.label || 'Wykonaj')}</button>
@@ -426,6 +441,9 @@ function assistantResultHtml(result) {
       ${payment}
       ${sms}
       ${candidates}
+      ${items}
+      ${checks}
+      ${nav}
       ${action}
     </div>`;
 }
@@ -457,6 +475,63 @@ function bindAssistantResult(root, modalRef) {
       }
     };
   }
+  const nav = root.querySelector('#assistant-navigate');
+  if (nav && State.assistantLastResult) {
+    nav.onclick = () => {
+      applyAssistantNavigation(State.assistantLastResult.navigation);
+      modalRef.close();
+    };
+  }
+  root.querySelectorAll('[data-item-view]').forEach(btn => {
+    btn.onclick = () => {
+      const view = btn.dataset.itemView;
+      if (view) navigate(view);
+      modalRef.close();
+    };
+  });
+}
+
+function applyAssistantNavigation(navigation) {
+  if (!navigation || !navigation.view) return;
+  if (navigation.state && typeof navigation.state === 'object') {
+    Object.assign(State, navigation.state);
+  }
+  navigate(navigation.view);
+}
+
+async function runCommandBar(message) {
+  const q = String(message || '').trim();
+  if (!q) return;
+  const input = document.getElementById('global-search');
+  if (input) input.disabled = true;
+  try {
+    const result = await Api.post('/assistant/parse', { message: q, period: State.period });
+    State.assistantLastResult = result;
+    if (result.status === 'navigate' && result.navigation) {
+      applyAssistantNavigation(result.navigation);
+      toast(result.title || 'Gotowe');
+      return;
+    }
+    openAssistantPanel();
+  } catch (err) {
+    toast(err.message || 'Nie udało się wykonać komendy', 'err');
+  } finally {
+    if (input) {
+      input.disabled = false;
+      input.value = '';
+    }
+  }
+}
+
+function bindCommandBar() {
+  const input = document.getElementById('global-search');
+  if (!input) return;
+  input.placeholder = 'Szukaj lub wpisz komendę AI…';
+  input.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    runCommandBar(input.value);
+  });
 }
 
 async function loadAuth() {
@@ -3038,6 +3113,7 @@ function init() {
   if (footer) footer.onclick = () => openAccountPanel();
   loadAuth();
   createMobileNav();
+  bindCommandBar();
   window.addEventListener('hashchange', render);
   if (!location.hash) location.hash = 'dashboard';
   render();

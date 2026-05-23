@@ -146,6 +146,37 @@ test('AI assistant shows SMS preview in test mode', async ({ page, request }) =>
   }
 });
 
+test('topbar command bar navigates to filtered payments', async ({ page }) => {
+  await page.goto('/#dashboard');
+  await page.locator('#global-search').fill('pokaż tylko zaległości');
+  await page.locator('#global-search').press('Enter');
+  await expect(page).toHaveURL(/#platnosci$/);
+  await expect(page.locator('[data-pf="overdue"]')).toHaveClass(/on/);
+});
+
+test('topbar command bar opens report answer popup', async ({ page }) => {
+  await page.goto('/#dashboard');
+  await page.locator('#global-search').fill('ile zarobiłem netto w tym miesiącu?');
+  await page.locator('#global-search').press('Enter');
+  const result = page.locator('.assistant-result.answer');
+  await expect(result).toBeVisible();
+  await expect(result).toContainText(/Wynik netto|Netto właściciel/);
+});
+
+test('topbar command bar creates a task after confirmation', async ({ page, request }) => {
+  await page.goto('/#dashboard');
+  await page.locator('#global-search').fill('dodaj zadanie sprawdzić test command bar');
+  await page.locator('#global-search').press('Enter');
+  await expect(page.getByText('Dodać zadanie?')).toBeVisible();
+  await page.locator('#assistant-execute').click();
+  await expect(page.getByText(/Dodano zadanie/)).toBeVisible();
+  const tasks = await request.get('/api/tasks?status=open');
+  expect(tasks.ok()).toBeTruthy();
+  const task = (await tasks.json()).find(t => String(t.title || '').includes('sprawdzić test command bar'));
+  expect(task).toBeTruthy();
+  await request.delete(`/api/tasks/${task.id}`).catch(() => {});
+});
+
 test('settings exposes guarded excel import controls', async ({ page }) => {
   await page.goto('/#ustawienia');
   await expect(page.getByText('Import danych z Excela')).toBeVisible();
