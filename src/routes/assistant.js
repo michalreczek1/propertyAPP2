@@ -2,7 +2,7 @@
 
 const router = require('express').Router();
 const { ZodError } = require('zod');
-const { parseAssistantCommand, executeAssistantAction } = require('../services/assistant');
+const { attentionSummary, parseAssistantCommand, executeAssistantAction } = require('../services/assistant');
 const { deleteAlias, listAliases, seedDefaultAliases, upsertAlias } = require('../services/ai-aliases');
 
 function handleError(res, err) {
@@ -23,6 +23,14 @@ router.post('/parse', async (req, res) => {
 router.post('/execute', async (req, res) => {
   try {
     res.json(await executeAssistantAction(req, req.body || {}));
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.get('/attention', (req, res) => {
+  try {
+    res.json(attentionSummary(req, req.query.period || new Date().toISOString().slice(0, 7)));
   } catch (err) {
     handleError(res, err);
   }

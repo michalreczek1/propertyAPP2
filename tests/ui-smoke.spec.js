@@ -71,6 +71,7 @@ test('dashboard and expenses render without clipping the app shell', async ({ pa
   await page.goto('/#dashboard');
   await expect(page.getByText('Przychód miesiąca')).toBeVisible();
   await expect(page.getByText('Netto właściciel').first()).toBeVisible();
+  await expect(page.getByText('AI audyt danych')).toBeVisible();
 
   const shell = page.locator('.shell');
   const box = await shell.boundingBox();
@@ -264,6 +265,26 @@ test('topbar command bar shows range data quality audit', async ({ page }) => {
   await expect(result).toBeVisible();
   await expect(result).toContainText('Kontrola jakości danych');
   await expect(result).toContainText('Nieruchomości z brakującymi miesiącami wpływów');
+});
+
+test('topbar command bar renders annual AI summary', async ({ page }) => {
+  await page.goto('/#dashboard');
+  await page.locator('#global-search').fill('zrób podsumowanie 2026');
+  await page.locator('#global-search').press('Enter');
+  const result = page.locator('.assistant-result.answer');
+  await expect(result).toBeVisible();
+  await expect(result).toContainText('Podsumowanie');
+  await expect(result).toContainText('marża');
+});
+
+test('topbar command bar previews audit task creation', async ({ page }) => {
+  await page.goto('/#dashboard');
+  await page.locator('#global-search').fill('utwórz zadania z audytu 2026');
+  await page.locator('#global-search').press('Enter');
+  const result = page.locator('.assistant-result.ready');
+  await expect(result).toBeVisible();
+  await expect(result).toContainText('Utworzyć zadania z audytu?');
+  await expect(page.getByRole('button', { name: 'Dodaj zadania' })).toBeVisible();
 });
 
 test('mobile topbar keeps AI command bar visible and usable', async ({ page }) => {

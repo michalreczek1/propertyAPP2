@@ -776,7 +776,10 @@ function chartBaseOpts(extra={}) {
 
 // ═══════════════════════ DASHBOARD ═══════════════════════
 async function renderDashboard(root) {
-  const d = await Api.get(`/dashboard?period=${State.period}`);
+  const [d, attention] = await Promise.all([
+    Api.get(`/dashboard?period=${State.period}`),
+    Api.get(`/assistant/attention?period=${State.period}`).catch(() => null),
+  ]);
   const r = d.revenue, e = d.expenses, t = d.tax, occ = d.occupancy;
   const owner = d.net_for_owner;
   const mediaCosts = (e.by_category || [])
@@ -890,6 +893,7 @@ async function renderDashboard(root) {
       <div class="gc">
         <div class="ch"><div><div class="ch-title">Wymaga uwagi</div><div class="ch-sub">Alerty i zadania</div></div></div>
         <div class="alert-list">
+          ${attentionHtml(attention)}
           ${alertRow(d.alerts.overdue_count > 0 ? 'ar-r' : 'ar-e',
               '<polyline points="20 6 9 17 4 12"/>', 'Zaległości',
               d.alerts.overdue_count > 0 ? `${d.alerts.overdue_count} zaległych · ${fmtPLN(d.alerts.overdue_amount)} zł` : 'wszystko opłacone',
@@ -918,6 +922,7 @@ async function renderDashboard(root) {
   bindGoButtons();
   bindPaymentChecks();
   bindApproveMonth();
+  bindAttentionActions();
 
   const ctx = document.getElementById('d-chart');
   if (ctx && d.chart_12m) {
@@ -934,6 +939,45 @@ async function renderDashboard(root) {
       options: chartBaseOpts(),
     });
   }
+}
+
+function priorityLabel(priority) {
+  return ({ critical: 'Krytyczne', high: 'Ważne', medium: 'Do sprawdzenia', low: 'Info' })[priority] || 'Info';
+}
+
+function attentionHtml(attention) {
+  if (!attention || !Array.isArray(attention.checks) || !attention.checks.length) {
+    return `
+      <div class="attention-box ok">
+        <div class="attention-title">AI audyt danych</div>
+        <div class="attention-sub">Brak najważniejszych sygnałów w bieżącym okresie.</div>
+        <button type="button" class="attention-btn" data-attention-command="sprawdź czy dane są kompletne za ${new Date().getFullYear()} r.">Uruchom audyt</button>
+      </div>`;
+  }
+  return `
+    <div class="attention-box">
+      <div class="attention-title">AI audyt danych</div>
+      <div class="attention-sub">${attention.issue_count || 0} sygnałów w skrócie</div>
+      <div class="attention-list">
+        ${attention.checks.slice(0, 4).map(check => `
+          <button type="button" class="attention-row pr-${escapeHtml(check.priority || 'low')}" data-attention-command="${escapeHtml((attention.commands && attention.commands[0]) || 'sprawdź błędy w danych')}">
+            <span>
+              <b>${escapeHtml(check.label)}</b>
+              <small>${escapeHtml(priorityLabel(check.priority))}</small>
+            </span>
+            <strong>${fmtPLN(check.count || 0)}</strong>
+          </button>`).join('')}
+      </div>
+      <div class="attention-actions">
+        ${(attention.commands || []).slice(0, 3).map(cmd => `<button type="button" class="attention-chip" data-attention-command="${escapeHtml(cmd)}">${escapeHtml(cmd)}</button>`).join('')}
+      </div>
+    </div>`;
+}
+
+function bindAttentionActions() {
+  document.querySelectorAll('[data-attention-command]').forEach(btn => {
+    btn.onclick = () => runCommandBar(btn.dataset.attentionCommand || '');
+  });
 }
 
 function occRingSvg(occ) {

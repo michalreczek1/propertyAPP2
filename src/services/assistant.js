@@ -300,6 +300,19 @@ function amount(row) {
   return Number(row.rent_amount || 0) + Number(row.media_amount || 0) + Number(row.other_amount || 0);
 }
 
+function costCategoryLabel(category) {
+  return ({
+    czynsz: 'Czynsz',
+    prad: 'Prąd',
+    internet: 'Internet',
+    remonty: 'Remonty',
+    doplata: 'Dopłata',
+    zarzadzanie: 'Zarządzanie',
+    kredyt: 'Kredyt',
+    inne: 'Inne',
+  })[category] || category || 'Inne';
+}
+
 function scopedPaymentRows(req, period) {
   const scoped = req.user && req.user.id && req.user.role !== 'admin';
   return db.prepare(`
@@ -405,10 +418,19 @@ function localIntent(message) {
     return { intent: 'answer_from_data', tool: 'tenants', status: 'tenant_count', ...base, query: propertyName, property_name: propertyName, confidence: 0.86 };
   }
   if (isTaxSummaryQuestion(text)) {
-    return { intent: 'report_answer', query: 'tax_summary', ...base, year: yearFromMessage(message, period || todayLocalISO().slice(0, 7)), confidence: 0.88 };
+    return { intent: 'report_answer', ...base, query: 'tax_summary', year: yearFromMessage(message, period || todayLocalISO().slice(0, 7)), confidence: 0.88 };
+  }
+  if (isAnnualSummaryQuestion(text)) {
+    return { intent: 'report_answer', ...base, query: 'annual_summary', year: yearFromMessage(message, period || todayLocalISO().slice(0, 7)), confidence: 0.88 };
   }
   if (isFinanceExplanationQuestion(text)) {
-    return { intent: 'report_answer', query: 'finance_explanation', ...base, confidence: 0.86 };
+    return { intent: 'report_answer', ...base, query: 'finance_explanation', confidence: 0.86 };
+  }
+  if (includesAny(text, ['utworz zadania z audytu', 'dodaj zadania z audytu', 'zrob zadania z audytu', 'stworz zadania z audytu'])) {
+    return { intent: 'create_task', ...base, query: 'audit_tasks', confidence: 0.86 };
+  }
+  if (includesAny(text, ['uzupelnij brakujace platnosci', 'uzupelnij brakujace wplywy', 'uzupelnij brakujace wpłaty', 'skopiuj brakujace wplywy', 'skopiuj brakujace platnosci'])) {
+    return { intent: 'generate_payments', ...base, query: 'fill_missing_property_payments', property_name: extractPropertySubject(message), confidence: 0.88 };
   }
   if (isPropertyFinanceQuestion(text)) {
     const propertyName = extractPropertySubject(message);
@@ -518,6 +540,11 @@ function isQuestionLike(message, text) {
 function isTaxSummaryQuestion(text) {
   return /\b(podatek|podatku|ryczalt|ryczaltu)\b/.test(text)
     && (includesAny(text, ['podsumuj', 'zaplacilem', 'w tym roku', 'ten rok', 'biezacy rok', 'zeszlym roku', 'poprzedni rok', 'poprzednim roku', 'od poczatku', 'caly okres', 'rocznie']) || /\b20\d{2}\b/.test(text));
+}
+
+function isAnnualSummaryQuestion(text) {
+  return includesAny(text, ['podsumowanie roku', 'raport roczny', 'podsumowanie roczne', 'zrob podsumowanie', 'zrób podsumowanie'])
+    && (/\b20\d{2}\b/.test(text) || includesAny(text, ['w tym roku', 'zeszlym roku', 'poprzedni rok']));
 }
 
 function isPropertyFinanceQuestion(text) {
@@ -892,14 +919,16 @@ function matchTenants(req, name) {
 function matchProperties(req, name) {
   const q = normalizeText(name || '');
   if (!q) return [];
-  return scopedProperties(req).map(row => {
+  const scored = scopedProperties(req).map(row => {
     const propertyText = normalizeText(`${row.name || ''} ${row.district || ''}`);
     const exactScore = propertyText.includes(q) || q.includes(normalizeText(row.name || '')) ? 10 : 0;
     return { row, score: exactScore + tokensOverlap(q, propertyText) };
   })
     .filter(item => item.score > 0)
-    .sort((a, b) => b.score - a.score || String(a.row.name).localeCompare(String(b.row.name), 'pl'))
-    .map(item => item.row);
+    .sort((a, b) => b.score - a.score || String(a.row.name).localeCompare(String(b.row.name), 'pl'));
+  if (!scored.length) return [];
+  const best = scored[0].score;
+  return scored.filter(item => item.score === best).map(item => item.row);
 }
 
 function paymentStatusAnswer(req, model, message, period) {
@@ -1108,6 +1137,55 @@ function financeExplanationAnswer(req, message, period) {
   );
 }
 
+function annualSummaryAnswer(req, message, period) {
+  const range = timeRangeFromMessage(message, period, req);
+  const current = summarizeFinanceRange(req, range);
+  const previous = summarizeFinanceRange(req, previousComparableRange(range));
+  const cur = current.totals;
+  const prev = previous.totals;
+  const deltaNet = cur.net - prev.net;
+  const margin = cur.revenue ? cur.net / cur.revenue : 0;
+  const topCategories = Object.entries(cur.expense_categories)
+    .map(([category, total]) => ({ category, total }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 4);
+  const properties = scopedProperties(req).map(property => {
+    let revenue = 0, expenses = 0, tax = 0, net = 0;
+    for (const p of range.periods || []) {
+      const summary = monthlyFinanceSummary(db, p, req);
+      const row = (summary.properties || []).find(x => Number(x.id) === Number(property.id));
+      if (!row) continue;
+      revenue += Number(row.revenue || 0);
+      expenses += Number(row.expenses || 0);
+      tax += Number(row.tax || 0);
+      net += Number(row.net || 0);
+    }
+    return { property, revenue, expenses, tax, net };
+  }).sort((a, b) => b.net - a.net);
+  const best = properties[0];
+  const worst = properties[properties.length - 1];
+  const audit = dataQualityReport(req, `sprawdź czy dane są kompletne za ${range.label}`, range.end || period);
+  const auditTop = (audit.checks || []).filter(c => c.count).slice(0, 3);
+  const messageParts = [
+    `Podsumowanie ${range.label}: wpłaty ${Math.round(cur.revenue)} zł, koszty ${Math.round(cur.expenses)} zł, podatek ${Math.round(cur.tax)} zł, netto ${Math.round(cur.net)} zł, marża ${Math.round(margin * 1000) / 10}%.`,
+    `Vs ${previous.range.label}: ${deltaNet >= 0 ? '+' : '-'}${Math.round(Math.abs(deltaNet))} zł netto.`,
+  ];
+  if (best) messageParts.push(`Najlepsza nieruchomość: ${best.property.name} (${Math.round(best.net)} zł netto).`);
+  if (worst && best && worst.property.id !== best.property.id) messageParts.push(`Najsłabsza: ${worst.property.name} (${Math.round(worst.net)} zł netto).`);
+  if (auditTop.length) messageParts.push(`Do sprawdzenia: ${auditTop.map(c => `${c.label}: ${c.count}`).join(', ')}.`);
+  return resultList(
+    'report_answer',
+    `Podsumowanie ${range.label}`,
+    messageParts.join(' '),
+    [
+      ...properties.slice(0, 4).map(row => ({ type: 'property', id: row.property.id, title: row.property.name, subtitle: `wpłaty ${Math.round(row.revenue)} zł · koszty ${Math.round(row.expenses)} zł · netto ${Math.round(row.net)} zł`, view: 'raporty' })),
+      ...topCategories.map(row => ({ type: 'expense', title: costCategoryLabel(row.category), subtitle: `${Math.round(row.total)} zł kosztów`, view: 'koszty' })),
+    ],
+    { view: 'raporty', state: { period: range.end || period } },
+    { status: 'answer', report: { range, totals: cur, previous: prev, delta_net: deltaNet, margin, properties, top_expense_categories: topCategories, audit: { issue_count: audit.report.issue_count, checks: auditTop } } }
+  );
+}
+
 function taxSummaryAnswer(req, message, period) {
   const range = timeRangeFromMessage(message, period, req);
   const months = range.periods || [];
@@ -1308,6 +1386,9 @@ function reportAnswer(req, model, message, period) {
   if (model.query === 'finance_explanation' || isFinanceExplanationQuestion(text)) {
     return financeExplanationAnswer(req, message, targetPeriod);
   }
+  if (model.query === 'annual_summary' || isAnnualSummaryQuestion(text)) {
+    return annualSummaryAnswer(req, message, targetPeriod);
+  }
   if (model.query === 'property_finance_summary' || (isPropertyFinanceQuestion(text) && extractPropertySubject(message))) {
     return propertyFinanceAnswer(req, model, message, targetPeriod);
   }
@@ -1451,18 +1532,18 @@ function dataQualityReport(req, input, fallbackPeriod = null) {
   const emptyMonths = range.periods.filter(p => !payments.some(row => row.period === p));
   const highExpenses = avgExpense ? expenses.filter(e => Number(e.amount || 0) > Math.max(500, avgExpense * 3)) : [];
   const checks = [
-    { key: 'missing_phone', label: 'Aktywni najemcy bez telefonu', count: tenants.filter(t => t.status === 'active' && !String(t.phone || '').trim()).length },
-    { key: 'missing_sms_consent', label: 'Aktywni najemcy bez zgody SMS', count: tenants.filter(t => t.status === 'active' && Number(t.sms_consent || 0) !== 1).length },
-    { key: 'tenant_without_unit', label: 'Aktywni najemcy bez lokalu', count: tenants.filter(t => t.status === 'active' && !t.current_unit_id).length },
-    { key: 'unit_without_contract', label: 'Lokale bez aktywnej umowy', count: units.filter(u => Number(u.active_contracts || 0) === 0).length },
-    { key: 'payment_without_tenant', label: 'Płatności bez najemcy', count: payments.filter(p => !p.tenant_id).length },
-    { key: 'property_missing_months', label: 'Nieruchomości z brakującymi miesiącami wpływów', count: propertyIssues.length },
-    { key: 'missing_schedule', label: `Brak harmonogramu u aktywnych najemców (${range.label})`, count: activeTenantScheduleMissing.length },
-    { key: 'empty_months', label: 'Miesiące bez żadnych płatności', count: emptyMonths.length },
-    { key: 'expected_vs_paid_gap', label: 'Miesiące z różnicą oczekiwane vs wpłaty', count: expectedGaps.length },
-    { key: 'missing_media_expenses', label: 'Miesiące z wpływami bez kosztów eksploatacyjnych', count: mediaExpenseIssues.length },
-    { key: 'high_expenses', label: 'Nietypowo wysokie koszty', count: highExpenses.length },
-    { key: 'tax_gap', label: 'Wpłaty czynszowe bez podatku', count: taxGaps.length },
+    { key: 'missing_phone', label: 'Aktywni najemcy bez telefonu', priority: 'medium', count: tenants.filter(t => t.status === 'active' && !String(t.phone || '').trim()).length },
+    { key: 'missing_sms_consent', label: 'Aktywni najemcy bez zgody SMS', priority: 'medium', count: tenants.filter(t => t.status === 'active' && Number(t.sms_consent || 0) !== 1).length },
+    { key: 'tenant_without_unit', label: 'Aktywni najemcy bez lokalu', priority: 'high', count: tenants.filter(t => t.status === 'active' && !t.current_unit_id).length },
+    { key: 'unit_without_contract', label: 'Lokale bez aktywnej umowy', priority: 'medium', count: units.filter(u => Number(u.active_contracts || 0) === 0).length },
+    { key: 'payment_without_tenant', label: 'Płatności bez najemcy', priority: 'high', count: payments.filter(p => !p.tenant_id).length },
+    { key: 'property_missing_months', label: 'Nieruchomości z brakującymi miesiącami wpływów', priority: 'critical', count: propertyIssues.length },
+    { key: 'missing_schedule', label: `Brak harmonogramu u aktywnych najemców (${range.label})`, priority: 'high', count: activeTenantScheduleMissing.length },
+    { key: 'empty_months', label: 'Miesiące bez żadnych płatności', priority: 'critical', count: emptyMonths.length },
+    { key: 'expected_vs_paid_gap', label: 'Miesiące z różnicą oczekiwane vs wpłaty', priority: 'high', count: expectedGaps.length },
+    { key: 'missing_media_expenses', label: 'Miesiące z wpływami bez kosztów eksploatacyjnych', priority: 'medium', count: mediaExpenseIssues.length },
+    { key: 'high_expenses', label: 'Nietypowo wysokie koszty', priority: 'medium', count: highExpenses.length },
+    { key: 'tax_gap', label: 'Wpłaty czynszowe bez podatku', priority: 'critical', count: taxGaps.length },
   ];
   const items = [
     ...propertyIssues,
@@ -1481,12 +1562,128 @@ function dataQualityReport(req, input, fallbackPeriod = null) {
     message: issueCount ? `Znalazłem ${issueCount} sygnałów do sprawdzenia. Najważniejsze pozycje masz poniżej.` : 'Nie znalazłem oczywistych problemów.',
     checks,
     items,
-    report: { range, issue_count: issueCount, empty_months: emptyMonths },
+    report: { range, issue_count: issueCount, empty_months: emptyMonths, priorities: checks.reduce((acc, c) => { acc[c.priority] = (acc[c.priority] || 0) + Number(c.count || 0); return acc; }, {}) },
     execute_required: false,
   };
 }
 
+function priorityRank(priority) {
+  return ({ critical: 4, high: 3, medium: 2, low: 1 })[priority] || 0;
+}
+
+function attentionSummary(req, period) {
+  const currentAudit = dataQualityReport(req, `sprawdź dane za ${period}`, period);
+  const year = String(period || todayLocalISO().slice(0, 7)).slice(0, 4);
+  const yearlyAudit = dataQualityReport(req, `sprawdź czy dane są kompletne za ${year} r.`, period);
+  const checks = [...(currentAudit.checks || []), ...(yearlyAudit.checks || [])]
+    .filter(c => Number(c.count || 0) > 0)
+    .sort((a, b) => priorityRank(b.priority) - priorityRank(a.priority) || b.count - a.count)
+    .slice(0, 5);
+  const items = [...(currentAudit.items || []), ...(yearlyAudit.items || [])].slice(0, 6);
+  return {
+    ok: true,
+    period,
+    title: 'Co wymaga uwagi',
+    issue_count: checks.reduce((sum, c) => sum + Number(c.count || 0), 0),
+    checks,
+    items,
+    commands: [
+      `sprawdź czy dane są kompletne za ${year} r.`,
+      `zrób podsumowanie ${year}`,
+      'utwórz zadania z audytu',
+    ],
+  };
+}
+
+function previewFillMissingPropertyPayments(req, model, message, period) {
+  const range = timeRangeFromMessage(message, period, req);
+  const propertyQuery = model.property_name || extractPropertySubject(message) || model.query || '';
+  const properties = matchProperties(req, propertyQuery);
+  if (!properties.length) {
+    return resultList('generate_payments', 'Doprecyzuj nieruchomość', 'Nie znalazłem nieruchomości do uzupełnienia wpływów.', publicPropertyCandidates(scopedProperties(req), '').map(p => ({ type: 'property', id: p.property_id, title: p.property_name, subtitle: `${p.district || ''} · ${p.units_count} lokali`, view: 'nieruchomosci' })), { view: 'nieruchomosci' }, { status: 'blocked' });
+  }
+  if (properties.length > 1) {
+    return resultList('generate_payments', 'Doprecyzuj nieruchomość', 'Znalazłem więcej niż jedną pasującą nieruchomość.', properties.map(p => ({ type: 'property', id: p.id, title: p.name, subtitle: p.district || '', view: 'nieruchomosci' })), { view: 'nieruchomosci' }, { status: 'blocked' });
+  }
+  const property = properties[0];
+  const scoped = req.user && req.user.id && req.user.role !== 'admin';
+  const uid = ownerId(req);
+  const rows = db.prepare(`
+    SELECT pm.*, t.name AS tenant_name, u.code AS unit_code, p.name AS property_name
+    FROM payments pm
+    JOIN units u ON u.id = pm.unit_id
+    JOIN properties p ON p.id = u.property_id
+    LEFT JOIN tenants t ON t.id = pm.tenant_id
+    WHERE p.id = ?
+      ${scoped ? 'AND (pm.owner_user_id = ? OR p.owner_user_id = ? OR t.owner_user_id = ?)' : ''}
+    ORDER BY pm.period DESC, pm.id DESC
+  `).all(property.id, ...(scoped ? [uid, uid, uid] : []));
+  if (!rows.length) {
+    return { ok: false, status: 'blocked', intent: 'generate_payments', title: 'Brak wzorca płatności', message: `Nie mam z czego skopiować wpływów dla ${property.name}.`, execute_required: false };
+  }
+  const monthsWithPayments = new Set(rows.filter(row => range.periods.includes(row.period)).map(row => row.period));
+  const missing = range.periods.filter(p => !monthsWithPayments.has(p));
+  if (!missing.length) {
+    return { ok: true, status: 'answer', intent: 'generate_payments', title: 'Brak brakujących wpływów', message: `${property.name} ma płatności w całym zakresie ${range.label}.`, execute_required: false };
+  }
+  const sample = rows.find(row => range.periods.includes(row.period) && row.status === 'paid') || rows.find(row => row.status === 'paid') || rows[0];
+  const unitCount = new Set(rows.map(row => row.unit_id)).size;
+  if (unitCount > 1) {
+    return { ok: false, status: 'blocked', intent: 'generate_payments', title: 'Zbyt wiele lokali', message: `Automatyczne kopiowanie wpływów działa teraz tylko dla nieruchomości z jednym lokalem. ${property.name} ma więcej niż jeden lokal.`, execute_required: false };
+  }
+  const amountValue = Number(sample.total_paid || amount(sample));
+  const action = {
+    type: 'fill_missing_property_payments',
+    property_id: property.id,
+    sample_payment_id: sample.id,
+    periods: missing,
+    notes: `Uzupełnienie ${property.name} za ${range.label} na podstawie ${sample.period}`,
+  };
+  return {
+    ok: true,
+    status: 'ready',
+    intent: 'generate_payments',
+    title: 'Uzupełnić brakujące wpływy?',
+    message: `Dodam ${missing.length} płatności dla ${property.name}: ${missing.join(', ')}. Każda po ${Math.round(amountValue)} zł na podstawie ${periodLabel(sample.period)} (${sample.tenant_name || 'najemca'} / ${sample.unit_code || 'lokal'}). Razem ${Math.round(amountValue * missing.length)} zł.`,
+    execute_required: true,
+    items: missing.map(p => ({ type: 'payment', title: periodLabel(p), subtitle: `${sample.tenant_name || 'najemca'} · ${Math.round(amountValue)} zł`, view: 'platnosci' })),
+    action: { ...action, token: actionToken(req, action), label: 'Uzupełnij wpływy' },
+  };
+}
+
+function previewAuditTasks(req, message, period) {
+  const audit = dataQualityReport(req, message, period);
+  const active = (audit.checks || []).filter(c => Number(c.count || 0) > 0)
+    .sort((a, b) => priorityRank(b.priority) - priorityRank(a.priority) || b.count - a.count)
+    .slice(0, 8);
+  if (!active.length) {
+    return { ok: true, status: 'answer', intent: 'create_task', title: 'Audyt bez zadań', message: 'Nie znalazłem problemów, z których warto tworzyć zadania.', execute_required: false };
+  }
+  const tasks = active.map(check => ({
+    title: `AI audyt: ${check.label}`,
+    description: `Zakres: ${audit.report.range.label}. Liczba sygnałów: ${check.count}. Priorytet: ${check.priority}.`,
+    priority: check.priority === 'critical' || check.priority === 'high' ? 'high' : 'med',
+  }));
+  const action = { type: 'create_audit_tasks', tasks };
+  return {
+    ok: true,
+    status: 'ready',
+    intent: 'create_task',
+    title: 'Utworzyć zadania z audytu?',
+    message: `Dodam ${tasks.length} zadań z najważniejszych punktów audytu ${audit.report.range.label}.`,
+    execute_required: true,
+    items: tasks.map(task => ({ type: 'task', title: task.title, subtitle: task.description, view: 'zadania' })),
+    action: { ...action, token: actionToken(req, action), label: 'Dodaj zadania' },
+  };
+}
+
 function actionPreview(req, intent, model, message, period) {
+  if (intent === 'create_task' && model.query === 'audit_tasks') {
+    return previewAuditTasks(req, message, period);
+  }
+  if (intent === 'generate_payments' && model.query === 'fill_missing_property_payments') {
+    return previewFillMissingPropertyPayments(req, model, message, period);
+  }
   if (intent === 'create_task') {
     const title = model.title || extractTaskTitle(message);
     if (!title) return blocked(intent, 'Podaj tytuł zadania.', 'missing_task_title');
@@ -1658,6 +1855,75 @@ function addExpense(req, action) {
   return db.prepare('SELECT * FROM expenses WHERE id = ?').get(r.lastInsertRowid);
 }
 
+function fillMissingPropertyPayments(req, action) {
+  const scoped = req.user && req.user.id && req.user.role !== 'admin';
+  const uid = ownerId(req);
+  const sample = db.prepare(`
+    SELECT pm.*
+    FROM payments pm
+    JOIN units u ON u.id = pm.unit_id
+    JOIN properties p ON p.id = u.property_id
+    WHERE pm.id = ?
+      ${scoped ? 'AND (pm.owner_user_id = ? OR p.owner_user_id = ?)' : ''}
+  `).get(action.sample_payment_id, ...(scoped ? [uid, uid] : []));
+  if (!sample) {
+    const err = new Error('sample_payment_not_found');
+    err.status = 404;
+    throw err;
+  }
+  const insert = db.prepare(`
+    INSERT INTO payments (owner_user_id,period,tenant_id,unit_id,due_day,due_date,paid_date,rent_amount,media_amount,other_amount,total_paid,status,source,notes)
+    VALUES (@owner_user_id,@period,@tenant_id,@unit_id,@due_day,@due_date,@paid_date,@rent_amount,@media_amount,@other_amount,@total_paid,'paid','assistant-repair',@notes)
+  `);
+  const exists = db.prepare('SELECT id FROM payments WHERE period = ? AND unit_id = ? LIMIT 1');
+  const tx = db.transaction(() => {
+    const created = [];
+    const skipped = [];
+    for (const period of action.periods || []) {
+      if (exists.get(period, sample.unit_id)) {
+        skipped.push(period);
+        continue;
+      }
+      const dueDay = Number(sample.due_day || 10);
+      const day = String(Math.min(dueDay, Number(monthEnd(period).slice(8)))).padStart(2, '0');
+      const result = insert.run({
+        owner_user_id: sample.owner_user_id || uid || null,
+        period,
+        tenant_id: sample.tenant_id,
+        unit_id: sample.unit_id,
+        due_day: dueDay,
+        due_date: `${period}-${day}`,
+        paid_date: `${period}-${day}`,
+        rent_amount: Number(sample.rent_amount || 0),
+        media_amount: Number(sample.media_amount || 0),
+        other_amount: Number(sample.other_amount || 0),
+        total_paid: Number(sample.total_paid || amount(sample)),
+        notes: action.notes || 'Uzupełnienie brakujących wpływów przez AI',
+      });
+      created.push({ id: result.lastInsertRowid, period });
+    }
+    return { created, skipped };
+  });
+  return tx();
+}
+
+function createAuditTasks(req, action) {
+  const tx = db.transaction(() => {
+    const tasks = [];
+    for (const item of (action.tasks || []).slice(0, 12)) {
+      const task = createTask(req, {
+        title: item.title,
+        description: item.description || null,
+        priority: item.priority || 'med',
+        due_date: item.due_date || null,
+      });
+      tasks.push(task);
+    }
+    return tasks;
+  });
+  return tx();
+}
+
 function generatePayments(req, period) {
   const fallbackDueDay = 10;
   const monthStart = `${period}-01`;
@@ -1740,12 +2006,21 @@ async function executeAssistantAction(req, body) {
     const result = generatePayments(req, action.period);
     return { ok: true, status: 'done', intent: 'generate_payments', message: `Utworzono ${result.created} płatności, pominięto ${result.skipped}.`, result };
   }
+  if (action.type === 'fill_missing_property_payments') {
+    const result = fillMissingPropertyPayments(req, action);
+    return { ok: true, status: 'done', intent: 'generate_payments', message: `Uzupełniono ${result.created.length} płatności, pominięto ${result.skipped.length}.`, result };
+  }
+  if (action.type === 'create_audit_tasks') {
+    const tasks = createAuditTasks(req, action);
+    return { ok: true, status: 'done', intent: 'create_task', message: `Dodano ${tasks.length} zadań z audytu.`, tasks };
+  }
   const err = new Error('unsupported_action');
   err.status = 400;
   throw err;
 }
 
 module.exports = {
+  attentionSummary,
   parseAssistantCommand,
   executeAssistantAction,
 };

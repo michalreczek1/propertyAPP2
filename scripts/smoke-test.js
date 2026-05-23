@@ -519,7 +519,18 @@ async function main() {
     expect(String(r.data.title || '').includes('Wyjaśnienie'), JSON.stringify(r.data));
     return r.data.title;
   });
-  let aiTaskId = null, aiExpenseId = null;
+  await check('GET /api/assistant/attention', async () => {
+    const r = await api('GET', '/api/assistant/attention?period=2026-05');
+    expect(r.ok && Array.isArray(r.data.checks) && Array.isArray(r.data.commands), JSON.stringify(r));
+    return `${r.data.checks.length} sygnałów`;
+  });
+  await check('POST /api/assistant/parse annual AI summary', async () => {
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'zrób podsumowanie 2026' });
+    expect(r.ok && r.data.intent === 'report_answer' && r.data.status === 'answer' && r.data.report && r.data.report.totals, JSON.stringify(r));
+    expect(String(r.data.title || '').includes('Podsumowanie'), JSON.stringify(r.data));
+    return r.data.title;
+  });
+  let aiTaskId = null, aiExpenseId = null, aiAuditTaskIds = [], aiFilledPaymentIds = [];
   await check('POST /api/assistant/execute creates task', async () => {
     const parsed = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'dodaj zadanie sprawdzić licznik prądu' });
     expect(parsed.ok && parsed.data.action && parsed.data.action.token, JSON.stringify(parsed));
@@ -536,9 +547,29 @@ async function main() {
     aiExpenseId = r.data.expense.id;
     return `expense=${aiExpenseId}`;
   });
+  await check('POST /api/assistant/execute creates audit tasks', async () => {
+    const parsed = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'utwórz zadania z audytu 2026' });
+    expect(parsed.ok && parsed.data.action && parsed.data.action.token, JSON.stringify(parsed));
+    const r = await api('POST', '/api/assistant/execute', { token: parsed.data.action.token });
+    expect(r.ok && Array.isArray(r.data.tasks) && r.data.tasks.length > 0, JSON.stringify(r));
+    aiAuditTaskIds = r.data.tasks.map(t => t.id);
+    return `${aiAuditTaskIds.length} zadań`;
+  });
+  await check('POST /api/assistant/execute fills missing property payments', async () => {
+    const name = `__smoke_ai_fill_${Date.now()}`;
+    const fixture = await createAiPaymentFixture(name, { period: '2026-04', status: 'paid', totalPaid: 1333, code: 'FIL' });
+    const parsed = await api('POST', '/api/assistant/parse', { period: '2026-05', message: `uzupełnij brakujące wpływy z ${name}_property za 2026 r.` });
+    expect(parsed.ok && parsed.data.action && parsed.data.action.token && parsed.data.items.length >= 1, JSON.stringify(parsed));
+    const r = await api('POST', '/api/assistant/execute', { token: parsed.data.action.token });
+    expect(r.ok && r.data.result && r.data.result.created.length >= 1, JSON.stringify(r));
+    aiFilledPaymentIds = r.data.result.created.map(row => row.id);
+    aiFilledPaymentIds.forEach(paymentId => aiFixtures.push({ paymentId }));
+    return `${r.data.result.created.length} płatności`;
+  });
   await check('DEL  AI assistant fixtures', async () => {
     if (aiTaskId) await api('DELETE', `/api/tasks/${aiTaskId}`).catch(() => {});
     if (aiExpenseId) await api('DELETE', `/api/expenses/${aiExpenseId}`).catch(() => {});
+    for (const id of aiAuditTaskIds.reverse()) await api('DELETE', `/api/tasks/${id}`).catch(() => {});
     for (const id of aiAliasIds.reverse()) await api('DELETE', `/api/assistant/aliases/${id}`).catch(() => {});
     for (const fixture of aiFixtures.reverse()) {
       if (fixture.paymentId) await api('DELETE', `/api/payments/${fixture.paymentId}`).catch(() => {});

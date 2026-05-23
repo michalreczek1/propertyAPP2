@@ -509,6 +509,23 @@ html { height: 100%; }
 .ab-action { font-size: 12.5px; font-weight: 600; color: var(--emerald); cursor: pointer; margin-left: auto; align-self: center; white-space: nowrap; padding: 6px 12px; border-radius: var(--radius-sm); border: 1px solid rgba(16,185,129,0.3); background: rgba(16,185,129,0.1); transition: all 0.12s; }
 .ab-action:hover { background: rgba(16,185,129,0.2); }
 
+.attention-box { margin: 10px 12px 6px; border: 1px solid rgba(6,182,212,0.24); border-radius: 10px; padding: 12px; background: rgba(6,182,212,0.055); }
+.attention-box.ok { border-color: rgba(16,185,129,0.24); background: rgba(16,185,129,0.05); }
+.attention-title { font-size: 13px; font-weight: 800; color: var(--t1); }
+.attention-sub { margin-top: 2px; font-size: 11.5px; color: var(--t3); }
+.attention-list { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.attention-row { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left; border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; color: var(--t2); background: rgba(0,0,0,0.12); cursor: pointer; }
+.attention-row:hover { background: var(--surface-hover); color: var(--t1); }
+.attention-row b { display: block; font-size: 12.5px; color: var(--t1); }
+.attention-row small { display: block; margin-top: 2px; font-size: 10.5px; color: var(--t4); }
+.attention-row strong { font-family: var(--mono); color: var(--t1); font-size: 15px; }
+.attention-row.pr-critical { border-color: rgba(244,63,94,0.35); }
+.attention-row.pr-high { border-color: rgba(245,158,11,0.35); }
+.attention-row.pr-medium { border-color: rgba(6,182,212,0.25); }
+.attention-actions { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+.attention-chip, .attention-btn { border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,0.04); color: var(--t2); padding: 6px 8px; font-size: 11.5px; cursor: pointer; }
+.attention-chip:hover, .attention-btn:hover { background: var(--surface-hover); color: var(--t1); }
+
 /* ── HISTORY ── */
 .hist-month { padding: 8px 18px; background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; }
 .hm-lbl { font-size: 11px; font-weight: 600; color: var(--t3); text-transform: uppercase; letter-spacing: 0.5px; }
