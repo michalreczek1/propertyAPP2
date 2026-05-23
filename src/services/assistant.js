@@ -34,6 +34,7 @@ const INTENTS = [
   'filter_contracts',
   'filter_expenses',
   'report_answer',
+  'answer_from_data',
   'data_quality_check',
   'create_task',
   'add_expense',
@@ -41,13 +42,28 @@ const INTENTS = [
   'unsupported',
 ];
 
+const DATA_TOOLS = [
+  'payments',
+  'tenants',
+  'units',
+  'contracts',
+  'expenses',
+  'late_fees',
+  'finance',
+  'quality',
+  'search',
+];
+
+const ENTITY_TYPES = ['tenant','payment','unit','property','contract','expense','task','report'];
+
 const ModelIntentSchema = z.object({
   intent: z.enum(INTENTS),
   tenant_name: z.string().nullable().optional(),
   tenant_id: z.coerce.number().int().positive().nullable().optional(),
   payment_id: z.coerce.number().int().positive().nullable().optional(),
+  tool: z.enum(DATA_TOOLS).nullable().optional(),
   query: z.string().nullable().optional(),
-  entity_type: z.enum(['tenant','payment','unit','property','contract','expense','task','report']).nullable().optional(),
+  entity_type: z.enum(ENTITY_TYPES).nullable().optional(),
   status: z.string().nullable().optional(),
   period: z.string().regex(/^\d{4}-\d{2}$/).nullable().optional(),
   year: z.coerce.number().int().min(2000).max(2100).nullable().optional(),
@@ -59,8 +75,40 @@ const ModelIntentSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   priority: z.enum(['low','med','high']).nullable().optional(),
   tone: z.enum(['gentle','firm','default']).nullable().optional(),
+  filters: z.record(z.unknown()).nullable().optional(),
   confidence: z.coerce.number().min(0).max(1).optional(),
 });
+
+function normalizeModelIntent(raw) {
+  const out = raw && typeof raw === 'object' ? { ...raw } : {};
+  const toolAliases = {
+    payment: 'payments',
+    payments: 'payments',
+    tenant: 'tenants',
+    tenants: 'tenants',
+    unit: 'units',
+    units: 'units',
+    contract: 'contracts',
+    contracts: 'contracts',
+    expense: 'expenses',
+    expenses: 'expenses',
+    late_fee: 'late_fees',
+    late_fees: 'late_fees',
+    penalties: 'late_fees',
+    penalty: 'late_fees',
+    finance: 'finance',
+    quality: 'quality',
+    search: 'search',
+  };
+  if (!out.tool && out.entity_type && toolAliases[out.entity_type]) out.tool = toolAliases[out.entity_type];
+  if (out.tool && toolAliases[out.tool]) out.tool = toolAliases[out.tool];
+  if (out.entity_type && !ENTITY_TYPES.includes(out.entity_type)) {
+    const singular = String(out.entity_type).replace(/s$/, '');
+    if (ENTITY_TYPES.includes(singular)) out.entity_type = singular;
+    else delete out.entity_type;
+  }
+  return out;
+}
 
 function assistantSecret() {
   return process.env.APP_SESSION_SECRET || process.env.ASSISTANT_ACTION_SECRET || 'propertyapp-assistant-dev-secret';
@@ -230,6 +278,9 @@ function localIntent(message) {
   if (includesAny(text, ['wygeneruj platnosci', 'utworz harmonogram', 'generuj platnosci', 'harmonogram wplat'])) {
     return { intent: 'generate_payments', ...base, confidence: 0.82 };
   }
+  if (includesAny(text, ['kto zalega', 'kto ma zaleglosci', 'nieoplacone platnosci', 'nieopłacone płatności'])) {
+    return { intent: 'answer_from_data', tool: 'payments', status: 'overdue', ...base, query: null, confidence: 0.86 };
+  }
   if (includesAny(text, ['pokaz tylko zaleglosci', 'zalegle platnosci', 'zaleglosci'])) return { intent: 'filter_payments', status: 'overdue', ...base, confidence: 0.85 };
   if (includesAny(text, ['platnosci czesciowe', 'czesciowe platnosci'])) return { intent: 'filter_payments', status: 'partial', ...base, confidence: 0.85 };
   if (includesAny(text, ['platnosci']) && query) return { intent: 'filter_payments', ...base, confidence: 0.78 };
@@ -240,8 +291,8 @@ function localIntent(message) {
   if (includesAny(text, ['konczace sie umowy', 'kończące się umowy', 'umowy konczace'])) return { intent: 'filter_contracts', status: 'ending_soon', ...base, confidence: 0.85 };
   if (includesAny(text, ['otworz karte najemcy', 'otwórz kartę najemcy'])) return { intent: 'navigate_to_entity', entity_type: 'tenant', ...base, confidence: 0.82 };
   if (includesAny(text, ['pokaz koszty', 'koszty za'])) return { intent: 'filter_expenses', entity_type: 'expense', ...base, confidence: 0.8 };
-  if (includesAny(text, ['zestawienie kar', 'raport kar', 'kary najemcow', 'kar najemcow', 'kary za opoznienie', 'kary za opóźnienie'])) {
-    return { intent: 'report_answer', ...base, query: 'late_fees', year: yearFromMessage(message, period || todayLocalISO().slice(0, 7)), confidence: 0.88 };
+  if (includesAny(text, ['zestawienie kar', 'raport kar', 'kary najemcow', 'kar najemcow', 'kary za opoznienie', 'kary za opóźnienie', 'najemcy z karami', 'nierozliczone kary'])) {
+    return { intent: 'answer_from_data', tool: 'late_fees', status: text.includes('nierozliczone') ? 'unpaid' : null, ...base, query: null, confidence: 0.88 };
   }
   if (includesAny(text, ['ile zarobilem', 'ile zarobiłem', 'netto', 'przychod', 'przychód', 'porownaj', 'porównaj', 'najwiekszy koszt', 'największy koszt'])) {
     return { intent: 'report_answer', ...base, year: yearFromMessage(message, period || todayLocalISO().slice(0, 7)), confidence: 0.82 };
@@ -305,9 +356,12 @@ async function classifyWithGroq(message, period, candidates) {
     `Allowed intents: ${INTENTS.join(', ')}.`,
     'Return only JSON. Do not invent ids. Use payment_id or tenant_id only from provided candidates.',
     'If tenant/payment is ambiguous or missing, return the intent with tenant_name if visible, but no invented id.',
+    `For flexible read-only data questions use intent answer_from_data and one tool from: ${DATA_TOOLS.join(', ')}.`,
+    'Read-only tool guide: payments for paid/pending/overdue/partial payment questions; tenants for tenant lists and missing data; units for unit availability; contracts for agreements; expenses for cost lists and summaries; late_fees for penalties/kary/opóźnienia; finance for monthly revenue/net/tax; quality for data-quality audits; search for broad lookup.',
     'For navigation/search/filter/report commands, fill query, entity_type, status, period, year or property_name when visible.',
     'For create_task/add_expense, fill title/description/amount/category/date only when visible.',
-    'Schema includes: intent, tenant_name, tenant_id, payment_id, query, entity_type, status, period, year, property_name, title, description, category, amount, date, priority, tone, confidence.',
+    'Schema includes: intent, tool, tenant_name, tenant_id, payment_id, query, entity_type, status, period, year, property_name, title, description, category, amount, date, priority, tone, filters, confidence.',
+    'Never request direct SQL. All writes must be one of the explicit write intents and will require confirmation.',
   ].join('\n');
   const body = {
     model: GROQ_MODEL,
@@ -332,7 +386,7 @@ async function classifyWithGroq(message, period, candidates) {
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error && data.error.message ? data.error.message : `Groq HTTP ${response.status}`);
     const content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-    const parsed = ModelIntentSchema.parse(JSON.parse(content || '{}'));
+    const parsed = ModelIntentSchema.parse(normalizeModelIntent(JSON.parse(content || '{}')));
     return { ...parsed, ai_used: true, ai_configured: true };
   } catch (err) {
     return { ...localIntent(message), ai_used: false, ai_configured: true, warning: `Groq niedostępny: ${err.message || 'błąd klasyfikacji'}` };
@@ -587,6 +641,90 @@ function scopedLateFeeRows(req, period) {
   `).all(...params);
 }
 
+function itemTenant(row, subtitle) {
+  return { type: 'tenant', id: row.tenant_id || row.id, title: row.tenant_name || row.name || 'Najemca', subtitle, view: 'najemcy' };
+}
+
+function answerFromDataTool(req, model, message, period) {
+  const tool = model.tool || 'search';
+  const targetPeriod = model.period || periodFromMessage(message, period);
+  const query = model.query || extractSearchQuery(message) || '';
+  const status = model.status || null;
+  if (tool === 'search') return searchGlobal(req, query || message, targetPeriod);
+  if (tool === 'quality') return dataQualityReport(req, targetPeriod);
+  if (tool === 'finance') return reportAnswer(req, model, message, targetPeriod);
+  if (tool === 'late_fees') {
+    const explicitPeriod = model.period || periodFromMessage(message, null);
+    const allRows = scopedLateFeeRows(req, explicitPeriod);
+    const rows = status === 'unpaid' ? allRows.filter(row => Number(row.balance || 0) > 0) : allRows;
+    const total = rows.reduce((sum, row) => sum + Number(row.total || 0), 0);
+    const paid = rows.reduce((sum, row) => sum + Number(row.paid || 0), 0);
+    const balance = rows.reduce((sum, row) => sum + Number(row.balance || 0), 0);
+    const suffix = explicitPeriod ? ` za ${periodLabel(explicitPeriod)}` : '';
+    return resultList(
+      'answer_from_data',
+      `${status === 'unpaid' ? 'Nierozliczone kary najemców' : 'Zestawienie kar najemców'}${suffix}`,
+      rows.length ? `Naliczono ${Math.round(total)} zł kar, zapłacono ${Math.round(paid)} zł, pozostało ${Math.round(balance)} zł.` : `Brak naliczonych kar${suffix}.`,
+      rows.slice(0, 20).map(row => itemTenant(row, `${row.unit_code || 'bez lokalu'} · naliczono ${Math.round(row.total || 0)} zł · zapłacono ${Math.round(row.paid || 0)} zł · pozostało ${Math.round(row.balance || 0)} zł · ${row.periods || ''}`)),
+      null,
+      { status: 'answer', report: { total, paid, balance, count: rows.reduce((sum, row) => sum + Number(row.count || 0), 0), period: explicitPeriod || null } }
+    );
+  }
+  if (tool === 'payments') {
+    const paymentQuery = status === 'overdue' ? '' : query;
+    const payments = scopedPaymentRows(req, targetPeriod).filter(row => {
+      const computedOverdue = row.status !== 'paid' && row.due_date && row.due_date < todayLocalISO();
+      if (status === 'overdue' && row.status !== 'overdue' && !computedOverdue) return false;
+      if (status && status !== 'overdue' && ['paid','pending','partial'].includes(status) && row.status !== status) return false;
+      return !paymentQuery || rowMatchesText(row, paymentQuery) || normalizeText(`${row.unit_code || ''} ${row.property_name || ''} ${row.status || ''}`).includes(normalizeText(paymentQuery));
+    });
+    const total = payments.reduce((sum, row) => sum + amount(row), 0);
+    return resultList(
+      'answer_from_data',
+      `Płatności ${periodLabel(targetPeriod)}`,
+      `Znalazłem ${payments.length} płatności na ${Math.round(total)} zł.`,
+      payments.slice(0, 20).map(row => ({ type: 'payment', id: row.payment_id, title: row.tenant_name || 'Płatność', subtitle: `${row.unit_code || ''} · ${row.status || ''} · ${Math.round(amount(row))} zł`, view: 'platnosci' })),
+      { view: 'platnosci', state: { paymentsQ: query, paymentsFilter: ['paid','pending','overdue','partial'].includes(status) ? status : 'all', period: targetPeriod } },
+      { status: 'answer', report: { count: payments.length, total, period: targetPeriod } }
+    );
+  }
+  if (tool === 'tenants') {
+    const lateTenantIds = new Set(scopedLateFeeRows(req, null).filter(row => status !== 'unpaid' || Number(row.balance || 0) > 0).map(row => Number(row.tenant_id)));
+    const tenants = scopedTenants(req).filter(t => {
+      if (status === 'missing_phone' && String(t.phone || '').trim()) return false;
+      if (status === 'missing_sms_consent' && Number(t.sms_consent || 0) === 1) return false;
+      if (status === 'without_unit' && t.current_unit_id) return false;
+      if (status === 'with_late_fees' && !lateTenantIds.has(Number(t.id))) return false;
+      return !query || normalizeText(`${t.name || ''} ${t.unit_code || ''} ${t.property_name || ''}`).includes(normalizeText(query));
+    });
+    return resultList(
+      'answer_from_data',
+      'Najemcy',
+      `Znalazłem ${tenants.length} najemców.`,
+      tenants.slice(0, 20).map(t => ({ type: 'tenant', id: t.id, title: t.name, subtitle: `${t.unit_code || 'bez lokalu'} · ${t.property_name || ''} · SMS ${Number(t.sms_consent || 0) === 1 ? 'zgoda' : 'brak zgody'}`, view: 'najemcy' })),
+      { view: 'najemcy', state: { tenantsQ: query, tenantsStatus: 'active' } },
+      { status: 'answer', report: { count: tenants.length } }
+    );
+  }
+  if (tool === 'units') {
+    const units = scopedUnits(req).filter(u => {
+      if (status === 'without_active_contract' && Number(u.active_contracts || 0) > 0) return false;
+      return !query || normalizeText(`${u.code || ''} ${u.name || ''} ${u.property_name || ''} ${u.tenant_name || ''}`).includes(normalizeText(query));
+    });
+    return resultList('answer_from_data', 'Lokale', `Znalazłem ${units.length} lokali.`, units.slice(0, 20).map(u => ({ type: 'unit', id: u.id, title: u.code || u.name, subtitle: `${u.property_name || ''} · ${u.tenant_name || 'brak najemcy'}`, view: 'nieruchomosci' })), { view: 'nieruchomosci' }, { status: 'answer', report: { count: units.length } });
+  }
+  if (tool === 'contracts') {
+    const contracts = scopedContracts(req).filter(c => !query || normalizeText(`${c.tenant_name || ''} ${c.unit_code || ''} ${c.property_name || ''}`).includes(normalizeText(query)));
+    return resultList('answer_from_data', 'Umowy', `Znalazłem ${contracts.length} umów.`, contracts.slice(0, 20).map(c => ({ type: 'contract', id: c.id, title: c.tenant_name, subtitle: `${c.unit_code || ''} · ${c.status || ''} · ${c.end_date || 'bez daty końca'}`, view: 'umowy' })), { view: 'umowy' }, { status: 'answer', report: { count: contracts.length } });
+  }
+  if (tool === 'expenses') {
+    const expenses = scopedExpenses(req, targetPeriod).filter(e => !query || normalizeText(`${e.description || ''} ${e.category || ''} ${e.property_name || ''} ${e.unit_code || ''}`).includes(normalizeText(query)));
+    const total = expenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
+    return resultList('answer_from_data', `Koszty ${periodLabel(targetPeriod)}`, `Znalazłem ${expenses.length} kosztów na ${Math.round(total)} zł.`, expenses.slice(0, 20).map(e => ({ type: 'expense', id: e.id, title: e.description || e.category, subtitle: `${Math.round(e.amount || 0)} zł · ${e.property_name || ''} · ${e.date}`, view: 'koszty' })), { view: 'koszty', state: { period: targetPeriod } }, { status: 'answer', report: { count: expenses.length, total, period: targetPeriod } });
+  }
+  return searchGlobal(req, query || message, targetPeriod);
+}
+
 function searchGlobal(req, query, period) {
   const q = normalizeText(query || '');
   const tenants = scopedTenants(req)
@@ -768,11 +906,12 @@ async function parseAssistantCommand(req, body) {
   const merged = useLocalIntent || (classified.intent === 'unsupported' && local.intent !== 'unsupported')
     ? { ...classified, ...local }
     : { ...local, ...classified };
-  const intent = ModelIntentSchema.parse({
+  const intent = ModelIntentSchema.parse(normalizeModelIntent({
     intent: merged.intent || 'unsupported',
     tenant_name: merged.tenant_name || null,
     tenant_id: merged.tenant_id || null,
     payment_id: merged.payment_id || null,
+    tool: merged.tool || null,
     query: merged.query || null,
     entity_type: merged.entity_type || null,
     status: merged.status || null,
@@ -786,8 +925,9 @@ async function parseAssistantCommand(req, body) {
     date: merged.date || null,
     priority: merged.priority || null,
     tone: merged.tone || null,
+    filters: merged.filters || null,
     confidence: merged.confidence || 0,
-  });
+  }));
   const ai = {
     provider: 'groq',
     model: GROQ_MODEL,
@@ -813,6 +953,7 @@ async function parseAssistantCommand(req, body) {
   if (['filter_payments','filter_tenants','filter_units','filter_contracts','filter_expenses'].includes(intent.intent)) {
     return { ...filterResponse(req, intent.intent, intent, input.message, targetPeriod), ai };
   }
+  if (intent.intent === 'answer_from_data') return { ...answerFromDataTool(req, intent, input.message, targetPeriod), ai };
   if (intent.intent === 'report_answer') return { ...reportAnswer(req, intent, input.message, targetPeriod), ai };
   if (intent.intent === 'data_quality_check') return { ...dataQualityReport(req, targetPeriod), ai };
   if (['create_task','add_expense','generate_payments'].includes(intent.intent)) {
@@ -824,7 +965,7 @@ async function parseAssistantCommand(req, body) {
       status: 'unsupported',
       intent: 'unsupported',
       title: 'Nieobsługiwana komenda',
-      message: 'Obsługuję wyszukiwanie, nawigację, filtry, raporty, kontrolę danych, płatności, koszty, zadania i SMS-y.',
+      message: 'Obsługuję wyszukiwanie, nawigację, filtry, raporty, kontrolę danych, pytania o dane, płatności, koszty, zadania i SMS-y.',
       execute_required: false,
       ai,
     };

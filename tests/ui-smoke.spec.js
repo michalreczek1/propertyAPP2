@@ -162,6 +162,21 @@ test('topbar command bar shows tenant late fee report', async ({ page, request }
   }
 });
 
+test('topbar command bar answers flexible overdue payment question', async ({ page, request }) => {
+  const fixture = await createPaymentFixture(request, '__ai_overdue_question', { status: 'overdue' });
+  try {
+    await page.goto('/#dashboard');
+    await page.locator('#global-search').fill('kto zalega z płatnościami?');
+    await page.locator('#global-search').press('Enter');
+    const result = page.locator('.assistant-result.answer');
+    await expect(result).toBeVisible();
+    await expect(result).toContainText('Płatności');
+    await expect(result).toContainText(fixture.name);
+  } finally {
+    await cleanupPaymentFixture(request, fixture);
+  }
+});
+
 test('topbar command bar navigates to filtered payments', async ({ page }) => {
   await page.goto('/#dashboard');
   await page.locator('#global-search').fill('pokaż tylko zaległości');

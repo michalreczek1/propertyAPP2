@@ -276,7 +276,7 @@ async function main() {
       late_fee_paid: opts.lateFeePaid || 0,
       late_fee_manual: opts.lateFeeAmount ? 1 : 0,
       total_paid: 0,
-      status: 'pending',
+      status: opts.status || 'pending',
       source: 'smoke-ai',
     });
     expect(payment.ok && payment.data.id, JSON.stringify(payment));
@@ -351,9 +351,22 @@ async function main() {
   await check('POST /api/assistant/parse late fee report', async () => {
     await createAiPaymentFixture(`__smoke_ai_kary_${Date.now()}`, { code: 'KAR', lateFeeAmount: 50, lateFeePaid: 20 });
     const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'zrób zestawienie kar najemców' });
-    expect(r.ok && r.data.intent === 'report_answer' && r.data.status === 'answer' && r.data.report && r.data.report.total >= 50, JSON.stringify(r));
+    expect(r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report && r.data.report.total >= 50, JSON.stringify(r));
     expect(Array.isArray(r.data.items) && r.data.items.some(item => String(item.title || '').includes('__smoke_ai_kary')), JSON.stringify(r.data));
     return `${r.data.report.total} zł`;
+  });
+  await check('POST /api/assistant/parse flexible unpaid penalties question', async () => {
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'którzy najemcy mają nierozliczone kary?' });
+    expect(r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report && r.data.report.balance >= 30, JSON.stringify(r));
+    expect(Array.isArray(r.data.items) && r.data.items.some(item => String(item.title || '').includes('__smoke_ai_kary')), JSON.stringify(r.data));
+    return `${r.data.report.balance} zł`;
+  });
+  await check('POST /api/assistant/parse flexible overdue payments question', async () => {
+    await createAiPaymentFixture(`__smoke_ai_zalega_${Date.now()}`, { code: 'OVD', status: 'overdue' });
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'kto zalega z płatnościami?' });
+    expect(r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report && r.data.report.count >= 1, JSON.stringify(r));
+    expect(Array.isArray(r.data.items) && r.data.items.some(item => String(item.title || '').includes('__smoke_ai_zalega')), JSON.stringify(r.data));
+    return `${r.data.report.count} płatności`;
   });
   await check('POST /api/assistant/parse data quality audit', async () => {
     const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'sprawdź błędy w danych' });
