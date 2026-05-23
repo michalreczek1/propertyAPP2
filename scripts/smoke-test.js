@@ -357,6 +357,29 @@ async function main() {
     expect(r.data.report.paid >= 2100 && r.data.report.paid < 7000 && r.data.report.count === 2, JSON.stringify(r.data));
     return `${r.data.report.paid} zł`;
   });
+  await check('POST /api/assistant/parse tenant payment summary by surname', async () => {
+    const tenantName = `__smoke_ai_hryniuk_${Date.now()}`;
+    const fixture = await createAiPaymentFixture(tenantName, { period: '2026-04', status: 'paid', totalPaid: 1200, code: 'HR' });
+    const extra = await api('POST', '/api/payments', {
+      period: '2026-05',
+      tenant_id: fixture.tenantId,
+      unit_id: fixture.unitId,
+      due_day: 10,
+      rent_amount: 800,
+      media_amount: 100,
+      other_amount: 0,
+      total_paid: 900,
+      status: 'paid',
+      source: 'smoke-ai',
+    });
+    expect(extra.ok && extra.data.id, JSON.stringify(extra));
+    aiFixtures.push({ paymentId: extra.data.id });
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: `podsumuj wpłaty ${tenantName}` });
+    expect(r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report, JSON.stringify(r));
+    expect(r.data.report.tenant && Number(r.data.report.tenant.id) === Number(fixture.tenantId), JSON.stringify(r.data));
+    expect(r.data.report.range && r.data.report.range.mode === 'all' && r.data.report.paid >= 2100, JSON.stringify(r.data));
+    return `${r.data.report.paid} zł`;
+  });
   await check('POST /api/assistant/parse global current-year income summary', async () => {
     const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'ile zarobiłem w 2026 r.' });
     expect(r.ok && r.data.intent === 'report_answer' && r.data.status === 'answer' && r.data.report, JSON.stringify(r));

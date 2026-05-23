@@ -347,6 +347,12 @@ function maybeQualityNote(dataQuality) {
   return ` Uwaga: brak danych dla ${dataQuality.months_missing.join(', ')}.`;
 }
 
+function maybeNegativeNetNote(totals) {
+  if (!totals || !(Number(totals.net || 0) < 0)) return '';
+  const costsAndTax = Number(totals.expenses || 0) + Number(totals.tax || 0);
+  return ` Wynik jest ujemny, bo koszty i podatek (${formatMoney(costsAndTax)}) są wyższe od wpłat o ${formatMoney(Math.abs(totals.net))}.`;
+}
+
 function resultList(intent, title, message, items = [], navigation = null, extra = {}) {
   return { ok: true, status: 'answer', intent, title, message, execute_required: false, items, navigation, ...extra };
 }
@@ -377,7 +383,7 @@ function logAiQuery(req, payload) {
 function semanticAnswer(req, question, currentPeriod) {
   const started = Date.now();
   const bounds = paymentPeriodBounds(req);
-  const range = parsePeriodRange(question, currentPeriod, bounds);
+  let range = parsePeriodRange(question, currentPeriod, bounds);
   const metricHit = inferMetric(question) || resolveMetricAlias(req, question);
   const text = normalizeText(question);
   const toolsCalled = [];
@@ -415,6 +421,22 @@ function semanticAnswer(req, question, currentPeriod) {
     return finish(result, 'ambiguous_metric', { options: metricHit.options });
   }
 
+  if (metricHit && ['tenant_paid_total', 'revenue_paid'].includes(metricHit.key)) {
+    const query = extractTenantSubject(question);
+    toolsCalled.push('resolve_tenant');
+    const resolved = resolveTenant(req, query);
+    if (resolved.status === 'ok') {
+      if (text.includes('podsumuj') && range.mode === 'period' && !/\b(20\d{2}|styczen|luty|marzec|kwiecien|maj|czerwiec|lipiec|sierpien|wrzesien|pazdziernik|listopad|grudzien|tym roku|zeszlym roku|poprzedni|od poczatku|ostatnie)\b/.test(text)) {
+        range = parsePeriodRange('od początku danych', currentPeriod, bounds);
+      }
+      toolsCalled.push('get_tenant_finance');
+      const finance = getTenantFinance(req, resolved.tenant, range);
+      const message = `${resolved.tenant.name} zapłacił ${formatMoney(finance.totals.paid)} za ${range.label}. Oczekiwano ${formatMoney(finance.totals.expected)}, saldo ${formatMoney(finance.totals.balance)}.`;
+      return finish(resultList('answer_from_data', `Wpłaty: ${resolved.tenant.name}`, message, finance.payments.slice(0, 24).map(row => ({ type: 'payment', id: row.id, title: `${periodLabel(row.period)} · ${row.tenant_name}`, subtitle: `${row.unit_code || ''} · ${row.status} · wpłacono ${formatMoney(paidValue(row))}`, view: 'platnosci' })), { view: 'platnosci', state: { paymentsQ: resolved.tenant.name, period: range.end } }, { report: { ...finance, ...finance.totals } }), 'tenant_paid_total', { tenant_id: resolved.tenant.id, range });
+    }
+    toolsCalled.pop();
+  }
+
   if (metricHit && metricHit.key === 'tax_total' && !hasPropertySubject) {
     toolsCalled.push('get_tax_summary');
     const tax = getTaxSummary(req, range);
@@ -439,7 +461,7 @@ function semanticAnswer(req, question, currentPeriod) {
     const metricLabel = metricHit.metric.label_pl;
     const valueText = metric === 'margin' ? `${Math.round(value * 1000) / 10}%` : formatMoney(value);
     const methodology = shouldShowMethodology(question, finance) ? ` ${metricHit.metric.methodology_pl}` : '';
-    const message = `${metricLabel} dla ${resolved.property.name} za ${range.label}: ${valueText}. Wpłaty: ${formatMoney(finance.totals.revenue)}, oczekiwano: ${formatMoney(finance.totals.expected)}, koszty: ${formatMoney(finance.totals.expenses)}, podatek: ${formatMoney(finance.totals.tax)}, netto: ${formatMoney(finance.totals.net)}.${maybeQualityNote(finance.data_quality)}${methodology}`;
+    const message = `${metricLabel} dla ${resolved.property.name} za ${range.label}: ${valueText}. Wpłaty: ${formatMoney(finance.totals.revenue)}, oczekiwano: ${formatMoney(finance.totals.expected)}, koszty: ${formatMoney(finance.totals.expenses)}, podatek: ${formatMoney(finance.totals.tax)}, netto: ${formatMoney(finance.totals.net)}.${maybeNegativeNetNote(finance.totals)}${maybeQualityNote(finance.data_quality)}${methodology}`;
     return finish(resultList('report_answer', `${metricLabel}: ${resolved.property.name}`, message, itemsForMonths(finance.months), { view: 'raporty', state: { period: range.end } }, {
       report: { property_id: resolved.property.id, property_name: resolved.property.name, metric, range, ...finance.totals, value, data_quality: finance.data_quality, methodology: finance.methodology },
     }), metric, { property_id: resolved.property.id, range });
@@ -455,7 +477,7 @@ function semanticAnswer(req, question, currentPeriod) {
     const metricLabel = metricHit.metric.label_pl;
     const valueText = metric === 'margin' ? `${Math.round(value * 1000) / 10}%` : formatMoney(value);
     const methodology = shouldShowMethodology(question, finance) ? ` ${metricHit.metric.methodology_pl}` : '';
-    const message = `${metricLabel} za ${range.label}: ${valueText}. Wpłaty: ${formatMoney(finance.totals.revenue)}, oczekiwano: ${formatMoney(finance.totals.expected)}, koszty: ${formatMoney(finance.totals.expenses)}, podatek: ${formatMoney(finance.totals.tax)}, netto: ${formatMoney(finance.totals.net)}.${maybeQualityNote(finance.data_quality)}${methodology}`;
+    const message = `${metricLabel} za ${range.label}: ${valueText}. Wpłaty: ${formatMoney(finance.totals.revenue)}, oczekiwano: ${formatMoney(finance.totals.expected)}, koszty: ${formatMoney(finance.totals.expenses)}, podatek: ${formatMoney(finance.totals.tax)}, netto: ${formatMoney(finance.totals.net)}.${maybeNegativeNetNote(finance.totals)}${maybeQualityNote(finance.data_quality)}${methodology}`;
     return finish(resultList('report_answer', `${metricLabel} ${range.label}`, message, itemsForMonths(finance.months), { view: 'raporty', state: { period: range.end } }, {
       report: { metric, range, ...finance.totals, value, data_quality: finance.data_quality, methodology: finance.methodology },
     }), metric, { range });

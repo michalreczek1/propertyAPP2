@@ -162,7 +162,7 @@ function cleanEntityName(value) {
     .replace(/\b(ten|ta|to|tym|roku|rok|miesi[aą]cu|miesi[aą]c|poprzedni|zesz[łl]y|bie[zż][aą]cy|obecny|aktualny|od|pocz[aą]tku|danych|ca[łl]y|okres|ostatnie|ostatnich)\b/gi, ' ')
     .replace(/\b(20\d{2}-\d{2}|20\d{2})\b/g, ' ')
     .replace(/\b(stycz[eńn]|luty|marzec|kwiecien|kwiecie[nń]|maj|czerwiec|lipiec|sierpien|sierpie[nń]|wrzesien|wrzesie[nń]|pazdziernik|pa[zź]dziernik|listopad|grudzien|grudzie[nń])\b/gi, ' ')
-    .replace(/\b(suma|sum[eę]|razem|dochod[oó]w?|przychod[oó]w?|wp[łl]yw[oó]w?|zysk|netto|koszt[oó]w?|mar[zż]a|zap[łl]aci[łl]a?|zap[łl]acili|op[łl]aci[łl]a?|wp[łl]aci[łl]a?|wp[łl]acili|p[łl]atno[śs][ćc]|p[łl]atno[śs]ci|najemc[oó]w|najemcy|najemca|podatek|podatku)\b/gi, ' ')
+    .replace(/\b(suma|sum[eę]|razem|dochod[oó]w?|przychod[oó]w?|wp[łl]yw[oó]w?|wp[łl]aty|wplaty|zysk|netto|koszt[oó]w?|mar[zż]a|zap[łl]aci[łl]a?|zap[łl]acili|op[łl]aci[łl]a?|wp[łl]aci[łl]a?|wp[łl]acili|p[łl]atno[śs][ćc]|p[łl]atno[śs]ci|najemc[oó]w|najemcy|najemca|podatek|podatku)\b/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
