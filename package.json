@@ -24,6 +24,7 @@
     "test:rental-model": "node scripts/rental-model-test.js",
     "test:seed-safety": "node scripts/seed-safety-test.js",
     "test:ui": "playwright test",
+    "deploy:proxmox": "powershell -ExecutionPolicy Bypass -File scripts/deploy-proxmox.ps1",
     "migrate:prod": "npm run migrate",
     "setup": "npm run migrate && npm run seed",
     "setup:dev": "npm run migrate && npm run seed"
