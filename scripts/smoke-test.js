@@ -356,6 +356,13 @@ async function main() {
     expect(r.data.report.paid >= 2100 && r.data.report.paid < 7000 && r.data.report.count === 2, JSON.stringify(r.data));
     return `${r.data.report.paid} zł`;
   });
+  await check('POST /api/assistant/parse global current-year income summary', async () => {
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'ile zarobiłem w 2026 r.' });
+    expect(r.ok && r.data.intent === 'report_answer' && r.data.status === 'answer' && r.data.report, JSON.stringify(r));
+    expect(r.data.report.metric === 'net_income' && r.data.report.range && r.data.report.range.start === '2026-01' && r.data.report.range.end === '2026-05', JSON.stringify(r.data));
+    expect(!String(r.data.title || '').startsWith('Wynik netto maj 2026'), JSON.stringify(r.data));
+    return `${r.data.report.net} zł`;
+  });
   await check('POST /api/assistant/parse tax yearly summary', async () => {
     const [assistant, taxYear] = await Promise.all([
       api('POST', '/api/assistant/parse', { period: '2026-05', message: 'podsumuj ile podatku zapłaciłem w tym roku' }),

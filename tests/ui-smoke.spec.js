@@ -297,7 +297,7 @@ test('topbar command bar opens report answer popup', async ({ page }) => {
   await page.locator('#global-search').press('Enter');
   const result = page.locator('.assistant-result.answer');
   await expect(result).toBeVisible();
-  await expect(result).toContainText(/Wynik netto|Netto właściciel/);
+  await expect(result).toContainText(/Wynik netto|Netto właściciel|Dochód netto właściciela/);
 });
 
 test('topbar command bar creates a task after confirmation', async ({ page, request }) => {

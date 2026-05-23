@@ -5,7 +5,7 @@ const { includesAny, normalizeText } = require('./ai-preprocess');
 const METRICS = {
   net_income: {
     label_pl: 'Dochód netto właściciela',
-    aliases: ['dochód', 'dochod', 'zysk', 'netto', 'do kieszeni', 'czysty zarobek'],
+    aliases: ['dochód', 'dochod', 'zysk', 'netto', 'do kieszeni', 'czysty zarobek', 'zarobek', 'zarobki', 'zarobiłem', 'zarobilem', 'zarobiłam', 'zarobilam'],
     default_for: ['dochód', 'dochod', 'zysk'],
     formula: 'revenue_paid - expenses - tax',
     methodology_pl: 'Dochód netto właściciela to zatwierdzone wpłaty pomniejszone o koszty bezpośrednie, alokowane koszty właściciela i podatek ryczałtowy.',

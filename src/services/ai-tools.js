@@ -199,6 +199,46 @@ function getPropertyFinance(req, property, range) {
   };
 }
 
+function getGlobalFinance(req, range) {
+  const rows = [];
+  const rowsByPeriod = new Map();
+  for (const period of range.periods) {
+    const summary = monthlyFinanceSummary(db, period, req);
+    const row = {
+      period,
+      revenue: Number(summary.totals.revenue || 0),
+      expected: Number(summary.totals.expected_revenue || 0),
+      expenses: Number(summary.totals.expenses || 0),
+      tax: Number(summary.totals.tax_total || 0),
+      net: Number(summary.totals.net || 0),
+    };
+    rows.push(row);
+    rowsByPeriod.set(period, (row.revenue || row.expected || row.expenses || row.tax || row.net) ? [row] : []);
+  }
+  const totals = rows.reduce((acc, row) => ({
+    revenue: acc.revenue + row.revenue,
+    expected: acc.expected + row.expected,
+    expenses: acc.expenses + row.expenses,
+    tax: acc.tax + row.tax,
+    net: acc.net + row.net,
+  }), { revenue: 0, expected: 0, expenses: 0, tax: 0, net: 0 });
+  totals.margin = totals.revenue ? totals.net / totals.revenue : 0;
+  return {
+    range,
+    months: rows,
+    totals,
+    data_quality: dataQualityForRange(range.periods, rowsByPeriod),
+    methodology: {
+      revenue: METRICS.revenue_paid.methodology_pl,
+      expected: METRICS.revenue_expected.methodology_pl,
+      expenses: METRICS.expenses.methodology_pl,
+      tax: METRICS.tax_total.methodology_pl,
+      net: METRICS.net_income.methodology_pl,
+      margin: METRICS.margin.methodology_pl,
+    },
+  };
+}
+
 function getTenantFinance(req, tenant, range) {
   const rows = range.periods.flatMap(period => getPaymentRows(req, period).filter(row => Number(row.tenant_id) === Number(tenant.id)));
   const expected = rows.reduce((sum, row) => sum + Number(row.rent_amount || 0) + Number(row.media_amount || 0) + Number(row.other_amount || 0), 0);
@@ -386,6 +426,22 @@ function semanticAnswer(req, question, currentPeriod) {
     }), metric, { property_id: resolved.property.id, range });
   }
 
+  const isGlobalFinance = metricHit && ['net_income','revenue_paid','revenue_expected','expenses','margin'].includes(metricHit.key)
+    && !hasPropertySubject;
+  if (isGlobalFinance) {
+    toolsCalled.push('get_global_finance');
+    const finance = getGlobalFinance(req, range);
+    const metric = metricHit.key;
+    const value = valueFromPropertyTotals(metric, finance.totals);
+    const metricLabel = metricHit.metric.label_pl;
+    const valueText = metric === 'margin' ? `${Math.round(value * 1000) / 10}%` : formatMoney(value);
+    const methodology = shouldShowMethodology(question, finance) ? ` ${metricHit.metric.methodology_pl}` : '';
+    const message = `${metricLabel} za ${range.label}: ${valueText}. Wpłaty: ${formatMoney(finance.totals.revenue)}, oczekiwano: ${formatMoney(finance.totals.expected)}, koszty: ${formatMoney(finance.totals.expenses)}, podatek: ${formatMoney(finance.totals.tax)}, netto: ${formatMoney(finance.totals.net)}.${maybeQualityNote(finance.data_quality)}${methodology}`;
+    return finish(resultList('report_answer', `${metricLabel} ${range.label}`, message, itemsForMonths(finance.months), { view: 'raporty', state: { period: range.end } }, {
+      report: { metric, range, ...finance.totals, value, data_quality: finance.data_quality, methodology: finance.methodology },
+    }), metric, { range });
+  }
+
   if (metricHit && metricHit.key === 'tenant_count') {
     const query = cleanEntityName(extractPropertySubject(question) || question);
     toolsCalled.push('resolve_property');
@@ -424,6 +480,7 @@ function semanticAnswer(req, question, currentPeriod) {
 
 module.exports = {
   getPropertyFinance,
+  getGlobalFinance,
   getTaxSummary,
   getTenantCount,
   getTenantFinance,
