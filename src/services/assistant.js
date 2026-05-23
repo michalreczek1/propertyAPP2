@@ -1027,7 +1027,7 @@ function previousComparableRange(range) {
     mode: 'previous',
     start,
     end,
-    label: `${periodLabel(start)} - ${periodLabel(end)}`,
+    label: start === end ? periodLabel(start) : `${periodLabel(start)} - ${periodLabel(end)}`,
     periods: periodsBetween(start, end),
     source: 'rule',
   };
@@ -1087,10 +1087,9 @@ function financeExplanationAnswer(req, message, period) {
     .sort((a, b) => b.total - a.total)
     .slice(0, 3);
   const direction = delta.net >= 0 ? 'lepszy' : 'gorszy';
-  const driverText = drivers.map(d => {
-    const verb = d.impact >= 0 ? 'pomogły' : 'obciążyły wynik';
-    return `${d.label} ${verb} o ok. ${Math.round(Math.abs(d.impact))} zł`;
-  }).join(', ');
+  const driverText = drivers
+    .map(d => `${d.label}: ${d.impact >= 0 ? '+' : '-'}${Math.round(Math.abs(d.impact))} zł wpływu na netto`)
+    .join(', ');
   const categoryText = topCategories.length
     ? ` Największe kategorie kosztów w analizowanym okresie: ${topCategories.map(c => `${c.category} ${Math.round(c.total)} zł`).join(', ')}.`
     : '';
