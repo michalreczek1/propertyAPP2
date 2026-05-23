@@ -151,8 +151,8 @@ function resolveTenant(req, query) {
 
 function paidValue(row) {
   const expected = Number(row.rent_amount || 0) + Number(row.media_amount || 0) + Number(row.other_amount || 0);
-  if (row.status === 'paid') return expected;
-  if (row.status === 'partial') return Math.min(Number(row.total_paid || 0), expected);
+  if (row.status === 'paid') return Number(row.total_paid || 0) > 0 ? Number(row.total_paid || 0) : expected;
+  if (row.status === 'partial') return Number(row.total_paid || 0);
   return Math.max(0, Number(row.total_paid || 0));
 }
 

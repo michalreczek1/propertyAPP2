@@ -22,8 +22,12 @@ function round2(value) {
 
 function paidExpr(alias = 'pm') {
   return `CASE
-    WHEN ${alias}.status='paid' THEN (${alias}.rent_amount + ${alias}.media_amount + ${alias}.other_amount)
-    WHEN ${alias}.status='partial' THEN MIN(${alias}.total_paid, ${alias}.rent_amount + ${alias}.media_amount + ${alias}.other_amount)
+    WHEN ${alias}.status='paid' THEN
+      CASE WHEN COALESCE(${alias}.total_paid, 0) > 0
+        THEN COALESCE(${alias}.total_paid, 0)
+        ELSE (${alias}.rent_amount + ${alias}.media_amount + ${alias}.other_amount)
+      END
+    WHEN ${alias}.status='partial' THEN COALESCE(${alias}.total_paid, 0)
     ELSE 0
   END`;
 }

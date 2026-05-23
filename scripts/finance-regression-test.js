@@ -128,6 +128,7 @@ db.prepare(`
   INSERT INTO payments(period, tenant_id, unit_id, due_day, due_date, paid_date, rent_amount, media_amount, late_fee_amount, late_fee_paid, total_paid, status)
   VALUES (?, ?, ?, 10, ?, ?, ?, ?, ?, ?, ?, ?)
 `).run('2026-08', tenantIds[0], krId, '2026-08-10', '2026-08-12', 1000, 100, 50, 50, 1100, 'paid');
+payment.run('2026-09', tenantIds[0], krId, '2026-09-10', '2026-09-10', 1000, 100, 1200, 'paid');
 
 const expense = db.prepare('INSERT INTO expenses(property_id, category, amount, date, description) VALUES (?, ?, ?, ?, ?)');
 expense.run(chrobregoId, 'czynsz', 1710, '2026-04-01', 'Czynsz Chrobrego');
@@ -185,5 +186,10 @@ near(august.revenue.gross, 1100, 'Paid late fee is tracked separately from month
 near(august.revenue.late_fee_paid, 50, 'Paid late fee remains visible in late fee ledger');
 near(august.revenue.late_fee_balance, 0, 'Fully paid late fee has no tenant balance');
 near(august.tax.podatek_suma, 85, 'Tax base excludes paid late fee');
+
+const september = monthlyFinanceSummary(db, '2026-09');
+near(september.revenue.gross, 1200, 'Revenue uses actual total_paid for paid payments');
+near(september.revenue.rent_paid, 1000, 'Tax base still uses scheduled rent, not overpayment');
+near(september.tax.podatek_suma, 85, 'Overpayment does not inflate tax');
 
 console.log('✓ Finance regression tests passed');

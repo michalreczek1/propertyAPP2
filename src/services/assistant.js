@@ -866,8 +866,8 @@ function itemTenant(row, subtitle) {
 
 function paidValue(row) {
   const expected = amount(row);
-  if (row.status === 'paid') return expected;
-  if (row.status === 'partial') return Math.min(Number(row.total_paid || 0), expected);
+  if (row.status === 'paid') return Number(row.total_paid || 0) > 0 ? Number(row.total_paid || 0) : expected;
+  if (row.status === 'partial') return Number(row.total_paid || 0);
   return Math.max(0, Number(row.total_paid || 0));
 }
 

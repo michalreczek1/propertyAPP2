@@ -14,8 +14,8 @@ const METRICS = {
     label_pl: 'Przychód brutto z wpłat',
     aliases: ['przychód', 'przychod', 'wpłaty', 'wplaty', 'wpływy', 'wplywy', 'co wpłynęło', 'co wplynelo'],
     default_for: ['przychód', 'przychod', 'wpłaty', 'wplaty', 'wpływy', 'wplywy'],
-    formula: 'SUM(paid payments + partial total_paid)',
-    methodology_pl: 'Przychód z wpłat obejmuje opłacone płatności oraz kwoty częściowych wpłat. Płatności oczekujące i zaległe nie są przychodem zrealizowanym.',
+    formula: 'SUM(total_paid for paid/partial payments)',
+    methodology_pl: 'Przychód z wpłat obejmuje faktyczne total_paid dla płatności opłaconych i częściowych. Płatności oczekujące i zaległe nie są przychodem zrealizowanym.',
   },
   revenue_expected: {
     label_pl: 'Przychód oczekiwany',
@@ -45,8 +45,8 @@ const METRICS = {
   tenant_paid_total: {
     label_pl: 'Wpłaty najemcy',
     aliases: ['ile zapłacił', 'ile zaplacil', 'wpłaty najemcy', 'wplaty najemcy'],
-    formula: 'SUM paid value by tenant and period range',
-    methodology_pl: 'Suma wpłat najemcy obejmuje płatności opłacone oraz częściowe total_paid w wybranym zakresie.',
+    formula: 'SUM(total_paid by tenant and period range)',
+    methodology_pl: 'Suma wpłat najemcy obejmuje faktyczne total_paid dla płatności opłaconych i częściowych w wybranym zakresie.',
   },
   tenant_balance: {
     label_pl: 'Saldo najemcy',
