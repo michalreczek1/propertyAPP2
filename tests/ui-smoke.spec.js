@@ -5,7 +5,7 @@ function currentPeriodISO() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-async function createPaymentFixture(request, prefix) {
+async function createPaymentFixture(request, prefix, options = {}) {
   const suffix = `${prefix}_${Date.now()}`;
   const property = await request.post('/api/properties', {
     data: { name: suffix, district: 'Test', type: 'mieszkanie' },
@@ -27,7 +27,13 @@ async function createPaymentFixture(request, prefix) {
   const unitData = await unit.json();
 
   const tenant = await request.post('/api/tenants', {
-    data: { name: suffix, status: 'active' },
+    data: {
+      name: suffix,
+      status: 'active',
+      phone: options.phone || null,
+      sms_consent: options.smsConsent ? 1 : 0,
+      sms_disabled: options.smsDisabled ? 1 : 0,
+    },
   });
   expect(tenant.ok()).toBeTruthy();
   const tenantData = await tenant.json();
@@ -42,7 +48,7 @@ async function createPaymentFixture(request, prefix) {
       rent_amount: 1234,
       media_amount: 321,
       total_paid: 0,
-      status: 'pending',
+      status: options.status || 'pending',
     },
   });
   expect(payment.ok()).toBeTruthy();
@@ -79,6 +85,65 @@ test('reports page exposes consistent finance cards', async ({ page }) => {
   await expect(page.getByText('Łączne koszty')).toBeVisible();
   await expect(page.getByText('Podatek (ryczałt)')).toBeVisible();
   await expect(page.getByText('Raport podatkowy')).toBeVisible();
+});
+
+test('AI assistant explains tax from the topbar', async ({ page }) => {
+  await page.goto('/#dashboard');
+  await page.getByRole('button', { name: 'AI' }).click();
+  await expect(page.getByText('AI komendy')).toBeVisible();
+  await page.locator('#assistant-message').fill('Ile wynosi podatek za ten miesiąc?');
+  await page.getByRole('button', { name: 'Sprawdź' }).click();
+  await expect(page.getByText(/Podatek za/)).toBeVisible();
+  await expect(page.getByText('Podstawa')).toBeVisible();
+  await expect(page.getByText('Razem')).toBeVisible();
+});
+
+test('AI assistant confirms and marks a payment as paid', async ({ page, request }) => {
+  const fixture = await createPaymentFixture(request, '__ai_paid');
+  try {
+    await page.goto('/#platnosci');
+    await page.getByRole('button', { name: 'AI' }).click();
+    await page.locator('#assistant-message').fill(`${fixture.name} zapłacił`);
+    await page.getByRole('button', { name: 'Sprawdź' }).click();
+    await expect(page.getByText('Oznaczyć płatność jako opłaconą?')).toBeVisible();
+    await page.locator('#assistant-execute').click();
+    await expect(page.getByText('Oznaczono płatność jako opłaconą')).toBeVisible();
+    const payment = await request.get(`/api/payments/${fixture.paymentId}`);
+    expect(payment.ok()).toBeTruthy();
+    expect((await payment.json()).status).toBe('paid');
+  } finally {
+    await cleanupPaymentFixture(request, fixture);
+  }
+});
+
+test('AI assistant shows SMS preview in test mode', async ({ page, request }) => {
+  const fixture = await createPaymentFixture(request, '__ai_sms', { phone: '+48 600 000 000', smsConsent: true });
+  try {
+    const settings = await request.put('/api/notifications/settings', {
+      data: {
+        enabled: false,
+        sender: 'TEST',
+        send_time: '09:30',
+        overdue_days: 1,
+        reminder_enabled: true,
+        reminder_days_before_due: 3,
+        test_mode: true,
+        test_phone: '+48600000000',
+        clear_polish: true,
+        transactional: false,
+      },
+    });
+    expect(settings.ok()).toBeTruthy();
+    await page.goto('/#dashboard');
+    await page.getByRole('button', { name: 'AI' }).click();
+    await page.locator('#assistant-message').fill(`${fixture.name} wyślij SMS z przypomnieniem`);
+    await page.getByRole('button', { name: 'Sprawdź' }).click();
+    await expect(page.getByText('Wysłać SMS z przypomnieniem?')).toBeVisible();
+    await expect(page.getByText('Tryb testowy')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Wyślij SMS' })).toBeVisible();
+  } finally {
+    await cleanupPaymentFixture(request, fixture);
+  }
 });
 
 test('settings exposes guarded excel import controls', async ({ page }) => {

@@ -248,6 +248,96 @@ async function main() {
     return `${r.data.candidates.length} kandydatów`;
   });
 
+  console.log('\n══ AI ASSISTANT ══');
+  const aiFixtures = [];
+  async function createAiPaymentFixture(name, opts = {}) {
+    const prop = await api('POST', '/api/properties', { name: `${name}_property`, district: 'AI', type: 'mieszkanie' });
+    expect(prop.ok && prop.data.id, JSON.stringify(prop));
+    const unit = await api('POST', '/api/units', { property_id: prop.data.id, name: `${name}_unit`, code: opts.code || 'AI', base_rent: 1000, base_media: 200, status: 'vacant' });
+    expect(unit.ok && unit.data.id, JSON.stringify(unit));
+    const tenant = await api('POST', '/api/tenants', {
+      name,
+      current_unit_id: unit.data.id,
+      status: 'active',
+      phone: opts.phone || '+48 600 000 000',
+      sms_consent: opts.smsConsent ? 1 : 0,
+      sms_disabled: opts.smsDisabled ? 1 : 0,
+    });
+    expect(tenant.ok && tenant.data.id, JSON.stringify(tenant));
+    const payment = await api('POST', '/api/payments', {
+      period: opts.period || '2026-05',
+      tenant_id: tenant.data.id,
+      unit_id: unit.data.id,
+      due_day: 10,
+      rent_amount: 1000,
+      media_amount: 200,
+      other_amount: 0,
+      total_paid: 0,
+      status: 'pending',
+      source: 'smoke-ai',
+    });
+    expect(payment.ok && payment.data.id, JSON.stringify(payment));
+    const fixture = { propertyId: prop.data.id, tenantId: tenant.data.id, paymentId: payment.data.id };
+    aiFixtures.push(fixture);
+    return fixture;
+  }
+
+  let aiPaidFixture = null, aiSmsFixture = null, aiBlockedFixture = null;
+  await check('POST /api/assistant/parse mark payment', async () => {
+    aiPaidFixture = await createAiPaymentFixture(`__smoke_ai_kowalski_${Date.now()}`);
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: `${Date.now()} kowalski zapłacił` });
+    if (!r.ok || !r.data.action) {
+      const retry = await api('POST', '/api/assistant/parse', { period: '2026-05', message: `__smoke_ai_kowalski zapłacił` });
+      expect(retry.ok && retry.data.intent === 'mark_payment_paid' && retry.data.action && retry.data.action.token, JSON.stringify(retry));
+      return retry.data.intent;
+    }
+    expect(r.data.intent === 'mark_payment_paid' && r.data.action.token, JSON.stringify(r));
+    return r.data.intent;
+  });
+  await check('POST /api/assistant/execute marks paid', async () => {
+    const parsed = await api('POST', '/api/assistant/parse', { period: '2026-05', message: `__smoke_ai_kowalski zapłacił` });
+    expect(parsed.ok && parsed.data.action && parsed.data.action.token, JSON.stringify(parsed));
+    const r = await api('POST', '/api/assistant/execute', { token: parsed.data.action.token });
+    expect(r.ok && r.data.payment.status === 'paid', JSON.stringify(r));
+    return r.data.payment.status;
+  });
+  await check('POST /api/assistant/parse tax explain', async () => {
+    const [assistant, dash] = await Promise.all([
+      api('POST', '/api/assistant/parse', { period: '2026-05', message: 'ile wynosi podatek za ten miesiąc' }),
+      api('GET', '/api/dashboard?period=2026-05'),
+    ]);
+    expect(assistant.ok && assistant.data.intent === 'explain_tax' && assistant.data.tax, JSON.stringify(assistant));
+    expect(dash.ok && assistant.data.tax.podatek_suma === dash.data.tax.podatek_suma, JSON.stringify({ assistant, dash }));
+    return `${assistant.data.tax.podatek_suma} zł`;
+  });
+  await check('POST /api/assistant/parse SMS preview', async () => {
+    aiSmsFixture = await createAiPaymentFixture(`__smoke_ai_sms_${Date.now()}`, { smsConsent: true, code: 'SMS' });
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: '__smoke_ai_sms wyślij SMS z przypomnieniem' });
+    expect(r.ok && r.data.intent === 'send_sms_reminder' && r.data.preview && r.data.preview.message && r.data.action, JSON.stringify(r));
+    return r.data.preview.test_mode ? 'test-mode preview' : 'preview';
+  });
+  await check('POST /api/assistant/parse SMS blocks missing consent', async () => {
+    aiBlockedFixture = await createAiPaymentFixture(`__smoke_ai_bez_zgody_${Date.now()}`, { smsConsent: false, code: 'NO' });
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: '__smoke_ai_bez_zgody wyślij SMS z przypomnieniem' });
+    expect(r.ok && r.data.status === 'blocked' && r.data.reason === 'sms_consent_required', JSON.stringify(r));
+    return r.data.reason;
+  });
+  await check('POST /api/assistant/parse ambiguous tenant', async () => {
+    await createAiPaymentFixture(`__smoke_ai_duplikat_A_${Date.now()}`, { code: 'D1' });
+    await createAiPaymentFixture(`__smoke_ai_duplikat_B_${Date.now()}`, { code: 'D2' });
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: '__smoke_ai_duplikat zapłacił' });
+    expect(r.ok && r.data.status === 'clarify' && Array.isArray(r.data.candidates) && r.data.candidates.length >= 2, JSON.stringify(r));
+    return `${r.data.candidates.length} kandydatów`;
+  });
+  await check('DEL  AI assistant fixtures', async () => {
+    for (const fixture of aiFixtures.reverse()) {
+      if (fixture.paymentId) await api('DELETE', `/api/payments/${fixture.paymentId}`).catch(() => {});
+      if (fixture.tenantId) await api('DELETE', `/api/tenants/${fixture.tenantId}`).catch(() => {});
+      if (fixture.propertyId) await api('DELETE', `/api/properties/${fixture.propertyId}`).catch(() => {});
+    }
+    return 'ok';
+  });
+
   console.log('\n══ CRUD: property ══');
   let propId = null;
   await check('POST /api/properties', async () => {

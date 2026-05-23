@@ -50,6 +50,7 @@ app.use('/api/documents',  require('./routes/documents'));
 app.use('/api/settings',   require('./routes/settings'));
 app.use('/api/admin',      require('./routes/admin'));
 app.use('/api/notifications', require('./routes/notifications'));
+app.use('/api/assistant', require('./routes/assistant'));
 app.use('/api/import',     require('./routes/import'));
 app.use('/api/export',     require('./routes/export'));
 

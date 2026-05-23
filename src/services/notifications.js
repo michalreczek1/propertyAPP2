@@ -193,9 +193,9 @@ function renderTemplate(template, row) {
 }
 
 function buildMessage(type, row, settings) {
-  const template = type === 'due_reminder'
-    ? settings.template_due_reminder
-    : settings.template_overdue;
+  const template = type === 'overdue'
+    ? settings.template_overdue
+    : settings.template_due_reminder;
   return renderTemplate(template, row);
 }
 
@@ -336,14 +336,20 @@ function updateLogFailure(logId, errorCode, errorMessage, attemptsBefore, noRetr
 }
 
 async function sendLog(log, settings) {
-  const result = await sendSms({
-    from: settings.sender,
-    to: log.recipient_phone,
-    msg: log.message_text,
-    testMode: settings.test_mode,
-    clearPolish: settings.clear_polish,
-    transactional: settings.transactional,
-  });
+  let result;
+  try {
+    result = await sendSms({
+      from: settings.sender,
+      to: log.recipient_phone,
+      msg: log.message_text,
+      testMode: settings.test_mode,
+      clearPolish: settings.clear_polish,
+      transactional: settings.transactional,
+    });
+  } catch (err) {
+    updateLogFailure(log.id, err.code || 'send_failed', err.message || 'send_failed', Number(log.attempts || 0), log.type === 'test');
+    return { ok: false, id: log.id, error: err.message || 'send_failed', error_code: err.code || 'send_failed' };
+  }
   if (result.ok) {
     updateLogSuccess(log.id, result.messageId, settings.test_mode);
     return { ok: true, id: log.id, message_id: result.messageId, status: settings.test_mode ? 'simulated' : 'sent' };
@@ -494,6 +500,63 @@ async function sendTestSms(req, phone, message) {
   return { ...sent, log_id: log.id, test_mode: settings.test_mode };
 }
 
+function reminderPaymentRow(req, paymentId) {
+  const scope = scopeSql(req, { payment: 'p', property: 'pr', tenant: 't' });
+  return db.prepare(`
+    SELECT p.*, t.name AS tenant_name, t.phone, t.sms_consent, t.sms_disabled,
+           u.name AS unit_name, u.code AS unit_code, pr.name AS property_name
+    FROM payments p
+    JOIN tenants t ON t.id = p.tenant_id
+    LEFT JOIN units u ON u.id = p.unit_id
+    LEFT JOIN properties pr ON pr.id = u.property_id
+    WHERE p.id = ?
+      ${scope.sql}
+    LIMIT 1
+  `).get(paymentId, ...scope.params);
+}
+
+function previewPaymentReminder(req, paymentId) {
+  const settings = getNotificationSettings(req);
+  const row = reminderPaymentRow(req, paymentId);
+  if (!row) return { ok: false, error: 'payment_not_found' };
+  if (row.status === 'paid') return { ok: false, error: 'payment_already_paid', tenant: row.tenant_name, period: row.period };
+  if (Number(row.sms_consent || 0) !== 1) return { ok: false, error: 'sms_consent_required', tenant: row.tenant_name, period: row.period };
+  if (Number(row.sms_disabled || 0) === 1) return { ok: false, error: 'sms_disabled', tenant: row.tenant_name, period: row.period };
+  const actualPhone = normalizePhone(row.phone);
+  if (!actualPhone) return { ok: false, error: 'invalid_phone', tenant: row.tenant_name, period: row.period };
+  const targetPhone = settings.test_mode && normalizePhone(settings.test_phone)
+    ? normalizePhone(settings.test_phone)
+    : actualPhone;
+  if (!targetPhone) return { ok: false, error: 'test_phone_required', tenant: row.tenant_name, period: row.period };
+  const message = buildMessage('assistant_reminder', row, settings);
+  return {
+    ok: true,
+    tenant: row.tenant_name,
+    tenant_id: row.tenant_id,
+    payment_id: row.id,
+    period: row.period,
+    unit: row.unit_code || row.unit_name || null,
+    phone: targetPhone,
+    actual_phone: actualPhone,
+    test_mode: settings.test_mode,
+    token_configured: settings.token_configured,
+    message,
+  };
+}
+
+async function sendPaymentReminder(req, paymentId) {
+  const preview = previewPaymentReminder(req, paymentId);
+  if (!preview.ok) {
+    const err = new Error(preview.error || 'sms_preview_failed');
+    err.status = 400;
+    throw err;
+  }
+  const settings = getNotificationSettings(req);
+  const row = reminderPaymentRow(req, paymentId);
+  const result = await enqueueAndSend(row, 'assistant_reminder', settings, false);
+  return { ...result, preview: { ...preview, token_configured: settings.token_configured } };
+}
+
 let schedulerState = { started: false, lastRunDate: null, timer: null };
 
 function localHHMM(date = new Date()) {
@@ -532,4 +595,6 @@ module.exports = {
   syncDeliveryStatuses,
   startNotificationScheduler,
   normalizePhone,
+  previewPaymentReminder,
+  sendPaymentReminder,
 };

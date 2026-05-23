@@ -39,6 +39,7 @@ const State = {
   tenantsStatus: 'active',
   tenantsQ: '',
   auth: null,
+  assistantLastResult: null,
 };
 
 function currentPeriodISO() {
@@ -303,6 +304,10 @@ function setTopbar(title, sub, actions) {
     </button>
     <button class="tb-btn tb-ghost" data-period="+1" title="Następny miesiąc">›</button>
     ${actions || ''}
+    <button class="tb-btn tb-ghost" id="assistant-btn" title="AI komendy">
+      <svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15z"/></svg>
+      AI
+    </button>
     <button class="tb-btn tb-ghost" id="account-btn" title="Konto">
       <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       Konto
@@ -315,6 +320,7 @@ function setTopbar(title, sub, actions) {
     b.onclick = () => { State.period = shiftPeriod(State.period, +b.dataset.period); render(); };
   });
   right.querySelector('#period-btn').onclick = () => openPeriodPicker();
+  right.querySelector('#assistant-btn').onclick = () => openAssistantPanel();
   right.querySelector('#account-btn').onclick = () => openAccountPanel();
   right.querySelector('#logout-btn').onclick = () => logout();
 }
@@ -334,6 +340,123 @@ function openPeriodPicker() {
       render();
     },
   });
+}
+
+function openAssistantPanel() {
+  const body = `
+    <div class="assistant-panel">
+      <form id="assistant-form" class="assistant-form">
+        <label for="assistant-message">Komenda</label>
+        <div class="assistant-input-row">
+          <textarea id="assistant-message" name="message" placeholder="Np. Kowalski zapłacił, ile wynosi podatek, wyślij SMS do Kowalskiego"></textarea>
+          <button class="tb-btn tb-primary" type="submit">Sprawdź</button>
+        </div>
+        <div class="assistant-period">Okres: ${escapeHtml(periodTitleCase(State.period))}</div>
+      </form>
+      <div id="assistant-result">${assistantResultHtml(State.assistantLastResult)}</div>
+    </div>`;
+  const m = modal({ title: 'AI komendy', body, wide: true });
+  const form = m.root.querySelector('#assistant-form');
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const message = form.message.value.trim();
+    if (!message) return toast('Wpisz komendę', 'err');
+    const resultRoot = m.root.querySelector('#assistant-result');
+    resultRoot.innerHTML = spinner();
+    try {
+      const result = await Api.post('/assistant/parse', { message, period: State.period });
+      State.assistantLastResult = result;
+      resultRoot.innerHTML = assistantResultHtml(result);
+      bindAssistantResult(resultRoot, m);
+    } catch (err) {
+      resultRoot.innerHTML = `<div class="assistant-result blocked"><div class="assistant-result-title">Błąd</div><div class="assistant-result-message">${escapeHtml(err.message || 'Nie udało się rozpoznać komendy')}</div></div>`;
+    }
+  };
+  bindAssistantResult(m.root.querySelector('#assistant-result'), m);
+  setTimeout(() => m.root.querySelector('#assistant-message')?.focus(), 0);
+}
+
+function assistantResultHtml(result) {
+  if (!result) {
+    return `
+      <div class="assistant-empty">
+        <div class="assistant-examples">
+          <button type="button" data-example="Kowalski zapłacił">Kowalski zapłacił</button>
+          <button type="button" data-example="Ile wynosi podatek za ten miesiąc?">Ile wynosi podatek?</button>
+          <button type="button" data-example="Wyślij SMS z przypomnieniem do Kowalskiego">Wyślij SMS</button>
+        </div>
+      </div>`;
+  }
+  const cls = result.ok ? (result.status === 'answer' ? 'answer' : 'ready') : (result.status || 'blocked');
+  const aiNote = result.ai && result.ai.warning ? `<div class="assistant-note">${escapeHtml(result.ai.warning)}</div>` : '';
+  const tax = result.tax ? `
+    <div class="assistant-grid">
+      <div><span>Podstawa</span><b>${fmtPLN(result.tax.base)} zł</b></div>
+      <div><span>Stawka</span><b>${fmtPLN(result.tax.rate)}%</b></div>
+      <div><span>Ryczałt</span><b>${fmtPLN(result.tax.podatek)} zł</b></div>
+      <div><span>Razem</span><b>${fmtPLN(result.tax.podatek_suma)} zł</b></div>
+    </div>` : '';
+  const payment = result.payment ? `
+    <div class="assistant-grid">
+      <div><span>Najemca</span><b>${escapeHtml(result.payment.tenant_name || '—')}</b></div>
+      <div><span>Lokal</span><b>${escapeHtml(result.payment.unit || '—')}</b></div>
+      <div><span>Status</span><b>${escapeHtml(STATUS_CHIP[result.payment.status]?.label || result.payment.status || '—')}</b></div>
+      <div><span>Kwota</span><b>${fmtPLN(result.payment.amount)} zł</b></div>
+    </div>` : '';
+  const sms = result.preview && result.preview.message ? `
+    <div class="assistant-sms">
+      <div class="assistant-sms-meta">${escapeHtml(result.preview.test_mode ? 'Tryb testowy' : 'Wysyłka produkcyjna')} · ${escapeHtml(result.preview.phone || '')}</div>
+      <div>${escapeHtml(result.preview.message)}</div>
+      ${result.preview.token_configured === false ? '<div class="assistant-note warn">Brak tokenu SMSPlanet - wysyłka nie powiedzie się, dopóki nie uzupełnisz konfiguracji.</div>' : ''}
+    </div>` : '';
+  const candidates = result.candidates && result.candidates.length ? `
+    <div class="assistant-candidates">
+      ${result.candidates.slice(0, 6).map(c => `<div>${escapeHtml(c.tenant_name || '—')} · ${escapeHtml(c.unit || '—')} · ${escapeHtml(c.status || '—')} · ${fmtPLN(c.amount)} zł</div>`).join('')}
+    </div>` : '';
+  const action = result.action && result.action.token ? `
+    <div class="assistant-actions">
+      <button class="tb-btn tb-primary" id="assistant-execute" data-token="${escapeHtml(result.action.token)}">${escapeHtml(result.action.label || 'Wykonaj')}</button>
+    </div>` : '';
+  return `
+    <div class="assistant-result ${escapeHtml(cls)}">
+      <div class="assistant-result-title">${escapeHtml(result.title || 'AI komendy')}</div>
+      <div class="assistant-result-message">${escapeHtml(result.message || '')}</div>
+      ${aiNote}
+      ${tax}
+      ${payment}
+      ${sms}
+      ${candidates}
+      ${action}
+    </div>`;
+}
+
+function bindAssistantResult(root, modalRef) {
+  if (!root) return;
+  root.querySelectorAll('[data-example]').forEach(btn => {
+    btn.onclick = () => {
+      const input = modalRef.root.querySelector('#assistant-message');
+      if (input) {
+        input.value = btn.dataset.example;
+        input.focus();
+      }
+    };
+  });
+  const execute = root.querySelector('#assistant-execute');
+  if (execute) {
+    execute.onclick = async () => {
+      execute.disabled = true;
+      try {
+        const result = await Api.post('/assistant/execute', { token: execute.dataset.token });
+        toast(result.message || 'Wykonano', 'ok');
+        State.assistantLastResult = result;
+        modalRef.close();
+        render();
+      } catch (err) {
+        execute.disabled = false;
+        toast(err.message || 'Nie udało się wykonać akcji', 'err');
+      }
+    };
+  }
 }
 
 async function loadAuth() {
