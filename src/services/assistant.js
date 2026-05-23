@@ -1575,9 +1575,16 @@ function attentionSummary(req, period) {
   const currentAudit = dataQualityReport(req, `sprawdź dane za ${period}`, period);
   const year = String(period || todayLocalISO().slice(0, 7)).slice(0, 4);
   const yearlyAudit = dataQualityReport(req, `sprawdź czy dane są kompletne za ${year} r.`, period);
-  const checks = [...(currentAudit.checks || []), ...(yearlyAudit.checks || [])]
-    .filter(c => Number(c.count || 0) > 0)
-    .sort((a, b) => priorityRank(b.priority) - priorityRank(a.priority) || b.count - a.count)
+  const byKey = new Map();
+  for (const check of [...(currentAudit.checks || []), ...(yearlyAudit.checks || [])]) {
+    if (!Number(check.count || 0)) continue;
+    const existing = byKey.get(check.key);
+    if (!existing || priorityRank(check.priority) > priorityRank(existing.priority) || Number(check.count || 0) > Number(existing.count || 0)) {
+      byKey.set(check.key, check);
+    }
+  }
+  const checks = [...byKey.values()]
+    .sort((a, b) => priorityRank(b.priority) - priorityRank(a.priority) || Number(b.count || 0) - Number(a.count || 0))
     .slice(0, 5);
   const items = [...(currentAudit.items || []), ...(yearlyAudit.items || [])].slice(0, 6);
   return {
