@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { z } = require('zod');
 const db = require('../db');
 const { monthlyFinanceSummary } = require('./finance-summary');
+const { semanticAnswer } = require('./ai-tools');
 const { previewPaymentReminder, sendPaymentReminder } = require('./notifications');
 const { todayLocalISO, parsePolishMonthYear, previousPeriod, periodLabel } = require('../utils/period');
 const { canAccessPayment, ownerId } = require('../utils/scope');
@@ -1375,6 +1376,10 @@ async function parseAssistantCommand(req, body) {
   };
 
   const targetPeriod = intent.period || periodFromMessage(input.message, period);
+  if (['answer_from_data', 'report_answer'].includes(intent.intent)) {
+    const semantic = semanticAnswer(req, input.message, period);
+    if (semantic) return { ...semantic, ai };
+  }
 
   if (intent.intent === 'explain_tax') return taxResponse(req, targetPeriod, ai);
   if (intent.intent === 'search_global') return { ...searchGlobal(req, intent.query || input.message, targetPeriod), ai };

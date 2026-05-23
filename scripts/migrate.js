@@ -306,6 +306,48 @@ CREATE INDEX IF NOT EXISTS idx_recurring_costs_property
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_recurring_costs_open
   ON recurring_costs(category, COALESCE(owner_user_id, 0), COALESCE(property_id, 0), valid_from_period)
   WHERE active = 1;
+
+-- ── AI QUERY LOGS AND USER LANGUAGE ─────────────────
+CREATE TABLE IF NOT EXISTS ai_queries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_user_id INTEGER,
+  user_key TEXT,
+  session_id TEXT,
+  question TEXT NOT NULL,
+  route TEXT,
+  metric_used TEXT,
+  params_json TEXT,
+  tools_called TEXT,
+  answer TEXT,
+  duration_ms INTEGER,
+  tokens_in INTEGER,
+  tokens_out INTEGER,
+  cost_usd REAL,
+  unmatched INTEGER DEFAULT 0,
+  feedback INTEGER,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_queries_created ON ai_queries(created_at);
+CREATE INDEX IF NOT EXISTS idx_ai_queries_metric ON ai_queries(metric_used, unmatched);
+
+CREATE TABLE IF NOT EXISTS user_aliases (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_user_id INTEGER,
+  user_key TEXT,
+  alias TEXT NOT NULL,
+  normalized_alias TEXT NOT NULL,
+  resolves_to_type TEXT NOT NULL,
+  resolves_to_id INTEGER,
+  resolves_to_value TEXT,
+  learned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  use_count INTEGER DEFAULT 1,
+  FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_user_aliases_scope
+  ON user_aliases(COALESCE(owner_user_id, 0), normalized_alias, resolves_to_type);
+CREATE INDEX IF NOT EXISTS idx_user_aliases_lookup
+  ON user_aliases(normalized_alias, resolves_to_type);
 `;
 
 db.exec(SCHEMA);

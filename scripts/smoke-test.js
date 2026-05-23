@@ -351,7 +351,7 @@ async function main() {
     return `${assistant.data.report.tax_total} zł`;
   });
   await check('POST /api/assistant/parse tenant count previous year by property', async () => {
-    const prop = await api('POST', '/api/properties', { name: `__smoke_ai_Chrobrego_${Date.now()}`, district: 'AI', type: 'mieszkanie' });
+    const prop = await api('POST', '/api/properties', { name: `__smoke_ai_Lawendowa_${Date.now()}`, district: 'AI', type: 'mieszkanie' });
     expect(prop.ok && prop.data.id, JSON.stringify(prop));
     const unit = await api('POST', '/api/units', { property_id: prop.data.id, name: '__smoke_ai_ch_unit', code: 'CH', base_rent: 1000, base_media: 100, status: 'vacant' });
     expect(unit.ok && unit.data.id, JSON.stringify(unit));
@@ -360,7 +360,7 @@ async function main() {
     const payment = await api('POST', '/api/payments', { period: '2025-06', tenant_id: tenant.data.id, unit_id: unit.data.id, due_day: 10, rent_amount: 1000, media_amount: 100, total_paid: 1100, status: 'paid', source: 'smoke-ai' });
     expect(payment.ok && payment.data.id, JSON.stringify(payment));
     aiFixtures.push({ propertyId: prop.data.id, tenantId: tenant.data.id, paymentId: payment.data.id });
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'ilu miałem najemców na Chrobrego w zeszłym roku?' });
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'ilu miałem najemców na Lawendowej w zeszłym roku?' });
     expect(r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report && r.data.report.count >= 1, JSON.stringify(r));
     return `${r.data.report.count} najemców`;
   });
