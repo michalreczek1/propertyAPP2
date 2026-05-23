@@ -177,6 +177,17 @@ test('topbar command bar answers flexible overdue payment question', async ({ pa
   }
 });
 
+test('mobile topbar keeps AI command bar visible and usable', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/#dashboard');
+  const search = page.locator('#global-search');
+  await expect(search).toBeVisible();
+  await expect(search).toHaveCSS('display', /block|inline-block/);
+  await search.fill('ile wynosi podatek za ten miesiąc?');
+  await search.press('Enter');
+  await expect(page.locator('.assistant-result.answer')).toContainText(/Podatek za/);
+});
+
 test('topbar command bar navigates to filtered payments', async ({ page }) => {
   await page.goto('/#dashboard');
   await page.locator('#global-search').fill('pokaż tylko zaległości');
