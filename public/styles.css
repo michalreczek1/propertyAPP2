@@ -222,6 +222,17 @@ html { height: 100%; }
 .topbar-search svg { width: 14px; height: 14px; stroke: var(--t4); fill: none; stroke-width: 1.8; flex-shrink: 0; }
 .topbar-search input { background: none; border: none; font-size: 13px; color: var(--t1); outline: none; width: 100%; }
 .topbar-search input::placeholder { color: var(--t4); }
+.topbar-voice {
+  width: 28px; height: 28px; flex: 0 0 28px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid transparent; border-radius: 8px;
+  background: transparent; color: var(--t3); cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.topbar-voice svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.9; }
+.topbar-voice:hover { background: var(--surface-hover); color: var(--t1); }
+.topbar-voice.listening { color: #22d3ee; border-color: rgba(34,211,238,0.42); background: rgba(34,211,238,0.12); }
+.topbar-voice.unsupported { color: var(--t4); opacity: 0.72; }
 .topbar-kbd { font-family: var(--mono); font-size: 10px; color: var(--t4); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; white-space: nowrap; }
 
 .topbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }

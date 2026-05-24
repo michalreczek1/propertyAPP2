@@ -42,6 +42,8 @@ const State = {
   assistantLastResult: null,
 };
 
+let activeVoiceRecognition = null;
+
 function currentPeriodISO() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
@@ -508,6 +510,79 @@ function bindCommandBar() {
     event.preventDefault();
     runCommandBar(input.value);
   });
+  bindVoiceCommand();
+}
+
+function speechRecognitionCtor() {
+  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+}
+
+function setVoiceListening(listening) {
+  const btn = document.getElementById('voice-command');
+  if (!btn) return;
+  btn.classList.toggle('listening', Boolean(listening));
+  btn.setAttribute('aria-pressed', listening ? 'true' : 'false');
+  btn.title = listening ? 'Zatrzymaj dyktowanie' : 'Dyktuj komendę AI';
+}
+
+function bindVoiceCommand() {
+  const btn = document.getElementById('voice-command');
+  const input = document.getElementById('global-search');
+  if (!btn || !input) return;
+  const supported = Boolean(speechRecognitionCtor());
+  btn.classList.toggle('unsupported', !supported);
+  btn.onclick = () => {
+    const Recognition = speechRecognitionCtor();
+    if (!Recognition) {
+      toast('Dyktowanie nie jest dostępne w tej przeglądarce', 'err');
+      input.focus();
+      return;
+    }
+    if (activeVoiceRecognition) {
+      activeVoiceRecognition.stop();
+      return;
+    }
+    const recognition = new Recognition();
+    activeVoiceRecognition = recognition;
+    recognition.lang = 'pl-PL';
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+    let finalTranscript = '';
+
+    recognition.onstart = () => {
+      setVoiceListening(true);
+      input.focus();
+      toast('Słucham komendy...', 'ok', 1200);
+    };
+    recognition.onresult = (event) => {
+      let interim = '';
+      for (let i = event.resultIndex || 0; i < event.results.length; i += 1) {
+        const transcript = String(event.results[i][0]?.transcript || '').trim();
+        if (event.results[i].isFinal) finalTranscript = `${finalTranscript} ${transcript}`.trim();
+        else interim = `${interim} ${transcript}`.trim();
+      }
+      input.value = (finalTranscript || interim).trim();
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    recognition.onerror = (event) => {
+      const err = event && event.error ? event.error : 'unknown';
+      toast(err === 'not-allowed' ? 'Brak zgody na mikrofon' : 'Nie udało się rozpoznać głosu', 'err');
+    };
+    recognition.onend = () => {
+      activeVoiceRecognition = null;
+      setVoiceListening(false);
+      input.focus();
+    };
+
+    try {
+      recognition.start();
+    } catch {
+      activeVoiceRecognition = null;
+      setVoiceListening(false);
+      toast('Nie udało się uruchomić dyktowania', 'err');
+    }
+  };
 }
 
 async function loadAuth() {

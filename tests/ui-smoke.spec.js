@@ -94,7 +94,7 @@ test('reports page exposes consistent finance cards', async ({ page }) => {
 
 test('AI assistant explains tax from the topbar', async ({ page }) => {
   await page.goto('/#dashboard');
-  await expect(page.getByRole('button', { name: 'AI' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'AI', exact: true })).toHaveCount(0);
   await page.locator('#global-search').fill('Ile wynosi podatek za ten miesiąc?');
   await page.locator('#global-search').press('Enter');
   await expect(page.getByText(/Podatek za/)).toBeVisible();
@@ -327,9 +327,50 @@ test('mobile topbar keeps AI command bar visible and usable', async ({ page }) =
   const search = page.locator('#global-search');
   await expect(search).toBeVisible();
   await expect(search).toHaveCSS('display', /block|inline-block/);
+  await expect(page.locator('#voice-command')).toBeVisible();
   await search.fill('ile wynosi podatek za ten miesiąc?');
   await search.press('Enter');
   await expect(page.locator('.assistant-result.answer')).toContainText(/Podatek za/);
+});
+
+test('AI voice dictation fills command bar on desktop and mobile', async ({ page }) => {
+  await page.addInitScript(() => {
+    class FakeSpeechRecognition {
+      constructor() {
+        this.lang = '';
+        this.continuous = false;
+        this.interimResults = false;
+        this.maxAlternatives = 1;
+      }
+      start() {
+        this.onstart && this.onstart();
+        setTimeout(() => {
+          const result = [{ transcript: 'kto zalega z płatnościami' }];
+          result.isFinal = true;
+          this.onresult && this.onresult({ resultIndex: 0, results: [result] });
+          this.onend && this.onend();
+        }, 10);
+      }
+      stop() {
+        this.onend && this.onend();
+      }
+    }
+    window.SpeechRecognition = FakeSpeechRecognition;
+    window.webkitSpeechRecognition = FakeSpeechRecognition;
+  });
+
+  await page.goto('/#dashboard');
+  await page.locator('#voice-command').click();
+  await expect(page.locator('#global-search')).toHaveValue('kto zalega z płatnościami');
+  await expect(page.locator('#voice-command')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('.assistant-result')).toHaveCount(0);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/#dashboard');
+  await expect(page.locator('#voice-command')).toBeVisible();
+  await page.locator('#voice-command').click();
+  await expect(page.locator('#global-search')).toHaveValue('kto zalega z płatnościami');
+  await expect(page.locator('.assistant-result')).toHaveCount(0);
 });
 
 test('topbar command bar navigates to filtered payments', async ({ page }) => {
