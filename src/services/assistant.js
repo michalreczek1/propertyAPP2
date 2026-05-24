@@ -317,7 +317,7 @@ function scopedPaymentRows(req, period) {
   const scoped = req.user && req.user.id && req.user.role !== 'admin';
   return db.prepare(`
     SELECT p.id AS payment_id, p.period, p.tenant_id, p.unit_id, p.status, p.due_date,
-           p.rent_amount, p.media_amount, p.other_amount, p.total_paid,
+           p.paid_date, p.rent_amount, p.media_amount, p.other_amount, p.total_paid,
            t.name AS tenant_name, t.phone, t.sms_consent, t.sms_disabled,
            u.name AS unit_name, u.code AS unit_code, pr.id AS property_id, pr.name AS property_name
     FROM payments p
@@ -394,6 +394,8 @@ function assistantContext(req, message, period) {
       'For tenant counts by property/time use answer_from_data/tenants with status tenant_count.',
       'For yearly/all-time tax summaries use report_answer with query tax_summary.',
       'For property finance questions like "suma dochodów z Chrobrego za 2025" use report_answer with query property_finance_summary and property_name.',
+      'For lateness questions like "kto najczęściej się spóźnia" use answer_from_data/payments with status lateness_ranking. For "jak płaci X" use status tenant_lateness.',
+      'For unit/room rankings use report_answer with query unit_ranking. For property rankings by margin/income/cost use report_answer with query property_ranking.',
     ],
   };
 }
@@ -432,6 +434,17 @@ function localIntent(message) {
   if (includesAny(text, ['uzupelnij brakujace platnosci', 'uzupelnij brakujace wplywy', 'uzupelnij brakujace wpłaty', 'skopiuj brakujace wplywy', 'skopiuj brakujace platnosci'])) {
     return { intent: 'generate_payments', ...base, query: 'fill_missing_property_payments', property_name: extractPropertySubject(message), confidence: 0.88 };
   }
+  if (includesAny(text, ['srednio opoznia', 'srednie opoznienie', 'srednia opoznien', 'jak placi', 'jak placa', 'kto najczesciej sie spoznia', 'najczesciej sie spoznia', 'opoznienia platnosci', 'opoznienia w platnosciach'])) {
+    const tenantName = extractPaymentSubject(message);
+    const isRanking = includesAny(text, ['kto', 'najczesciej', 'ranking', 'wszyscy', 'najemcy']);
+    return { intent: 'answer_from_data', tool: 'payments', status: isRanking ? 'lateness_ranking' : 'tenant_lateness', ...base, tenant_name: isRanking ? null : tenantName, query: isRanking ? null : tenantName, confidence: 0.88 };
+  }
+  if (includesAny(text, ['ktory pokoj przynosi najwiecej', 'który pokój przynosi najwięcej', 'ktory lokal przynosi najwiecej', 'najbardziej rentowny pokoj', 'najbardziej rentowny lokal', 'ranking lokali', 'ranking pokoi'])) {
+    return { intent: 'report_answer', ...base, query: 'unit_ranking', confidence: 0.88 };
+  }
+  if (includesAny(text, ['ktora nieruchomosc ma najwieksza marze', 'która nieruchomość ma największą marżę', 'ktora nieruchomosc ma najwiekszy dochod', 'ktora nieruchomosc ma najwiekszy przychod', 'ktora nieruchomosc ma najwiekszy koszt', 'ranking nieruchomosci', 'rentownosc nieruchomosci'])) {
+    return { intent: 'report_answer', ...base, query: 'property_ranking', confidence: 0.88 };
+  }
   if (isPropertyFinanceQuestion(text)) {
     const propertyName = extractPropertySubject(message);
     return { intent: 'report_answer', query: 'property_finance_summary', ...base, property_name: propertyName, confidence: 0.87 };
@@ -452,6 +465,9 @@ function localIntent(message) {
   if (includesAny(text, ['kto zalega', 'kto ma zaleglosci', 'nieoplacone platnosci', 'nieopłacone płatności'])) {
     return { intent: 'answer_from_data', tool: 'payments', status: 'overdue', ...base, query: null, confidence: 0.86 };
   }
+  if (includesAny(text, ['zestawienie kar', 'raport kar', 'kary najemcow', 'kar najemcow', 'kary za opoznienie', 'kary za opóźnienie', 'najemcy z karami', 'nierozliczone kary'])) {
+    return { intent: 'answer_from_data', tool: 'late_fees', status: text.includes('nierozliczone') ? 'unpaid' : null, ...base, query: null, confidence: 0.88 };
+  }
   if (includesAny(text, ['pokaz tylko zaleglosci', 'zalegle platnosci', 'zaleglosci'])) return { intent: 'filter_payments', status: 'overdue', ...base, confidence: 0.85 };
   if (includesAny(text, ['platnosci czesciowe', 'czesciowe platnosci'])) return { intent: 'filter_payments', status: 'partial', ...base, confidence: 0.85 };
   if (includesAny(text, ['platnosci']) && query) return { intent: 'filter_payments', ...base, confidence: 0.78 };
@@ -462,9 +478,6 @@ function localIntent(message) {
   if (includesAny(text, ['konczace sie umowy', 'kończące się umowy', 'umowy konczace'])) return { intent: 'filter_contracts', status: 'ending_soon', ...base, confidence: 0.85 };
   if (includesAny(text, ['otworz karte najemcy', 'otwórz kartę najemcy'])) return { intent: 'navigate_to_entity', entity_type: 'tenant', ...base, confidence: 0.82 };
   if (includesAny(text, ['pokaz koszty', 'koszty za'])) return { intent: 'filter_expenses', entity_type: 'expense', ...base, confidence: 0.8 };
-  if (includesAny(text, ['zestawienie kar', 'raport kar', 'kary najemcow', 'kar najemcow', 'kary za opoznienie', 'kary za opóźnienie', 'najemcy z karami', 'nierozliczone kary'])) {
-    return { intent: 'answer_from_data', tool: 'late_fees', status: text.includes('nierozliczone') ? 'unpaid' : null, ...base, query: null, confidence: 0.88 };
-  }
   if (includesAny(text, ['ile zarobilem', 'ile zarobiłem', 'netto', 'przychod', 'przychód', 'dochod', 'dochód', 'porownaj', 'porównaj', 'najwiekszy koszt', 'największy koszt'])) {
     return { intent: 'report_answer', ...base, year: yearFromMessage(message, period || todayLocalISO().slice(0, 7)), confidence: 0.82 };
   }
@@ -606,6 +619,8 @@ async function classifyWithGroq(message, period, context) {
     'Use status payment_status for questions like "czy Hubert zapłacił za kwiecień?". Use status tenant_payment_summary for "ile Hubert zapłacił w tym roku/od początku?". Use status tenant_count for "ilu najemców miałem na Chrobrego w zeszłym roku?".',
     'Use query tax_summary for yearly, previous-year, explicit-year, or all-time tax summaries.',
     'Use query property_finance_summary with property_name for property revenue/income/net/cost/tax questions such as "podaj sumę dochodów z Chrobrego za 2025".',
+    'Use status tenant_lateness for "jak płaci X", "średnie opóźnienie X"; use status lateness_ranking for "kto najczęściej się spóźnia".',
+    'Use query unit_ranking for "który pokój/lokal przynosi najwięcej" and query property_ranking for "która nieruchomość ma największą marżę/dochod/koszt".',
     'For create_task/add_expense, fill title/description/amount/category/date only when visible.',
     'Schema includes: intent, tool, tenant_name, tenant_id, payment_id, query, entity_type, status, period, year, property_name, title, description, category, amount, date, priority, tone, filters, confidence.',
     'Never request direct SQL. All writes must be one of the explicit write intents and will require confirmation.',
@@ -1041,6 +1056,107 @@ function tenantCountAnswer(req, model, message, period) {
   );
 }
 
+function daysBetween(startDate, endDate) {
+  if (!startDate || !endDate) return null;
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  return Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
+}
+
+function paymentRowsForRange(req, range) {
+  return (range.periods || []).flatMap(p => scopedPaymentRows(req, p));
+}
+
+function latenessRows(req, range) {
+  return paymentRowsForRange(req, range)
+    .map(row => {
+      const delay = daysBetween(row.due_date, row.paid_date);
+      return {
+        ...row,
+        delay_days: delay === null ? null : Math.max(0, delay),
+        late_days: delay === null ? null : Math.max(0, delay),
+      };
+    })
+    .filter(row => row.paid_date && paidValue(row) > 0 && row.delay_days !== null);
+}
+
+function latenessStatsAnswer(req, model, message, period) {
+  const range = timeRangeFromMessage(message, period, req);
+  const text = normalizeText(message);
+  const rankingMode = model.status === 'lateness_ranking' || includesAny(text, ['kto', 'najczesciej', 'ranking', 'wszyscy', 'najemcy']);
+  const rows = latenessRows(req, range);
+
+  if (!rankingMode) {
+    const name = model.tenant_name || model.query || extractPaymentSubject(message);
+    const tenants = matchTenants(req, name);
+    if (!tenants.length) {
+      return resultList('answer_from_data', 'Opóźnienia płatności', `Nie znalazłem najemcy: ${name || message}.`, [], { view: 'najemcy', state: { tenantsQ: name || '' } }, { status: 'answer', report: { count: 0, range } });
+    }
+    if (tenants.length > 1) {
+      return resultList('answer_from_data', 'Doprecyzuj najemcę', 'Znalazłem więcej niż jednego pasującego najemcę.', tenants.slice(0, 10).map(t => ({ type: 'tenant', id: t.id, title: t.name, subtitle: `${t.unit_code || 'bez lokalu'} · ${t.property_name || ''}`, view: 'najemcy' })), { view: 'najemcy', state: { tenantsQ: name || '' } }, { status: 'results', report: { count: tenants.length, range } });
+    }
+    const tenant = tenants[0];
+    const tenantRows = rows.filter(row => Number(row.tenant_id) === Number(tenant.id));
+    const lateRows = tenantRows.filter(row => Number(row.delay_days || 0) > 0);
+    const avgDelay = tenantRows.length ? tenantRows.reduce((sum, row) => sum + Number(row.delay_days || 0), 0) / tenantRows.length : 0;
+    const avgLateDelay = lateRows.length ? lateRows.reduce((sum, row) => sum + Number(row.delay_days || 0), 0) / lateRows.length : 0;
+    const maxDelay = tenantRows.reduce((max, row) => Math.max(max, Number(row.delay_days || 0)), 0);
+    return resultList(
+      'answer_from_data',
+      `Opóźnienia: ${tenant.name}`,
+      tenantRows.length
+        ? `${tenant.name} ma średnie opóźnienie ${Math.round(avgDelay * 10) / 10} dnia za ${range.label}. Spóźnione płatności: ${lateRows.length}/${tenantRows.length}; średnio tylko dla spóźnionych: ${Math.round(avgLateDelay * 10) / 10} dnia; maksymalnie ${maxDelay} dni.`
+        : `Nie mam opłaconych płatności z datą wpłaty dla ${tenant.name} w okresie ${range.label}.`,
+      tenantRows.slice(0, 24).map(row => ({ type: 'payment', id: row.payment_id, title: `${periodLabel(row.period)} · ${row.tenant_name}`, subtitle: `${row.unit_code || ''} · termin ${row.due_date || '-'} · wpłata ${row.paid_date || '-'} · opóźnienie ${row.delay_days || 0} dni`, view: 'platnosci' })),
+      { view: 'platnosci', state: { paymentsQ: tenant.name, period: range.end || period } },
+      { status: 'answer', report: { tenant_id: tenant.id, tenant_name: tenant.name, range, payments_count: tenantRows.length, late_count: lateRows.length, average_delay_days: avgDelay, average_late_delay_days: avgLateDelay, max_delay_days: maxDelay } }
+    );
+  }
+
+  const byTenant = new Map();
+  for (const row of rows) {
+    if (!row.tenant_id) continue;
+    const key = Number(row.tenant_id);
+    if (!byTenant.has(key)) {
+      byTenant.set(key, {
+        tenant_id: key,
+        tenant_name: row.tenant_name || 'Najemca',
+        unit_code: row.unit_code || '',
+        property_name: row.property_name || '',
+        payments_count: 0,
+        late_count: 0,
+        delay_sum: 0,
+        max_delay: 0,
+      });
+    }
+    const acc = byTenant.get(key);
+    const delay = Number(row.delay_days || 0);
+    acc.payments_count += 1;
+    acc.delay_sum += delay;
+    if (delay > 0) acc.late_count += 1;
+    acc.max_delay = Math.max(acc.max_delay, delay);
+  }
+  const ranking = [...byTenant.values()]
+    .map(row => ({
+      ...row,
+      average_delay_days: row.payments_count ? row.delay_sum / row.payments_count : 0,
+    }))
+    .filter(row => row.late_count > 0)
+    .sort((a, b) => b.late_count - a.late_count || b.average_delay_days - a.average_delay_days || b.max_delay - a.max_delay);
+  const top = ranking[0];
+  return resultList(
+    'answer_from_data',
+    `Ranking opóźnień ${range.label}`,
+    top
+      ? `Najczęściej spóźnia się ${top.tenant_name}: ${top.late_count} spóźnionych płatności, średnio ${Math.round(top.average_delay_days * 10) / 10} dnia po terminie. Łącznie znalazłem ${ranking.length} najemców z opóźnieniami.`
+      : `Nie znalazłem spóźnionych opłaconych płatności w okresie ${range.label}.`,
+    ranking.slice(0, 20).map(row => itemTenant(row, `${row.unit_code || 'bez lokalu'} · spóźnione ${row.late_count}/${row.payments_count} · średnio ${Math.round(row.average_delay_days * 10) / 10} dnia · max ${row.max_delay} dni`)),
+    { view: 'platnosci', state: { paymentsFilter: 'all', period: range.end || period } },
+    { status: 'answer', report: { range, ranking, count: ranking.length } }
+  );
+}
+
 function rangeForYear(year) {
   const start = `${year}-01`;
   const end = `${year}-12`;
@@ -1244,6 +1360,144 @@ function propertyFinanceAnswer(req, model, message, period) {
   );
 }
 
+function rankingMetricFromText(message, fallback = 'revenue') {
+  const text = normalizeText(message);
+  if (includesAny(text, ['marza', 'marze', 'marzy', 'rentownosc', 'rentownosci', 'rentowny', 'najbardziej rentown'])) return 'margin';
+  if (includesAny(text, ['netto', 'dochod', 'zysk', 'zarobek'])) return 'net';
+  if (includesAny(text, ['koszt', 'koszty', 'wydatki'])) return 'expenses';
+  if (includesAny(text, ['oczekiwany', 'naleznosci', 'powinno wplynac'])) return 'expected';
+  return fallback;
+}
+
+function rankingMetricLabel(metric) {
+  return ({
+    revenue: 'wpłaty',
+    expected: 'oczekiwany przychód',
+    expenses: 'koszty',
+    net: 'dochód netto',
+    margin: 'marża',
+  })[metric] || metric;
+}
+
+function unitRankingAnswer(req, model, message, period) {
+  const range = timeRangeFromMessage(message, period, req);
+  const metric = rankingMetricFromText(message, 'revenue');
+  const byUnit = new Map();
+  for (const p of range.periods || []) {
+    const summary = monthlyFinanceSummary(db, p, req);
+    for (const row of summary.per_unit || []) {
+      const key = Number(row.unit_id);
+      if (!byUnit.has(key)) {
+        byUnit.set(key, {
+          unit_id: key,
+          unit_code: row.unit_code || row.unit_name || `#${key}`,
+          unit_name: row.unit_name || '',
+          property_id: row.property_id,
+          property_name: row.property_name || '',
+          tenant_name: row.tenant_name || '',
+          revenue: 0,
+          expected: 0,
+          expenses: 0,
+          net: 0,
+          months_with_payments: 0,
+        });
+      }
+      const acc = byUnit.get(key);
+      const revenue = paidValue(row);
+      const expected = Number(row.gross || 0);
+      const expenses = Number(row.expenses || 0);
+      acc.revenue += revenue;
+      acc.expected += expected;
+      acc.expenses += expenses;
+      acc.net += revenue - expenses;
+      if (expected || revenue) acc.months_with_payments += 1;
+      if (row.tenant_name) acc.tenant_name = row.tenant_name;
+    }
+  }
+  const ranking = [...byUnit.values()]
+    .map(row => ({ ...row, margin: row.revenue ? row.net / row.revenue : 0 }))
+    .filter(row => row.revenue || row.expected || row.expenses)
+    .sort((a, b) => Number(b[metric] || 0) - Number(a[metric] || 0));
+  const top = ranking[0];
+  const metricLabel = rankingMetricLabel(metric);
+  const valueText = top
+    ? (metric === 'margin' ? `${Math.round(top.margin * 1000) / 10}%` : `${Math.round(top[metric] || 0)} zł`)
+    : 'brak danych';
+  return resultList(
+    'report_answer',
+    `Ranking lokali ${range.label}`,
+    top
+      ? `Najwyżej w kategorii "${metricLabel}" jest ${top.unit_code} (${top.property_name}): ${valueText}. Wpłaty ${Math.round(top.revenue)} zł, koszty ${Math.round(top.expenses)} zł, wynik przed podatkiem ${Math.round(top.net)} zł.`
+      : `Nie mam danych lokali dla okresu ${range.label}.`,
+    ranking.slice(0, 20).map(row => ({
+      type: 'unit',
+      id: row.unit_id,
+      title: `${row.unit_code} · ${row.property_name}`,
+      subtitle: `wpłaty ${Math.round(row.revenue)} zł · koszty ${Math.round(row.expenses)} zł · wynik przed podatkiem ${Math.round(row.net)} zł · marża ${Math.round(row.margin * 1000) / 10}%`,
+      view: 'nieruchomosci',
+    })),
+    { view: 'raporty', state: { period: range.end || period } },
+    { status: 'answer', report: { range, metric, ranking } }
+  );
+}
+
+function propertyRankingAnswer(req, model, message, period) {
+  const range = timeRangeFromMessage(message, period, req);
+  const metric = rankingMetricFromText(message, 'net');
+  const byProperty = new Map();
+  for (const p of range.periods || []) {
+    const summary = monthlyFinanceSummary(db, p, req);
+    for (const row of summary.properties || []) {
+      const key = Number(row.id);
+      if (!byProperty.has(key)) {
+        byProperty.set(key, {
+          property_id: key,
+          property_name: row.name || `#${key}`,
+          district: row.district || '',
+          revenue: 0,
+          expected: 0,
+          expenses: 0,
+          tax: 0,
+          net: 0,
+          months_with_data: 0,
+        });
+      }
+      const acc = byProperty.get(key);
+      acc.revenue += Number(row.revenue || 0);
+      acc.expected += Number(row.expected_revenue || 0);
+      acc.expenses += Number(row.expenses || 0);
+      acc.tax += Number(row.tax || 0);
+      acc.net += Number(row.net || 0);
+      if (row.revenue || row.expected_revenue || row.expenses || row.tax || row.net) acc.months_with_data += 1;
+    }
+  }
+  const ranking = [...byProperty.values()]
+    .map(row => ({ ...row, margin: row.revenue ? row.net / row.revenue : 0 }))
+    .filter(row => row.revenue || row.expected || row.expenses || row.tax || row.net)
+    .sort((a, b) => Number(b[metric] || 0) - Number(a[metric] || 0));
+  const top = ranking[0];
+  const metricLabel = rankingMetricLabel(metric);
+  const valueText = top
+    ? (metric === 'margin' ? `${Math.round(top.margin * 1000) / 10}%` : `${Math.round(top[metric] || 0)} zł`)
+    : 'brak danych';
+  return resultList(
+    'report_answer',
+    `Ranking nieruchomości ${range.label}`,
+    top
+      ? `Najwyżej w kategorii "${metricLabel}" jest ${top.property_name}: ${valueText}. Wpłaty ${Math.round(top.revenue)} zł, koszty ${Math.round(top.expenses)} zł, podatek ${Math.round(top.tax)} zł, netto ${Math.round(top.net)} zł.`
+      : `Nie mam danych nieruchomości dla okresu ${range.label}.`,
+    ranking.slice(0, 20).map(row => ({
+      type: 'property',
+      id: row.property_id,
+      title: row.property_name,
+      subtitle: `wpłaty ${Math.round(row.revenue)} zł · koszty ${Math.round(row.expenses)} zł · podatek ${Math.round(row.tax)} zł · netto ${Math.round(row.net)} zł · marża ${Math.round(row.margin * 1000) / 10}%`,
+      view: 'raporty',
+    })),
+    { view: 'raporty', state: { period: range.end || period } },
+    { status: 'answer', report: { range, metric, ranking } }
+  );
+}
+
 function answerFromDataTool(req, model, message, period) {
   const tool = model.tool || 'search';
   const targetPeriod = model.period || periodFromMessage(message, period);
@@ -1272,6 +1526,7 @@ function answerFromDataTool(req, model, message, period) {
   if (tool === 'payments') {
     if (status === 'payment_status') return paymentStatusAnswer(req, model, message, targetPeriod);
     if (status === 'tenant_payment_summary') return tenantPaymentSummary(req, model, message, targetPeriod);
+    if (status === 'tenant_lateness' || status === 'lateness_ranking') return latenessStatsAnswer(req, model, message, targetPeriod);
     const paymentQuery = status === 'overdue' ? '' : query;
     const payments = scopedPaymentRows(req, targetPeriod).filter(row => {
       const computedOverdue = row.status !== 'paid' && row.due_date && row.due_date < todayLocalISO();
@@ -1391,6 +1646,12 @@ function reportAnswer(req, model, message, period) {
   }
   if (model.query === 'property_finance_summary' || (isPropertyFinanceQuestion(text) && extractPropertySubject(message))) {
     return propertyFinanceAnswer(req, model, message, targetPeriod);
+  }
+  if (model.query === 'unit_ranking') {
+    return unitRankingAnswer(req, model, message, targetPeriod);
+  }
+  if (model.query === 'property_ranking') {
+    return propertyRankingAnswer(req, model, message, targetPeriod);
   }
   if (model.query === 'tax_summary' || isTaxSummaryQuestion(text)) {
     return taxSummaryAnswer(req, message, targetPeriod);

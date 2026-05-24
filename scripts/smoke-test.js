@@ -270,6 +270,8 @@ async function main() {
       tenant_id: tenant.data.id,
       unit_id: unit.data.id,
       due_day: 10,
+      due_date: opts.dueDate || null,
+      paid_date: opts.paidDate || null,
       rent_amount: 1000,
       media_amount: 200,
       other_amount: 0,
@@ -497,6 +499,55 @@ async function main() {
     expect(r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report && r.data.report.count >= 1, JSON.stringify(r));
     expect(Array.isArray(r.data.items) && r.data.items.some(item => String(item.title || '').includes('__smoke_ai_zalega')), JSON.stringify(r.data));
     return `${r.data.report.count} płatności`;
+  });
+  await check('POST /api/assistant/parse tenant lateness stats', async () => {
+    const tenantName = `__smoke_ai_spozniony_${Date.now()}`;
+    const fixture = await createAiPaymentFixture(tenantName, {
+      period: '2026-04',
+      code: 'LAT',
+      status: 'paid',
+      totalPaid: 1200,
+      dueDate: '2026-04-10',
+      paidDate: '2026-04-15',
+    });
+    const extra = await api('POST', '/api/payments', {
+      period: '2026-05',
+      tenant_id: fixture.tenantId,
+      unit_id: fixture.unitId,
+      due_day: 10,
+      due_date: '2026-05-10',
+      paid_date: '2026-05-10',
+      rent_amount: 1000,
+      media_amount: 200,
+      other_amount: 0,
+      total_paid: 1200,
+      status: 'paid',
+      source: 'smoke-ai',
+    });
+    expect(extra.ok && extra.data.id, JSON.stringify(extra));
+    aiFixtures.push({ paymentId: extra.data.id });
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: `jak płaci ${tenantName} w tym roku?` });
+    expect(r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report, JSON.stringify(r));
+    expect(r.data.report.late_count === 1 && r.data.report.max_delay_days === 5, JSON.stringify(r.data.report));
+    return `${r.data.report.average_delay_days} dni`;
+  });
+  await check('POST /api/assistant/parse lateness ranking', async () => {
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'kto najczęściej się spóźnia z płatnościami w tym roku?' });
+    expect(r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report, JSON.stringify(r));
+    expect(Array.isArray(r.data.report.ranking) && r.data.report.ranking.some(row => String(row.tenant_name || '').includes('__smoke_ai_spozniony')), JSON.stringify(r.data.report));
+    return `${r.data.report.count} najemców`;
+  });
+  await check('POST /api/assistant/parse unit profitability ranking', async () => {
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'który pokój przynosi najwięcej w tym roku?' });
+    expect(r.ok && r.data.intent === 'report_answer' && r.data.status === 'answer' && r.data.report && r.data.report.metric === 'revenue', JSON.stringify(r));
+    expect(Array.isArray(r.data.items), JSON.stringify(r.data));
+    return r.data.title;
+  });
+  await check('POST /api/assistant/parse property profitability ranking', async () => {
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'która nieruchomość ma największą marżę w tym roku?' });
+    expect(r.ok && r.data.intent === 'report_answer' && r.data.status === 'answer' && r.data.report && r.data.report.metric === 'margin', JSON.stringify(r));
+    expect(Array.isArray(r.data.items), JSON.stringify(r.data));
+    return r.data.title;
   });
   await check('POST /api/assistant/parse data quality audit', async () => {
     const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'sprawdź błędy w danych' });

@@ -57,13 +57,14 @@ async function createPaymentFixture(request, prefix, options = {}) {
   expect(payment.ok()).toBeTruthy();
   const paymentData = await payment.json();
 
-  return { name: suffix, propertyId: propertyData.id, tenantId: tenantData.id, paymentId: paymentData.id };
+  return { name: suffix, propertyId: propertyData.id, unitId: unitData.id, tenantId: tenantData.id, paymentId: paymentData.id };
 }
 
 async function cleanupPaymentFixture(request, fixture) {
   if (!fixture) return;
   await request.delete(`/api/payments/${fixture.paymentId}`).catch(() => {});
   await request.delete(`/api/tenants/${fixture.tenantId}`).catch(() => {});
+  if (fixture.unitId) await request.delete(`/api/units/${fixture.unitId}`).catch(() => {});
   await request.delete(`/api/properties/${fixture.propertyId}`).catch(() => {});
 }
 
@@ -340,6 +341,33 @@ test('topbar command bar opens report answer popup', async ({ page }) => {
   const result = page.locator('.assistant-result.answer');
   await expect(result).toBeVisible();
   await expect(result).toContainText(/Wynik netto|Netto właściciel|Dochód netto właściciela/);
+});
+
+test('topbar command bar answers unit ranking', async ({ page }) => {
+  await page.goto('/#dashboard');
+  await page.locator('#global-search').fill('który pokój przynosi najwięcej w tym roku?');
+  await page.locator('#global-search').press('Enter');
+  const result = page.locator('.assistant-result.answer');
+  await expect(result).toBeVisible();
+  await expect(result).toContainText(/Ranking lokali|Najwyżej/);
+});
+
+test('topbar command bar answers overdue payments question', async ({ page, request }) => {
+  const fixture = await createPaymentFixture(request, '__ui_ai_zalega', { status: 'overdue' });
+  try {
+    await page.goto('/#dashboard');
+    await page.locator('#global-search').fill('kto zalega z płatnościami?');
+    await page.locator('#global-search').press('Enter');
+    const result = page.locator('.assistant-result.answer');
+    await expect(result).toBeVisible();
+    await expect(result).toContainText(/Płatności|Znalazłem/);
+    await expect(page.getByText(fixture.name).first()).toBeVisible();
+  } finally {
+    await request.delete(`/api/payments/${fixture.paymentId}`).catch(() => {});
+    await request.delete(`/api/tenants/${fixture.tenantId}`).catch(() => {});
+    await request.delete(`/api/units/${fixture.unitId}`).catch(() => {});
+    await request.delete(`/api/properties/${fixture.propertyId}`).catch(() => {});
+  }
 });
 
 test('topbar command bar creates a task after confirmation', async ({ page, request }) => {
