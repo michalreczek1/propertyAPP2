@@ -165,7 +165,7 @@ test('topbar command bar shows tenant late fee report', async ({ page, request }
 });
 
 test('topbar command bar answers flexible overdue payment question', async ({ page, request }) => {
-  const fixture = await createPaymentFixture(request, '__ai_overdue_question', { status: 'overdue' });
+  const fixture = await createPaymentFixture(request, '__ai_overdue_question', { period: '2025-09', status: 'overdue' });
   try {
     await page.goto('/#dashboard');
     await page.locator('#global-search').fill('kto zalega z płatnościami?');
@@ -174,6 +174,12 @@ test('topbar command bar answers flexible overdue payment question', async ({ pa
     await expect(result).toBeVisible();
     await expect(result).toContainText('Zaległości');
     await expect(result).toContainText(fixture.name);
+    await page.locator('.assistant-item').filter({ hasText: fixture.name }).click();
+    await expect(page).toHaveURL(/#platnosci$/);
+    await expect(page.locator('#pay-q')).toHaveValue(fixture.name);
+    await expect(page.locator('[data-pf="overdue"]')).toHaveClass(/on/);
+    await expect(page.locator('#period-btn')).toContainText(/wrzesień 2025/i);
+    await expect(page.getByText(fixture.name).first()).toBeVisible();
   } finally {
     await cleanupPaymentFixture(request, fixture);
   }

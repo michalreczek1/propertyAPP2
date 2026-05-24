@@ -385,7 +385,7 @@ function assistantResultHtml(result) {
     </div>` : '';
   const items = result.items && result.items.length ? `
     <div class="assistant-candidates">
-      ${result.items.slice(0, 10).map(item => `<button class="assistant-item" type="button" data-item-view="${escapeHtml(item.view || '')}" data-item-title="${escapeHtml(item.title || '')}">
+      ${result.items.slice(0, 10).map(item => `<button class="assistant-item" type="button" data-item-view="${escapeHtml(item.view || '')}" data-item-title="${escapeHtml(item.title || '')}" data-item-state="${escapeHtml(JSON.stringify(item.state || (item.navigation && item.navigation.state) || {}))}">
         <b>${escapeHtml(item.title || '—')}</b>
         <span>${escapeHtml(item.subtitle || item.type || '')}</span>
       </button>`).join('')}
@@ -456,7 +456,12 @@ function bindAssistantResult(root, modalRef) {
   root.querySelectorAll('[data-item-view]').forEach(btn => {
     btn.onclick = () => {
       const view = btn.dataset.itemView;
-      if (view) navigate(view);
+      if (view) {
+        let state = {};
+        try { state = JSON.parse(btn.dataset.itemState || '{}'); } catch { state = {}; }
+        if (state && typeof state === 'object') Object.assign(State, state);
+        navigate(view);
+      }
       modalRef.close();
     };
   });

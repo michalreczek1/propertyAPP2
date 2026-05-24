@@ -1140,7 +1140,15 @@ function arrearsAnswer(req, model, message, period) {
     'answer_from_data',
     `Zaległości ${range.label}`,
     messageText,
-    tenants.slice(0, 20).map(row => itemTenant(row, `${row.unit_code || 'bez lokalu'} · ${row.property_name || ''} · saldo ${Math.round(row.balance)} zł · płatności ${row.count} · ${row.periods.slice(0, 6).join(', ')}${row.periods.length > 6 ? '…' : ''}`)),
+    tenants.slice(0, 20).map(row => ({
+      ...itemTenant(row, `${row.unit_code || 'bez lokalu'} · ${row.property_name || ''} · saldo ${Math.round(row.balance)} zł · płatności ${row.count} · ${row.periods.slice(0, 6).join(', ')}${row.periods.length > 6 ? '…' : ''}`),
+      view: 'platnosci',
+      state: {
+        paymentsQ: row.tenant_name || '',
+        paymentsFilter: 'overdue',
+        period: row.periods[row.periods.length - 1] || range.end || period,
+      },
+    })),
     { view: 'platnosci', state: { paymentsFilter: 'overdue', period: range.end || period } },
     { status: 'answer', report: { range, count: tenants.length, payment_count: paymentCount, total_balance: totalBalance, tenants } }
   );
