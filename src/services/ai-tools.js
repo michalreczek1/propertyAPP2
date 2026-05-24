@@ -331,6 +331,10 @@ function formatMoney(value) {
   return `${Math.round(Number(value || 0))} zł`;
 }
 
+function formatPercent(value) {
+  return `${Math.round(Number(value || 0) * 1000) / 10}%`;
+}
+
 function itemsForMonths(rows) {
   return rows.filter(row => row.revenue || row.expected || row.expenses || row.tax || row.net)
     .slice(-24)
@@ -351,6 +355,23 @@ function maybeNegativeNetNote(totals) {
   if (!totals || !(Number(totals.net || 0) < 0)) return '';
   const costsAndTax = Number(totals.expenses || 0) + Number(totals.tax || 0);
   return ` Wynik jest ujemny, bo koszty i podatek (${formatMoney(costsAndTax)}) są wyższe od wpłat o ${formatMoney(Math.abs(totals.net))}.`;
+}
+
+function marginMethodology(totals) {
+  if (!totals) return '';
+  const revenue = Number(totals.revenue || 0);
+  const expenses = Number(totals.expenses || 0);
+  const tax = Number(totals.tax || 0);
+  const net = Number(totals.net || 0);
+  if (!revenue) {
+    return ' Marża netto jest tu 0%, bo nie ma zrealizowanych wpłat, od których można policzyć udział wyniku.';
+  }
+  const margin = net / revenue;
+  const perZloty = Math.round(Math.abs(margin) * 100);
+  const plainMeaning = margin >= 0
+    ? `z każdej 1 zł wpłat zostaje około ${perZloty} gr po kosztach i podatku`
+    : `koszty i podatek są wyższe od wpłat; do każdej 1 zł wpłat brakuje około ${perZloty} gr`;
+  return ` Oznacza to, że ${plainMeaning}. Rachunek: ${formatMoney(revenue)} wpłat - ${formatMoney(expenses)} kosztów - ${formatMoney(tax)} podatku = ${formatMoney(net)} netto; ${formatMoney(net)} / ${formatMoney(revenue)} = ${formatPercent(margin)}.`;
 }
 
 function resultList(intent, title, message, items = [], navigation = null, extra = {}) {
@@ -459,8 +480,10 @@ function semanticAnswer(req, question, currentPeriod) {
     const metric = metricHit.key;
     const value = valueFromPropertyTotals(metric, finance.totals);
     const metricLabel = metricHit.metric.label_pl;
-    const valueText = metric === 'margin' ? `${Math.round(value * 1000) / 10}%` : formatMoney(value);
-    const methodology = shouldShowMethodology(question, finance) ? ` ${metricHit.metric.methodology_pl}` : '';
+    const valueText = metric === 'margin' ? formatPercent(value) : formatMoney(value);
+    const methodology = metric === 'margin'
+      ? marginMethodology(finance.totals)
+      : (shouldShowMethodology(question, finance) ? ` ${metricHit.metric.methodology_pl}` : '');
     const message = `${metricLabel} dla ${resolved.property.name} za ${range.label}: ${valueText}. Wpłaty: ${formatMoney(finance.totals.revenue)}, oczekiwano: ${formatMoney(finance.totals.expected)}, koszty: ${formatMoney(finance.totals.expenses)}, podatek: ${formatMoney(finance.totals.tax)}, netto: ${formatMoney(finance.totals.net)}.${maybeNegativeNetNote(finance.totals)}${maybeQualityNote(finance.data_quality)}${methodology}`;
     return finish(resultList('report_answer', `${metricLabel}: ${resolved.property.name}`, message, itemsForMonths(finance.months), { view: 'raporty', state: { period: range.end } }, {
       report: { property_id: resolved.property.id, property_name: resolved.property.name, metric, range, ...finance.totals, value, data_quality: finance.data_quality, methodology: finance.methodology },
@@ -475,8 +498,10 @@ function semanticAnswer(req, question, currentPeriod) {
     const metric = metricHit.key;
     const value = valueFromPropertyTotals(metric, finance.totals);
     const metricLabel = metricHit.metric.label_pl;
-    const valueText = metric === 'margin' ? `${Math.round(value * 1000) / 10}%` : formatMoney(value);
-    const methodology = shouldShowMethodology(question, finance) ? ` ${metricHit.metric.methodology_pl}` : '';
+    const valueText = metric === 'margin' ? formatPercent(value) : formatMoney(value);
+    const methodology = metric === 'margin'
+      ? marginMethodology(finance.totals)
+      : (shouldShowMethodology(question, finance) ? ` ${metricHit.metric.methodology_pl}` : '');
     const message = `${metricLabel} za ${range.label}: ${valueText}. Wpłaty: ${formatMoney(finance.totals.revenue)}, oczekiwano: ${formatMoney(finance.totals.expected)}, koszty: ${formatMoney(finance.totals.expenses)}, podatek: ${formatMoney(finance.totals.tax)}, netto: ${formatMoney(finance.totals.net)}.${maybeNegativeNetNote(finance.totals)}${maybeQualityNote(finance.data_quality)}${methodology}`;
     return finish(resultList('report_answer', `${metricLabel} ${range.label}`, message, itemsForMonths(finance.months), { view: 'raporty', state: { period: range.end } }, {
       report: { metric, range, ...finance.totals, value, data_quality: finance.data_quality, methodology: finance.methodology },

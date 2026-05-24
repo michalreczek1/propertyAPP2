@@ -550,6 +550,14 @@ async function main() {
     expect(Array.isArray(r.data.items), JSON.stringify(r.data));
     return r.data.title;
   });
+  await check('POST /api/assistant/parse margin explains per-zloty meaning', async () => {
+    const name = '__smoke_ai_profit_plain';
+    await createAiPaymentFixture(name, { period: '2026-05', status: 'paid', totalPaid: 1200, code: 'MAR' });
+    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: `jaka jest marża ${name}_property w maju 2026?` });
+    expect(r.ok && r.data.intent === 'report_answer' && r.data.status === 'answer' && r.data.report && r.data.report.metric === 'margin', JSON.stringify(r));
+    expect(String(r.data.message || '').includes('z każdej 1 zł') && String(r.data.message || '').includes('Rachunek:'), JSON.stringify(r.data));
+    return r.data.title;
+  });
   await check('POST /api/assistant/parse data quality audit', async () => {
     const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'sprawdź błędy w danych' });
     expect(r.ok && r.data.intent === 'data_quality_check' && Array.isArray(r.data.checks), JSON.stringify(r));

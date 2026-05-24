@@ -38,9 +38,9 @@ const METRICS = {
   },
   margin: {
     label_pl: 'Marża netto',
-    aliases: ['marża', 'marza', 'rentowność', 'rentownosc'],
+    aliases: ['marża', 'marza', 'marżę', 'marze', 'marży', 'marzy', 'rentowność', 'rentownosc'],
     formula: 'net_income / revenue_paid',
-    methodology_pl: 'Marża netto to dochód netto podzielony przez przychód zrealizowany. Gdy przychód wynosi 0, marża wynosi 0.',
+    methodology_pl: 'Marża netto pokazuje, jaka część faktycznych wpłat zostaje właścicielowi po odjęciu kosztów i podatku. Liczymy ją jako netto / wpłaty. Np. marża 30% oznacza, że z każdej 1 zł wpłaty zostaje około 30 gr.',
   },
   tenant_paid_total: {
     label_pl: 'Wpłaty najemcy',

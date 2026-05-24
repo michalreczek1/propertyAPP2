@@ -21,7 +21,7 @@ function normalize(s) {
 function parsePolishMonthYear(text) {
   if (!text) return null;
   const n = normalize(text);
-  const yearMatch = n.match(/(20\d{2})/);
+  const yearMatch = n.match(/(?:^|[^\d])(20\d{2})(?=$|[^\d])/);
   if (!yearMatch) return null;
   const year = +yearMatch[1];
   for (let i = 0; i < PL_MONTHS_NORM.length; i++) {

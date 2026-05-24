@@ -264,6 +264,22 @@ test('topbar command bar explains finance result drivers', async ({ page }) => {
   await expect(result).toContainText('Marża');
 });
 
+test('topbar command bar explains margin in plain language', async ({ page, request }) => {
+  const fixture = await createPaymentFixture(request, '__ai_margin_plain', { period: '2026-05', status: 'paid', totalPaid: 1555 });
+  try {
+    await page.goto('/#dashboard');
+    await page.locator('#global-search').fill(`jak liczysz marżę dla ${fixture.name} za maj 2026?`);
+    await page.locator('#global-search').press('Enter');
+    const result = page.locator('.assistant-result.answer');
+    await expect(result).toBeVisible();
+    await expect(result).toContainText('Marża netto');
+    await expect(result).toContainText('z każdej 1 zł');
+    await expect(result).toContainText('Rachunek:');
+  } finally {
+    await cleanupPaymentFixture(request, fixture);
+  }
+});
+
 test('topbar command bar shows range data quality audit', async ({ page }) => {
   await page.goto('/#dashboard');
   await page.locator('#global-search').fill('sprawdź czy dane są kompletne za 2026 r.');

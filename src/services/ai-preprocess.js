@@ -168,11 +168,14 @@ function parsePeriodRange(message, fallbackPeriod, bounds = {}) {
 function cleanEntityName(value) {
   return String(value || '')
     .replace(/[?!.:,;]+/g, ' ')
-    .replace(/\b(czy|ile|ilu|podaj|mia[łl]em|sprawd[zź]|podsumuj|poka[zż]|status|dla|do|za|z|ze|na|w|przy)\b/gi, ' ')
+    .replace(/mar[zż][aęey]/gi, ' ')
+    .replace(/zarobi[łl]e[msś]?|zarobile[ms]?/gi, ' ')
+    .replace(/najwi[eę]ksz[aąey]?|nieruchomo[śs][cć]i?|kt[oó]ra|ktora/gi, ' ')
+    .replace(/\b(czy|ile|ilu|jak|jaka|jaki|jakie|jest|liczysz|liczyc|liczy[cć]|podaj|mia[łl]em|sprawd[zź]|podsumuj|poka[zż]|status|dla|do|za|z|ze|na|w|przy)\b/gi, ' ')
     .replace(/\b(ten|ta|to|tym|roku|rok|miesi[aą]cu|miesi[aą]c|poprzedni|zesz[łl]y|bie[zż][aą]cy|obecny|aktualny|od|pocz[aą]tku|danych|ca[łl]y|okres|ostatnie|ostatnich)\b/gi, ' ')
     .replace(/\b(20\d{2}-\d{2}|20\d{2})\b/g, ' ')
-    .replace(/\b(stycz[eńn]|luty|marzec|kwiecien|kwiecie[nń]|maj|czerwiec|lipiec|sierpien|sierpie[nń]|wrzesien|wrzesie[nń]|pazdziernik|pa[zź]dziernik|listopad|grudzien|grudzie[nń])\b/gi, ' ')
-    .replace(/\b(suma|sum[eę]|razem|dochod[oó]w?|przychod[oó]w?|wp[łl]yw[oó]w?|wp[łl]aty|wplaty|zysk|netto|koszt[oó]w?|mar[zż]a|zap[łl]aci[łl]a?|zap[łl]acili|op[łl]aci[łl]a?|wp[łl]aci[łl]a?|wp[łl]acili|p[łl]atno[śs][ćc]|p[łl]atno[śs]ci|najemc[oó]w|najemcy|najemca|podatek|podatku)\b/gi, ' ')
+    .replace(/\b(stycz[eńn]|styczniu|luty|lutym|marzec|marcu|kwiecien|kwiecie[nń]|kwietniu|maj|maju|czerwiec|czerwcu|lipiec|lipcu|sierpien|sierpie[nń]|sierpniu|wrzesien|wrzesie[nń]|wrzesniu|wrze[śs]niu|pazdziernik|pa[zź]dziernik|pa[zź]dzierniku|listopad|listopadzie|grudzien|grudzie[nń]|grudniu)\b/gi, ' ')
+    .replace(/\b(suma|sum[eę]|razem|dochod[oó]w?|przychod[oó]w?|wp[łl]yw[oó]w?|wp[łl]aty|wplaty|zysk|zarobi[łl]e[msś]?|zarobile[ms]?|netto|koszt[oó]w?|mar[zż]a|mar[zż][eęy]|zap[łl]aci[łl]a?|zap[łl]acili|op[łl]aci[łl]a?|wp[łl]aci[łl]a?|wp[łl]acili|p[łl]atno[śs][ćc]|p[łl]atno[śs]ci|najemc[oó]w|najemcy|najemca|podatek|podatku)\b/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -180,7 +183,8 @@ function cleanEntityName(value) {
 function extractPropertySubject(message) {
   const raw = String(message || '').trim();
   const hit = raw.match(/\b(?:z|ze|na|przy|dla|w)\s+(.+?)(?:\s+\b(?:w|we|za|od)\b\s+(?:tym|zesz[łl]ym|poprzednim|20\d{2}|pocz[aą]tku)|[?.,;:]|$)/i);
-  return cleanEntityName(hit ? hit[1] : raw);
+  const candidate = cleanEntityName(hit ? hit[1] : raw);
+  return candidate || cleanEntityName(raw);
 }
 
 function extractTenantSubject(message) {
