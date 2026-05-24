@@ -497,8 +497,9 @@ async function main() {
     await createAiPaymentFixture(`__smoke_ai_zalega_${Date.now()}`, { code: 'OVD', status: 'overdue' });
     const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'kto zalega z płatnościami?' });
     expect(r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report && r.data.report.count >= 1, JSON.stringify(r));
+    expect(r.data.report.range && r.data.report.range.mode === 'all' && r.data.report.total_balance >= 1200, JSON.stringify(r.data.report));
     expect(Array.isArray(r.data.items) && r.data.items.some(item => String(item.title || '').includes('__smoke_ai_zalega')), JSON.stringify(r.data));
-    return `${r.data.report.count} płatności`;
+    return `${r.data.report.total_balance} zł`;
   });
   await check('POST /api/assistant/parse tenant lateness stats', async () => {
     const tenantName = `__smoke_ai_spozniony_${Date.now()}`;

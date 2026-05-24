@@ -172,7 +172,7 @@ test('topbar command bar answers flexible overdue payment question', async ({ pa
     await page.locator('#global-search').press('Enter');
     const result = page.locator('.assistant-result.answer');
     await expect(result).toBeVisible();
-    await expect(result).toContainText('Płatności');
+    await expect(result).toContainText('Zaległości');
     await expect(result).toContainText(fixture.name);
   } finally {
     await cleanupPaymentFixture(request, fixture);
@@ -360,7 +360,7 @@ test('topbar command bar answers overdue payments question', async ({ page, requ
     await page.locator('#global-search').press('Enter');
     const result = page.locator('.assistant-result.answer');
     await expect(result).toBeVisible();
-    await expect(result).toContainText(/Płatności|Znalazłem/);
+    await expect(result).toContainText(/Zaległości|zaległ/);
     await expect(page.getByText(fixture.name).first()).toBeVisible();
   } finally {
     await request.delete(`/api/payments/${fixture.paymentId}`).catch(() => {});

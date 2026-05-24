@@ -300,6 +300,10 @@ function amount(row) {
   return Number(row.rent_amount || 0) + Number(row.media_amount || 0) + Number(row.other_amount || 0);
 }
 
+function paymentBalance(row) {
+  return Math.max(0, amount(row) - paidValue(row));
+}
+
 function costCategoryLabel(category) {
   return ({
     czynsz: 'Czynsz',
@@ -1068,6 +1072,80 @@ function paymentRowsForRange(req, range) {
   return (range.periods || []).flatMap(p => scopedPaymentRows(req, p));
 }
 
+function hasExplicitTimeRange(message) {
+  const text = normalizeText(message);
+  return /\b(20\d{2})(?:-(0[1-9]|1[0-2]))?\b/.test(String(message || ''))
+    || includesAny(text, [
+      'styczen', 'luty', 'marzec', 'kwiecien', 'maj', 'czerwiec', 'lipiec', 'sierpien', 'wrzesien', 'pazdziernik', 'listopad', 'grudzien',
+      'w tym roku', 'ten rok', 'biezacy rok', 'obecny rok', 'aktualny rok',
+      'zeszly rok', 'zeszlym roku', 'poprzedni rok', 'poprzednim roku',
+      'poprzedni miesiac', 'zeszly miesiac',
+      'ostatnie 6 miesiecy', 'ostatnich 6 miesiecy', 'ostatnie 12 miesiecy', 'ostatnich 12 miesiecy',
+      'od poczatku', 'od startu', 'od poczatku danych', 'caly okres', 'kiedykolwiek', 'w ogole',
+    ]);
+}
+
+function allDataRange(req, fallbackPeriod) {
+  const bounds = paymentPeriodBounds(req);
+  const start = bounds.min || fallbackPeriod;
+  const end = bounds.max || fallbackPeriod;
+  return { mode: 'all', start, end, label: 'od początku danych', periods: periodsBetween(start, end), source: 'rule' };
+}
+
+function arrearsRangeFromMessage(message, period, req) {
+  return hasExplicitTimeRange(message) ? timeRangeFromMessage(message, period, req) : allDataRange(req, period);
+}
+
+function arrearsAnswer(req, model, message, period) {
+  const range = arrearsRangeFromMessage(message, period, req);
+  const rows = paymentRowsForRange(req, range)
+    .map(row => ({ ...row, balance: paymentBalance(row) }))
+    .filter(row => {
+      if (Number(row.balance || 0) <= 0) return false;
+      const pastDue = row.due_date && row.due_date < todayLocalISO();
+      return row.status === 'overdue' || row.status === 'partial' || pastDue;
+    });
+  const byTenant = new Map();
+  for (const row of rows) {
+    const key = Number(row.tenant_id || 0) || `payment-${row.payment_id}`;
+    if (!byTenant.has(key)) {
+      byTenant.set(key, {
+        tenant_id: row.tenant_id || null,
+        tenant_name: row.tenant_name || 'Bez najemcy',
+        unit_code: row.unit_code || '',
+        property_name: row.property_name || '',
+        balance: 0,
+        expected: 0,
+        paid: 0,
+        count: 0,
+        periods: [],
+      });
+    }
+    const acc = byTenant.get(key);
+    acc.balance += Number(row.balance || 0);
+    acc.expected += amount(row);
+    acc.paid += paidValue(row);
+    acc.count += 1;
+    if (row.period && !acc.periods.includes(row.period)) acc.periods.push(row.period);
+  }
+  const tenants = [...byTenant.values()]
+    .sort((a, b) => b.balance - a.balance || String(a.tenant_name).localeCompare(String(b.tenant_name), 'pl'));
+  const totalBalance = tenants.reduce((sum, row) => sum + Number(row.balance || 0), 0);
+  const paymentCount = rows.length;
+  const top = tenants[0];
+  const messageText = tenants.length
+    ? `Zaległości ${range.label}: ${tenants.length} najemców, ${paymentCount} płatności, razem ${Math.round(totalBalance)} zł do zapłaty.${top ? ` Najwięcej: ${top.tenant_name} (${Math.round(top.balance)} zł).` : ''}`
+    : `Nie widzę zaległych płatności ${range.label}.`;
+  return resultList(
+    'answer_from_data',
+    `Zaległości ${range.label}`,
+    messageText,
+    tenants.slice(0, 20).map(row => itemTenant(row, `${row.unit_code || 'bez lokalu'} · ${row.property_name || ''} · saldo ${Math.round(row.balance)} zł · płatności ${row.count} · ${row.periods.slice(0, 6).join(', ')}${row.periods.length > 6 ? '…' : ''}`)),
+    { view: 'platnosci', state: { paymentsFilter: 'overdue', period: range.end || period } },
+    { status: 'answer', report: { range, count: tenants.length, payment_count: paymentCount, total_balance: totalBalance, tenants } }
+  );
+}
+
 function latenessRows(req, range) {
   return paymentRowsForRange(req, range)
     .map(row => {
@@ -1527,6 +1605,7 @@ function answerFromDataTool(req, model, message, period) {
     if (status === 'payment_status') return paymentStatusAnswer(req, model, message, targetPeriod);
     if (status === 'tenant_payment_summary') return tenantPaymentSummary(req, model, message, targetPeriod);
     if (status === 'tenant_lateness' || status === 'lateness_ranking') return latenessStatsAnswer(req, model, message, targetPeriod);
+    if (status === 'overdue') return arrearsAnswer(req, model, message, targetPeriod);
     const paymentQuery = status === 'overdue' ? '' : query;
     const payments = scopedPaymentRows(req, targetPeriod).filter(row => {
       const computedOverdue = row.status !== 'paid' && row.due_date && row.due_date < todayLocalISO();
