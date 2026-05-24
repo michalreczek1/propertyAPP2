@@ -349,6 +349,23 @@ test('topbar command bar opens report answer popup', async ({ page }) => {
   await expect(result).toContainText(/Wynik netto|Netto właściciel|Dochód netto właściciela/);
 });
 
+test('AI result popup view and close buttons work', async ({ page }) => {
+  await page.goto('/#dashboard');
+  await page.locator('#global-search').fill('ile zarobiłem netto w tym miesiącu?');
+  await page.locator('#global-search').press('Enter');
+  await expect(page.locator('.assistant-result.answer')).toBeVisible();
+  await expect(page.locator('#assistant-navigate')).toBeVisible();
+  await page.locator('#assistant-navigate').click();
+  await expect(page).toHaveURL(/#raporty$/);
+  await expect(page.locator('#modal-root .modal')).toHaveCount(0);
+
+  await page.locator('#global-search').fill('zrób podsumowanie 2026');
+  await page.locator('#global-search').press('Enter');
+  await expect(page.locator('.assistant-result.answer')).toBeVisible();
+  await page.locator('#m-close').click();
+  await expect(page.locator('#modal-root .modal')).toHaveCount(0);
+});
+
 test('topbar command bar answers unit ranking', async ({ page }) => {
   await page.goto('/#dashboard');
   await page.locator('#global-search').fill('który pokój przynosi najwięcej w tym roku?');

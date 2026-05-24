@@ -385,7 +385,7 @@ function assistantResultHtml(result) {
     </div>` : '';
   const items = result.items && result.items.length ? `
     <div class="assistant-candidates">
-      ${result.items.slice(0, 10).map(item => `<button class="assistant-item" type="button" data-item-view="${escapeHtml(item.view || '')}" data-item-title="${escapeHtml(item.title || '')}" data-item-state="${escapeHtml(JSON.stringify(item.state || (item.navigation && item.navigation.state) || {}))}">
+      ${result.items.slice(0, 10).map(item => `<button class="assistant-item" type="button" data-item-view="${escapeHtml(item.view || (item.navigation && item.navigation.view) || '')}" data-item-title="${escapeHtml(item.title || '')}" data-item-state="${escapeHtml(JSON.stringify(item.state || (item.navigation && item.navigation.state) || {}))}">
         <b>${escapeHtml(item.title || '—')}</b>
         <span>${escapeHtml(item.subtitle || item.type || '')}</span>
       </button>`).join('')}
