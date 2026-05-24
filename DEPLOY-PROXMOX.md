@@ -97,3 +97,11 @@ pct exec 109 -- curl http://127.0.0.1:8090/health
 pct exec 101 -- caddy validate --config /etc/caddy/Caddyfile
 curl -I https://propertyapp.familyos.pl
 ```
+
+Dyktowanie głosowe w pasku AI wymaga, aby Caddy dla `propertyapp.familyos.pl` zwracał:
+
+```text
+Permissions-Policy: camera=(), geolocation=(), microphone=(self)
+```
+
+Jeśli przeglądarka nie pokazuje monitu o mikrofon, najpierw sprawdź ten nagłówek przez `curl -I https://propertyapp.familyos.pl`.
