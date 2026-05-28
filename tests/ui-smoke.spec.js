@@ -148,6 +148,40 @@ test('AI assistant shows SMS preview in test mode', async ({ page, request }) =>
   }
 });
 
+test('tenant detail exposes manual SMS reminder button', async ({ page, request }) => {
+  const fixture = await createPaymentFixture(request, '__tenant_sms', { phone: '+48 600 000 000', smsConsent: true });
+  try {
+    const settings = await request.put('/api/notifications/settings', {
+      data: {
+        enabled: false,
+        sender: 'TEST',
+        send_time: '09:30',
+        overdue_days: 1,
+        reminder_enabled: true,
+        reminder_days_before_due: 3,
+        test_mode: true,
+        test_phone: '+48600000000',
+        clear_polish: true,
+        transactional: false,
+      },
+    });
+    expect(settings.ok()).toBeTruthy();
+
+    await page.goto('/#najemcy');
+    await page.locator('#ten-q').fill(fixture.name);
+    const row = page.locator('.tenant-row:not(.tenant-row-head)').filter({ hasText: fixture.name }).first();
+    await expect(row).toBeVisible();
+    await row.click();
+    await expect(page.getByRole('button', { name: 'Wyślij SMS z przypomnieniem' })).toBeVisible();
+    await page.getByRole('button', { name: 'Wyślij SMS z przypomnieniem' }).click();
+    await expect(page.getByText('Wysłać SMS z przypomnieniem?')).toBeVisible();
+    await expect(page.getByText('Tryb testowy jest włączony')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Wyślij SMS' })).toBeVisible();
+  } finally {
+    await cleanupPaymentFixture(request, fixture);
+  }
+});
+
 test('topbar command bar shows tenant late fee report', async ({ page, request }) => {
   const fixture = await createPaymentFixture(request, '__ai_late_fees', { lateFeeAmount: 50, lateFeePaid: 10 });
   try {

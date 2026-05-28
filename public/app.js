@@ -2027,15 +2027,84 @@ window.resolveLateFee = async function(paymentId, tenantId) {
   });
 };
 
+function paymentReminderAmount(p) {
+  return Number(p.rent_amount || 0) + Number(p.media_amount || 0) + Number(p.other_amount || 0);
+}
+function paymentNeedsReminder(p) {
+  return p && p.status !== 'paid' && Number(p.total_paid || 0) < paymentReminderAmount(p);
+}
+function tenantReminderPayment(t) {
+  const payments = (t.payments || []).filter(paymentNeedsReminder);
+  return payments.find(p => p.period === State.period) || payments[0] || null;
+}
+function smsReminderErrorLabel(code) {
+  return ({
+    payment_not_found: 'Nie znalazłem tej płatności.',
+    payment_already_paid: 'Ta płatność jest już oznaczona jako opłacona.',
+    sms_consent_required: 'Najemca nie ma aktywnej zgody na SMS.',
+    sms_disabled: 'Powiadomienia SMS są wyłączone dla tego najemcy.',
+    invalid_phone: 'Najemca nie ma poprawnego numeru telefonu.',
+    test_phone_required: 'W trybie testowym wpisz numer testowy w ustawieniach SMS.',
+    smsplanet_token_required: 'Brakuje tokenu SMSPlanet po stronie serwera.',
+    sms_sender_required: 'Brakuje pola nadawcy SMS.',
+  })[code] || code || 'Nie udało się przygotować SMS-a.';
+}
+
+window.openSmsReminderPreview = async function(paymentId, tenantId) {
+  try {
+    const preview = await Api.get(`/notifications/payments/${paymentId}/reminder`);
+    const m = modal({
+      title: 'Wysłać SMS z przypomnieniem?',
+      wide: true,
+      body: `
+        <div style="padding:22px 26px;display:flex;flex-direction:column;gap:14px">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;font-size:12px">
+            <div><span style="color:var(--t4)">Najemca:</span> <b>${escapeHtml(preview.tenant || '—')}</b></div>
+            <div><span style="color:var(--t4)">Lokal:</span> <b>${escapeHtml(preview.unit || '—')}</b></div>
+            <div><span style="color:var(--t4)">Okres:</span> <b class="mono">${escapeHtml(preview.period || '—')}</b></div>
+            <div><span style="color:var(--t4)">Numer:</span> <b class="mono">${escapeHtml(preview.phone || '—')}</b></div>
+          </div>
+          ${preview.test_mode ? `<div class="hint">Tryb testowy jest włączony: SMS pójdzie na numer testowy, nie na numer najemcy.</div>` : ''}
+          ${preview.token_configured === false ? `<div class="hint" style="color:var(--rose)">Brak tokenu SMSPlanet po stronie serwera.</div>` : ''}
+          <div style="padding:14px 16px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,0.03);font-size:13px;line-height:1.5;color:var(--t1)">
+            ${escapeHtml(preview.message || '')}
+          </div>
+        </div>`,
+      footer: `
+        <button class="tb-btn tb-ghost" id="sms-cancel">Anuluj</button>
+        <button class="tb-btn tb-primary" id="sms-send-confirm">Wyślij SMS</button>`,
+    });
+    m.root.querySelector('#sms-cancel').onclick = m.close;
+    m.root.querySelector('#sms-send-confirm').onclick = async () => {
+      const btn = m.root.querySelector('#sms-send-confirm');
+      btn.disabled = true;
+      try {
+        const result = await Api.post(`/notifications/payments/${paymentId}/reminder`, {});
+        m.close();
+        toast(result.status === 'simulated' ? 'Symulacja SMS zapisana' : 'SMS z przypomnieniem wysłany', 'ok', 4200);
+        openTenantDetails(tenantId);
+        render({ preserveScroll: true });
+      } catch (e) {
+        btn.disabled = false;
+        toast(smsReminderErrorLabel(e.message || e.data?.error), 'err', 5200);
+      }
+    };
+  } catch (e) {
+    toast(smsReminderErrorLabel(e.message || e.data?.error), 'err', 5200);
+  }
+};
+
 window.openTenantDetails = async function(id) {
   const t = await Api.get(`/tenants/${id}`);
   const monthly = (t.contract_rent||0) + (t.contract_media||0);
+  const reminderPayment = tenantReminderPayment(t);
 
   const paymentsHtml = t.payments && t.payments.length
     ? `<table class="t" style="margin-top:10px">
-        <thead><tr><th>Okres</th><th>Termin</th><th>Czynsz</th><th>Media</th><th>Kara</th><th>Wpłacono bez kar</th><th>Status</th></tr></thead>
+        <thead><tr><th>Okres</th><th>Termin</th><th>Czynsz</th><th>Media</th><th>Kara</th><th>Wpłacono bez kar</th><th>Status</th><th></th></tr></thead>
         <tbody>${t.payments.slice(0,12).map(p => {
           const st = STATUS_CHIP[p.status] || STATUS_CHIP.pending;
+          const canRemind = paymentNeedsReminder(p);
           return `<tr>
             <td class="mono">${escapeHtml(p.period)}</td>
             <td class="mono">${fmtDateShort(p.due_date)}</td>
@@ -2044,6 +2113,7 @@ window.openTenantDetails = async function(id) {
             <td class="mono${p.late_fee_amount?'-a':'-m'}">${p.late_fee_amount?fmtPLN(p.late_fee_amount)+' zł':'—'}</td>
             <td class="mono-e">${fmtPLN(p.total_paid)} zł</td>
             <td><span class="chip ${st.cls}">${st.label}</span></td>
+            <td>${canRemind ? `<button class="tb-btn tb-ghost" style="height:28px;font-size:11px;padding:0 10px" onclick="openSmsReminderPreview(${p.id}, ${t.id})">SMS</button>` : ''}</td>
           </tr>`;
         }).join('')}</tbody>
       </table>` : emptyState('Brak historii płatności.');
@@ -2111,11 +2181,13 @@ window.openTenantDetails = async function(id) {
   modal({ title: t.name, body, wide: true,
     footer: `<button class="tb-btn tb-danger" id="td-del">Usuń najemcę</button>
              <span style="flex:1"></span>
+             ${reminderPayment ? `<button class="tb-btn tb-ghost" id="td-sms-reminder">Wyślij SMS z przypomnieniem</button>` : ''}
              ${t.contract_id ? `<button class="tb-btn tb-ghost" id="td-end-contract">Zakończ umowę</button>` : ''}
              <button class="tb-btn tb-ghost" id="td-edit">Edytuj dane</button>
              <button class="tb-btn tb-primary" id="td-close">Zamknij</button>`});
   document.getElementById('td-close').onclick = () => document.getElementById('modal-root').innerHTML = '';
   document.getElementById('td-edit').onclick = () => { document.getElementById('modal-root').innerHTML = ''; editTenant(id); };
+  if (reminderPayment) document.getElementById('td-sms-reminder').onclick = () => openSmsReminderPreview(reminderPayment.id, t.id);
   if (t.contract_id) document.getElementById('td-end-contract').onclick = () => endContractFlow(t.contract_id);
   document.getElementById('td-del').onclick = () => confirmDialog({ title:'Usuń najemcę', message:`Usunąć "${t.name}"?`, danger:true,
     onYes: async () => { await Api.del(`/tenants/${id}`); toast('Usunięto', 'info'); document.getElementById('modal-root').innerHTML = ''; render(); }});
@@ -3167,7 +3239,7 @@ async function seedAiAliases() {
 }
 
 function notificationTypeLabel(type) {
-  return ({ due_reminder: 'Przed terminem', overdue: 'Po terminie', test: 'Test' })[type] || type || '—';
+  return ({ due_reminder: 'Przed terminem', overdue: 'Po terminie', assistant_reminder: 'Ręczne przypomnienie', test: 'Test' })[type] || type || '—';
 }
 function notificationStatusLabel(status) {
   return ({ queued: 'Kolejka', simulated: 'Symulacja', sent: 'Wysłane', delivered: 'Dostarczone', failed: 'Błąd', skipped: 'Pominięte' })[status] || status || '—';

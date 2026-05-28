@@ -9,6 +9,8 @@ const {
   processDueRetries,
   sendTestSms,
   syncDeliveryStatuses,
+  previewPaymentReminder,
+  sendPaymentReminder,
 } = require('../services/notifications');
 
 router.get('/settings', (req, res) => {
@@ -68,6 +70,24 @@ router.post('/test', async (req, res) => {
     res.json(await sendTestSms(req, body.phone, body.message));
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || 'sms_test_failed' });
+  }
+});
+
+router.get('/payments/:id/reminder', (req, res) => {
+  try {
+    const preview = previewPaymentReminder(req, Number(req.params.id));
+    if (!preview.ok) return res.status(400).json(preview);
+    res.json(preview);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || 'sms_preview_failed' });
+  }
+});
+
+router.post('/payments/:id/reminder', async (req, res) => {
+  try {
+    res.json(await sendPaymentReminder(req, Number(req.params.id)));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || 'sms_send_failed' });
   }
 });
 

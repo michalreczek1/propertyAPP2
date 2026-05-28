@@ -247,6 +247,55 @@ async function main() {
     expect(r.ok && r.data.dry_run === true && Array.isArray(r.data.candidates), JSON.stringify(r));
     return `${r.data.candidates.length} kandydatów`;
   });
+  let smsPropId, smsUnitId, smsTenantId, smsPaymentId;
+  await check('POST /api/notifications/payments/:id/reminder', async () => {
+    const suffix = `__smoke_sms_button_${Date.now()}`;
+    const prop = await api('POST', '/api/properties', { name: `${suffix}_property`, district: 'SMS', type: 'mieszkanie' });
+    expect(prop.ok && prop.data.id, JSON.stringify(prop));
+    smsPropId = prop.data.id;
+    const unit = await api('POST', '/api/units', { property_id: smsPropId, name: `${suffix}_unit`, code: 'SMS', base_rent: 900, base_media: 100, status: 'vacant' });
+    expect(unit.ok && unit.data.id, JSON.stringify(unit));
+    smsUnitId = unit.data.id;
+    const tenant = await api('POST', '/api/tenants', {
+      name: suffix,
+      current_unit_id: smsUnitId,
+      status: 'active',
+      phone: '+48600000000',
+      sms_consent: 1,
+    });
+    expect(tenant.ok && tenant.data.id, JSON.stringify(tenant));
+    smsTenantId = tenant.data.id;
+    const payment = await api('POST', '/api/payments', {
+      period: '2026-05',
+      tenant_id: smsTenantId,
+      unit_id: smsUnitId,
+      due_day: 10,
+      rent_amount: 900,
+      media_amount: 100,
+      total_paid: 0,
+      status: 'pending',
+      source: 'smoke',
+    });
+    expect(payment.ok && payment.data.id, JSON.stringify(payment));
+    smsPaymentId = payment.data.id;
+    const preview = await api('GET', `/api/notifications/payments/${smsPaymentId}/reminder`);
+    expect(preview.ok && preview.data.ok && preview.data.message && preview.data.payment_id === smsPaymentId, JSON.stringify(preview));
+    const sent = await api('POST', `/api/notifications/payments/${smsPaymentId}/reminder`, {});
+    expect(sent.ok && sent.data.id, JSON.stringify(sent));
+    if (preview.data.token_configured) {
+      expect(sent.data.status === 'simulated', JSON.stringify(sent));
+    } else {
+      expect(sent.data.status === 'failed' && sent.data.error === 'smsplanet_token_required', JSON.stringify(sent));
+    }
+    return `log=${sent.data.id} status=${sent.data.status}`;
+  });
+  await check('DEL  SMS reminder fixture', async () => {
+    if (smsPaymentId) expect((await api('DELETE', `/api/payments/${smsPaymentId}`)).ok, 'payment delete failed');
+    if (smsTenantId) expect((await api('DELETE', `/api/tenants/${smsTenantId}`)).ok, 'tenant delete failed');
+    if (smsUnitId) expect((await api('DELETE', `/api/units/${smsUnitId}`)).ok, 'unit delete failed');
+    if (smsPropId) expect((await api('DELETE', `/api/properties/${smsPropId}`)).ok, 'property delete failed');
+    return 'ok';
+  });
 
   console.log('\n══ AI ASSISTANT ══');
   const aiFixtures = [];
