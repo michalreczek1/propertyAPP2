@@ -2678,6 +2678,44 @@ function renderTaxReportCard(report) {
 }
 
 // ═══════════════════════ KOSZTY ═══════════════════════
+function expenseDescriptionLabel(e) {
+  const raw = String(e && e.description || '').trim();
+  const category = String(e && e.category || '').toLowerCase();
+  const categoryFallback = {
+    czynsz: 'Czynsz administracyjny',
+    prad: 'Prąd',
+    internet: 'Internet',
+    remonty: 'Remont',
+    doplata: 'Dopłata do czynszu',
+    zarzadzanie: 'Zarządzanie nieruchomościami',
+    kredyt: 'Rata kredytu hipotecznego',
+    inne: 'Inny koszt',
+  }[category] || 'Koszt';
+  if (!raw) return categoryFallback;
+
+  const normalized = raw
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  if (normalized === 'koszt wlasciciela: zarzadzanie') return 'Zarządzanie nieruchomościami';
+  if (normalized === 'koszt wlasciciela: rata kredytu') return 'Rata kredytu hipotecznego';
+
+  const fixed = normalized.match(/^staly koszt\s+[^:]+:\s*(czynsz|internet|prad)$/);
+  if (fixed) {
+    return {
+      czynsz: 'Czynsz administracyjny',
+      internet: 'Internet',
+      prad: 'Prąd',
+    }[fixed[1]];
+  }
+
+  return raw
+    .replace(/\s*\(stały\)$/i, '')
+    .replace(/^Media \(dostawcy\)\s*[—-]\s*/i, 'Media dostawcy · ')
+    .replace(/^Prowizja zarządcy \(Marek\)\s*[—-]\s*/i, 'Prowizja zarządcy · ');
+}
+
 async function renderExpenses(root) {
   const params = new URLSearchParams();
   if (State.expCat && State.expCat !== 'all') params.set('category', State.expCat);
@@ -2758,7 +2796,7 @@ async function renderExpenses(root) {
           <td>${chip('chip-v', CAT_LABELS[e.category]||e.category)}</td>
           <td style="font-size:12px">${escapeHtml(e.property_name||'—')}</td>
           <td class="mono">${escapeHtml(e.unit_code||e.unit_name||'—')}</td>
-          <td style="font-size:12px;color:var(--t2)">${escapeHtml(e.description||'—')}</td>
+          <td style="font-size:12px;color:var(--t2)" title="${escapeHtml(e.description||'')}">${escapeHtml(expenseDescriptionLabel(e))}</td>
           <td class="mono-r">${fmtPLN(e.amount)} zł</td>
           <td><div style="display:flex;gap:4px">
             ${e.system ? `<span class="mono-m">systemowy</span>` : `

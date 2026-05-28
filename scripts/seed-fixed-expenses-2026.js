@@ -9,16 +9,16 @@ const fixedExpenses = [
   {
     propertyLike: '%Chrobrego%',
     items: [
-      { category: 'czynsz', amount: 1710, description: 'Staly koszt Chrobrego: czynsz' },
-      { category: 'internet', amount: 64, description: 'Staly koszt Chrobrego: internet' },
-      { category: 'prad', amount: 150, description: 'Staly koszt Chrobrego: prad' },
+      { category: 'czynsz', amount: 1710, description: 'Czynsz administracyjny (stały)' },
+      { category: 'internet', amount: 64, description: 'Internet (stały)' },
+      { category: 'prad', amount: 150, description: 'Prąd (stały)' },
     ],
   },
   {
     propertyLike: '%Kościelna%',
     items: [
-      { category: 'czynsz', amount: 695.54, description: 'Staly koszt Koscielna: czynsz' },
-      { category: 'prad', amount: 120, description: 'Staly koszt Koscielna: prad' },
+      { category: 'czynsz', amount: 695.54, description: 'Czynsz administracyjny (stały)' },
+      { category: 'prad', amount: 120, description: 'Prąd (stały)' },
     ],
   },
 ];
@@ -51,7 +51,10 @@ const deleteFixed = db.prepare(`
       'Staly koszt Chrobrego: internet',
       'Staly koszt Chrobrego: prad',
       'Staly koszt Koscielna: czynsz',
-      'Staly koszt Koscielna: prad'
+      'Staly koszt Koscielna: prad',
+      'Czynsz administracyjny (stały)',
+      'Internet (stały)',
+      'Prąd (stały)'
     )
 `);
 const deleteLegacy2026 = db.prepare(`

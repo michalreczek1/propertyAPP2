@@ -68,7 +68,8 @@ async function cleanupPaymentFixture(request, fixture) {
   await request.delete(`/api/properties/${fixture.propertyId}`).catch(() => {});
 }
 
-test('dashboard and expenses render without clipping the app shell', async ({ page }) => {
+test('dashboard and expenses render without clipping the app shell', async ({ page, request }) => {
+  let fixture = null;
   await page.goto('/#dashboard');
   await expect(page.getByText('Przychód miesiąca')).toBeVisible();
   await expect(page.getByText('Netto właściciel').first()).toBeVisible();
@@ -79,9 +80,36 @@ test('dashboard and expenses render without clipping the app shell', async ({ pa
   expect(box).not.toBeNull();
   expect(box.width).toBeLessThanOrEqual(1440);
 
-  await page.goto('/#koszty');
-  await expect(page.getByText('Obciążenia miesiąca')).toBeVisible();
-  await expect(page.getByText('Razem obciążenia')).toBeVisible();
+  try {
+    const property = await request.post('/api/properties', {
+      data: { name: `__ui_cost_label_${Date.now()}`, district: 'Test', type: 'mieszkanie' },
+    });
+    expect(property.ok()).toBeTruthy();
+    const propertyData = await property.json();
+    const expense = await request.post('/api/expenses', {
+      data: {
+        property_id: propertyData.id,
+        category: 'prad',
+        amount: 12,
+        date: `${currentPeriodISO()}-01`,
+        description: 'Staly koszt Test: prad',
+      },
+    });
+    expect(expense.ok()).toBeTruthy();
+    fixture = { propertyId: propertyData.id, expenseId: (await expense.json()).id };
+
+    await page.goto('/#koszty');
+    await expect(page.getByText('Obciążenia miesiąca')).toBeVisible();
+    await expect(page.getByText('Razem obciążenia')).toBeVisible();
+    await expect(page.getByText('Prąd').first()).toBeVisible();
+    await expect(page.getByText('Koszt właściciela:')).toHaveCount(0);
+    await expect(page.getByText('Staly koszt')).toHaveCount(0);
+  } finally {
+    if (fixture) {
+      await request.delete(`/api/expenses/${fixture.expenseId}`).catch(() => {});
+      await request.delete(`/api/properties/${fixture.propertyId}`).catch(() => {});
+    }
+  }
 });
 
 test('reports page exposes consistent finance cards', async ({ page }) => {
