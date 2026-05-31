@@ -701,6 +701,17 @@ async function main() {
     expect(r.ok && r.data.name === '__smoke_property', JSON.stringify(r));
     return 'ok';
   });
+  await check('PUT  /api/settings/owner-costs/mortgage', async () => {
+    const r = await api('PUT', '/api/settings/owner-costs/mortgage', {
+      property_id: propId,
+      valid_from_period: '2026-11',
+      amount: 4321.09,
+    });
+    expect(r.ok && Number(r.data.amount) === 4321.09, JSON.stringify(r));
+    const rows = await api('GET', `/api/expenses?period=2026-11&category=kredyt&property_id=${propId}&include_owner=1`);
+    expect(rows.ok && rows.data.some(row => row.system && row.category === 'kredyt' && Number(row.amount) === 4321.09), JSON.stringify(rows));
+    return 'ok';
+  });
   await check('DEL  /api/properties/:id', async () => {
     const r = await api('DELETE', `/api/properties/${propId}`);
     expect(r.ok, JSON.stringify(r));

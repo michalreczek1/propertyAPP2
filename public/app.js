@@ -288,7 +288,7 @@ function fieldHtml(f, vals) {
   } else if (f.type === 'checkbox') {
     input = `<input type="checkbox" name="${f.name}" ${v?'checked':''}>`;
   } else {
-    input = `<input type="${f.type||'text'}" name="${f.name}" value="${escapeHtml(v)}" placeholder="${escapeHtml(f.placeholder||'')}"${f.step?` step="${f.step}"`:''}${f.required?' required':''}>`;
+    input = `<input type="${f.type||'text'}" name="${f.name}" value="${escapeHtml(v)}" placeholder="${escapeHtml(f.placeholder||'')}"${f.step?` step="${f.step}"`:''}${f.required?' required':''}${f.readonly?' readonly':''}>`;
   }
   return `<div class="${cls}"><label>${escapeHtml(f.label)}</label>${input}${f.hint?`<div class="hint">${escapeHtml(f.hint)}</div>`:''}</div>`;
 }
@@ -2798,12 +2798,7 @@ async function renderExpenses(root) {
           <td class="mono">${escapeHtml(e.unit_code||e.unit_name||'—')}</td>
           <td style="font-size:12px;color:var(--t2)" title="${escapeHtml(e.description||'')}">${escapeHtml(expenseDescriptionLabel(e))}</td>
           <td class="mono-r">${fmtPLN(e.amount)} zł</td>
-          <td><div style="display:flex;gap:4px">
-            ${e.system ? `<span class="mono-m">systemowy</span>` : `
-              <button class="icon-btn" onclick="editExpense(${e.id})" title="Edytuj"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-              <button class="icon-btn danger" onclick="deleteExpense(${e.id})" title="Usuń"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg></button>
-            `}
-          </div></td>
+          <td>${expenseActionsHtml(e)}</td>
         </tr>`).join('')}</tbody>
         <tfoot><tr><td colspan="5" style="text-align:right;padding-right:12px">Razem:</td><td class="mono-r" style="font-size:13px">${fmtPLN(total)} zł</td><td></td></tr></tfoot>
       </table></div>`}
@@ -2846,6 +2841,24 @@ async function renderExpenses(root) {
   }
 }
 
+function expenseActionsHtml(e) {
+  const editIcon = '<svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+  const deleteIcon = '<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>';
+  if (e.system) {
+    const period = String(e.date || State.period).slice(0, 7);
+    const propertyId = Number(e.property_id || 0);
+    return `<div style="display:flex;gap:4px;align-items:center">
+      <span class="mono-m">systemowy</span>
+      ${e.category === 'kredyt' && propertyId ? `<button class="icon-btn" onclick="editOwnerMortgageCost('${escapeHtml(period)}', ${propertyId})" title="Edytuj ratę kredytu">${editIcon}</button>` : ''}
+    </div>`;
+  }
+  const expenseId = Number(e.id);
+  return `<div style="display:flex;gap:4px">
+    <button class="icon-btn" onclick="editExpense(${expenseId})" title="Edytuj">${editIcon}</button>
+    <button class="icon-btn danger" onclick="deleteExpense(${expenseId})" title="Usuń">${deleteIcon}</button>
+  </div>`;
+}
+
 window.editExpense = async function(id) {
   const [props, units] = await Promise.all([Api.get('/properties'), Api.get('/units')]);
   let initial = { category: 'inne', date: State.period + '-01' };
@@ -2870,6 +2883,36 @@ window.editExpense = async function(id) {
       if (id) await Api.put(`/expenses/${id}`, b);
       else    await Api.post('/expenses', b);
       toast(id ? 'Zaktualizowano' : 'Dodano koszt');
+      render();
+    },
+  });
+};
+
+window.editOwnerMortgageCost = async function(period, propertyId) {
+  const ownerCosts = await Api.get(`/settings/owner-costs?period=${encodeURIComponent(period)}`);
+  const row = (ownerCosts.mortgages || []).find(item => String(item.property_id) === String(propertyId));
+  if (!row) throw new Error('Nie znaleziono nieruchomości dla raty kredytu');
+  formModal({
+    title: 'Edytuj ratę kredytu',
+    fields: [
+      { name:'valid_from_period', label:'Obowiązuje od miesiąca', type:'text', required: true, hint:'Format YYYY-MM. Nowa rata będzie liczona od tego miesiąca.' },
+      { name:'amount', label:'Kwota [PLN]', type:'number', step:'0.01', required: true },
+      { name:'property_name', label:'Nieruchomość', type:'text', readonly: true },
+    ],
+    initial: {
+      valid_from_period: period,
+      amount: row.amount || 0,
+      property_name: row.property_name || '',
+    },
+    onSubmit: async (b) => {
+      if (!/^\d{4}-\d{2}$/.test(b.valid_from_period || '')) throw new Error('Format YYYY-MM');
+      await Api.put('/settings/owner-costs/mortgage', {
+        property_id: propertyId,
+        valid_from_period: b.valid_from_period,
+        amount: b.amount,
+      });
+      toast('Zaktualizowano ratę kredytu');
+      State.period = b.valid_from_period;
       render();
     },
   });

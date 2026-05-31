@@ -120,6 +120,40 @@ test('reports page exposes consistent finance cards', async ({ page }) => {
   await expect(page.getByText('Raport podatkowy')).toBeVisible();
 });
 
+test('mortgage owner cost can be edited from expenses', async ({ page, request }) => {
+  const period = currentPeriodISO();
+  const propertyName = `__ui_mortgage_${Date.now()}`;
+  let propertyId = null;
+  try {
+    const property = await request.post('/api/properties', {
+      data: { name: propertyName, district: 'Test', type: 'mieszkanie' },
+    });
+    expect(property.ok()).toBeTruthy();
+    propertyId = (await property.json()).id;
+
+    const seed = await request.put('/api/settings/owner-costs/mortgage', {
+      data: { property_id: propertyId, valid_from_period: period, amount: 111.11 },
+    });
+    expect(seed.ok()).toBeTruthy();
+
+    await page.goto('/#koszty');
+    const row = page.locator('tbody tr').filter({ hasText: propertyName }).filter({ hasText: 'Rata kredytu hipotecznego' }).first();
+    await expect(row).toBeVisible();
+    await row.getByTitle('Edytuj ratę kredytu').click();
+    await expect(page.getByText('Edytuj ratę kredytu')).toBeVisible();
+    await page.locator('#modal-root input[name="amount"]').fill('222.22');
+    await page.locator('#m-submit').click();
+    await expect(row).toContainText('222,22 zł');
+
+    const ownerCosts = await request.get(`/api/settings/owner-costs?period=${period}`);
+    expect(ownerCosts.ok()).toBeTruthy();
+    const mortgage = (await ownerCosts.json()).mortgages.find(item => item.property_id === propertyId);
+    expect(Number(mortgage.amount)).toBe(222.22);
+  } finally {
+    if (propertyId) await request.delete(`/api/properties/${propertyId}`).catch(() => {});
+  }
+});
+
 test('AI assistant explains tax from the topbar', async ({ page }) => {
   await page.goto('/#dashboard');
   await expect(page.getByRole('button', { name: 'AI', exact: true })).toHaveCount(0);

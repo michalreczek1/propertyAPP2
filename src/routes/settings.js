@@ -254,6 +254,31 @@ router.put('/owner-costs', (req, res) => {
   res.json({ ok: true, valid_from_period: validFrom });
 });
 
+router.put('/owner-costs/mortgage', (req, res) => {
+  const body = req.body || {};
+  const validFrom = String(body.valid_from_period || '2026-01').trim();
+  if (!/^\d{4}-\d{2}$/.test(validFrom)) return res.status(400).json({ error: 'invalid_period' });
+
+  let amount;
+  const propertyId = Number(body.property_id);
+  try {
+    amount = normalizeAmount(body.amount, 'amount');
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message || 'invalid_owner_mortgage' });
+  }
+
+  const scope = propertyScope(req, 'p');
+  const property = db.prepare(`
+    SELECT id FROM properties p
+    WHERE p.id = ?
+      ${scope.sql ? 'AND ' + scope.sql : ''}
+  `).get(propertyId, ...scope.params);
+  if (!Number.isInteger(propertyId) || !property) return res.status(400).json({ error: `unknown_property:${body.property_id}` });
+
+  upsertRecurringCost('kredyt', propertyId, amount, validFrom, 'Mortgage cost from expenses edit', ownerId(req));
+  res.json({ ok: true, property_id: propertyId, amount, valid_from_period: validFrom });
+});
+
 router.put('/', (req, res) => {
   const upsertGlobal = db.prepare(`
     INSERT INTO settings(key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
