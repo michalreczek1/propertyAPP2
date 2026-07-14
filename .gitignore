@@ -55,3 +55,4 @@ deploy/*secret*
 PropertyApp*.html
 design/
 design_nova/
+coverage/
