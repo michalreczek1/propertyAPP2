@@ -47,13 +47,14 @@ function publicUser(row) {
     display_name: row.display_name || row.username,
     role: row.role || 'user',
     active: row.active !== 0,
+    session_version: Number(row.session_version || 1),
   };
 }
 
 function getDbUserByUsername(username) {
   if (!tableExists('users')) return null;
   return db.prepare(`
-    SELECT id, username, display_name, role, password_hash, active
+    SELECT id, username, display_name, role, password_hash, active, session_version
     FROM users
     WHERE LOWER(username) = LOWER(?)
     LIMIT 1
@@ -63,7 +64,7 @@ function getDbUserByUsername(username) {
 function getDbUserById(id) {
   if (!tableExists('users') || !id) return null;
   return db.prepare(`
-    SELECT id, username, display_name, role, active
+    SELECT id, username, display_name, role, active, session_version
     FROM users
     WHERE id = ?
     LIMIT 1
@@ -103,6 +104,7 @@ function createToken(user, secret) {
     u: user.username,
     role: user.role || 'user',
     name: user.display_name || user.username,
+    sv: Number(user.session_version || 1),
     iat: now,
     exp: now + SESSION_TTL_MS,
   }));
@@ -188,10 +190,10 @@ function authStatus(req) {
   let user = null;
   if (session && session.id) {
     const row = getDbUserById(session.id);
-    if (row && row.active !== 0) user = publicUser(row);
+    if (row && row.active !== 0 && Number(session.sv || 1) === Number(row.session_version || 1)) user = publicUser(row);
   } else if (session && session.u) {
     const row = getDbUserByUsername(session.u);
-    if (row && row.active !== 0) {
+    if (row && row.active !== 0 && Number(session.sv || 1) === Number(row.session_version || 1)) {
       user = publicUser(row);
     } else if (session.u === config.username) {
       user = { username: session.u, display_name: session.name || session.u, role: session.role || 'admin' };

@@ -14,6 +14,7 @@ const GROQ_BASE_URL = process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 const ACTION_TTL_MS = 10 * 60 * 1000;
 const LATE_FEE_AMOUNT = 50;
+const GROQ_TIMEOUT_MS = Math.max(1000, Number(process.env.GROQ_TIMEOUT_MS || 15000));
 
 const ParseSchema = z.object({
   message: z.string().min(1).max(1200),
@@ -648,6 +649,7 @@ async function classifyWithGroq(message, period, context) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(GROQ_TIMEOUT_MS),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error && data.error.message ? data.error.message : `Groq HTTP ${response.status}`);

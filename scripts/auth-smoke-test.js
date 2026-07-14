@@ -121,7 +121,7 @@ async function main() {
     body: JSON.stringify({ username: 'admin', password: 'secret-pass' }),
   });
   expect(good.ok, `expected login ok, got ${good.status}`);
-  const cookie = good.headers.get('set-cookie');
+  let cookie = good.headers.get('set-cookie');
   expect(cookie && cookie.includes('propertyapp_session='), 'missing session cookie');
 
   const app = await fetch(base + '/', { headers: { Cookie: cookie } });
@@ -154,6 +154,16 @@ async function main() {
     body: JSON.stringify({ current_password: 'secret-pass', new_password: 'secret-pass' }),
   });
   expect(legacyChange.ok, `legacy session password change failed: ${legacyChange.status}`);
+
+  const staleSession = await fetch(base + '/api/admin/users', { headers: { Cookie: cookie } });
+  expect(staleSession.status === 401, `password change did not invalidate the previous session: ${staleSession.status}`);
+  const freshLogin = await fetch(base + '/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'admin', password: 'secret-pass' }),
+  });
+  expect(freshLogin.ok, `re-login after password change failed: ${freshLogin.status}`);
+  cookie = freshLogin.headers.get('set-cookie');
 
   const users = await fetch(base + '/api/admin/users', { headers: { Cookie: cookie } });
   expect(users.ok, `admin users list failed: ${users.status}`);

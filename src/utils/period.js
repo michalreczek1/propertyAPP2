@@ -47,6 +47,10 @@ function parsePeriod(period) {
   return { year: +m[1], month };
 }
 
+function isValidPeriod(period) {
+  return parsePeriod(period) !== null;
+}
+
 /** Formatuje period i dzień jako "YYYY-MM-DD" (ostrożnie z 31 lutego). */
 function dueDate(period, day) {
   const p = parsePeriod(period);
@@ -80,6 +84,7 @@ function periodLabel(period) {
 module.exports = {
   PL_MONTHS, normalize,
   parsePolishMonthYear, parsePeriod,
+  isValidPeriod,
   dueDate, currentPeriod, previousPeriod, periodLabel,
   todayLocalISO,
 };

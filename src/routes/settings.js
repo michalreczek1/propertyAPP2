@@ -1,7 +1,7 @@
 'use strict';
 const router = require('express').Router();
 const db = require('../db');
-const { currentPeriod } = require('../utils/period');
+const { currentPeriod, isValidPeriod } = require('../utils/period');
 const { canSeeAll, ownerId, propertyScope } = require('../utils/scope');
 
 const ALLOWED_KEYS = new Set([
@@ -70,7 +70,7 @@ function normalizeEntries(body) {
       }
       entries.push([key, String(n)]);
     } else if (key === 'costs.valid_from_period') {
-      if (text && !/^\d{4}-\d{2}$/.test(text)) {
+      if (text && !isValidPeriod(text)) {
         const err = new Error('invalid_period:costs.valid_from_period');
         err.status = 400;
         throw err;
@@ -160,7 +160,7 @@ function activeRecurringCost(category, propertyId, period, req) {
 router.get('/owner-costs', (req, res) => {
   const savedPeriod = getSetting(req, 'costs.valid_from_period', '2026-01');
   const period = String(req.query.period || savedPeriod || '2026-01');
-  if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'invalid_period' });
+  if (!isValidPeriod(period)) return res.status(400).json({ error: 'invalid_period' });
   const scope = propertyScope(req, 'p');
   const properties = db.prepare(`
     SELECT id, name FROM properties p
@@ -202,7 +202,7 @@ function normalizeAmount(value, key) {
 router.put('/owner-costs', (req, res) => {
   const body = req.body || {};
   const validFrom = String(body.valid_from_period || '2026-01').trim();
-  if (!/^\d{4}-\d{2}$/.test(validFrom)) return res.status(400).json({ error: 'invalid_period' });
+  if (!isValidPeriod(validFrom)) return res.status(400).json({ error: 'invalid_period' });
   if (!Array.isArray(body.mortgages)) return res.status(400).json({ error: 'invalid_mortgages' });
 
   let management;
@@ -257,7 +257,7 @@ router.put('/owner-costs', (req, res) => {
 router.put('/owner-costs/mortgage', (req, res) => {
   const body = req.body || {};
   const validFrom = String(body.valid_from_period || '2026-01').trim();
-  if (!/^\d{4}-\d{2}$/.test(validFrom)) return res.status(400).json({ error: 'invalid_period' });
+  if (!isValidPeriod(validFrom)) return res.status(400).json({ error: 'invalid_period' });
 
   let amount;
   const propertyId = Number(body.property_id);

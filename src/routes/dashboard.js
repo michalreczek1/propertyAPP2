@@ -1,11 +1,12 @@
 'use strict';
 const router = require('express').Router();
 const db = require('../db');
-const { currentPeriod } = require('../utils/period');
+const { currentPeriod, isValidPeriod } = require('../utils/period');
 const { monthlyFinanceSummary } = require('../services/finance-summary');
 
 router.get('/', (req, res) => {
   const period = req.query.period || currentPeriod();
+  if (!isValidPeriod(period)) return res.status(400).json({ error: 'invalid_period' });
   const summary = monthlyFinanceSummary(db, period, req);
   const scoped = req.user && req.user.id && req.user.role !== 'admin';
   const scopeSql = scoped ? 'WHERE p.owner_user_id = ?' : '';

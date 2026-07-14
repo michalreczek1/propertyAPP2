@@ -10,6 +10,7 @@ const { notFound, errorHandler } = require('./middleware/error');
 const { authStatus, installAuth, requireAuth } = require('./middleware/auth');
 
 const { startNotificationScheduler } = require('./services/notifications');
+const { purgeExpiredAiQueries } = require('./services/retention');
 
 const PORT = +(process.env.PORT || 8090);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -74,6 +75,12 @@ app.use('/icons', express.static(path.join(PUBLIC_DIR, 'icons'), {
     immutableAsset(res);
   },
 }));
+app.use('/vendor', express.static(path.join(__dirname, '..', 'node_modules', 'chart.js', 'dist'), {
+  index: false,
+  setHeaders(res) {
+    immutableAsset(res);
+  },
+}));
 
 function requirePageAuth(req, res, next) {
   const status = authStatus(req);
@@ -121,5 +128,7 @@ app.use(errorHandler);
 app.listen(PORT, HOST, () => {
   console.log(`▶ PropertyApp http://${HOST}:${PORT}`);
   console.log(`  DB: ${db.name}`);
+  const purged = purgeExpiredAiQueries();
+  if (purged) console.log(`  AI retention: removed ${purged} expired records`);
   startNotificationScheduler();
 });

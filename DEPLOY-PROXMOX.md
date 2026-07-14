@@ -26,6 +26,7 @@ Domyślnie skrypt:
 - kopiuje archiwum na host `proxmox`,
 - robi zweryfikowany online backup SQLite (bez ryzyka WAL), archiwum uploads/konfiguracji i backup katalogu aplikacji,
 - robi snapshot kontenera,
+- utrzymuje 14 ostatnich snapshotów wdrożeniowych (parametr `-SnapshotKeep`),
 - aktualizuje `/etc/propertyapp/auth.env`, jeśli podano `GROQ_API_KEY`,
 - wdraża pliki do `/opt/propertyapp/app`,
 - wykonuje `npm ci --omit=dev`,

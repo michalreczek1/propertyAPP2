@@ -1,12 +1,13 @@
 'use strict';
 const router = require('express').Router();
 const db = require('../db');
-const { currentPeriod } = require('../utils/period');
+const { currentPeriod, isValidPeriod } = require('../utils/period');
 const { monthlyFinanceSummary, paidPartExpr } = require('../services/finance-summary');
 const { canSeeAll, ownerId } = require('../utils/scope');
 
 router.get('/', (req, res) => {
   const period = req.query.period || currentPeriod();
+  if (!isValidPeriod(period)) return res.status(400).json({ error: 'invalid_period' });
   const summary = monthlyFinanceSummary(db, period, req);
 
   res.json({

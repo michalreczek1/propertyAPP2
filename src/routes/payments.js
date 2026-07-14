@@ -3,13 +3,13 @@ const router = require('express').Router();
 const { z } = require('zod');
 const db = require('../db');
 const { validate } = require('../middleware/validate');
-const { dueDate, currentPeriod, todayLocalISO } = require('../utils/period');
+const { dueDate, currentPeriod, todayLocalISO, isValidPeriod } = require('../utils/period');
 const { assertRefs, canAccessPayment, ownerId } = require('../utils/scope');
 
 const LATE_FEE_AMOUNT = 50;
 
 const PaymentSchema = z.object({
-  period: z.string().regex(/^\d{4}-\d{2}$/),
+  period: z.string().refine(isValidPeriod, 'invalid_period'),
   tenant_id: z.coerce.number().int().positive().nullable().optional(),
   unit_id: z.coerce.number().int().positive().nullable().optional(),
   due_day: z.coerce.number().int().min(1).max(31).nullable().optional(),
@@ -96,6 +96,9 @@ function paymentJoinSql(where = '') {
 }
 
 router.get('/', (req, res) => {
+  for (const key of ['period', 'from_period', 'to_period']) {
+    if (req.query[key] && !isValidPeriod(req.query[key])) return res.status(400).json({ error: 'invalid_period' });
+  }
   const where = [];
   const params = [];
   if (req.query.period) { where.push('p.period = ?'); params.push(req.query.period); }

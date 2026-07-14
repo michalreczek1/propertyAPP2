@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS users (
   role TEXT NOT NULL DEFAULT 'user',
   password_hash TEXT NOT NULL,
   active INTEGER NOT NULL DEFAULT 1,
+  session_version INTEGER NOT NULL DEFAULT 1,
   last_login_at TIMESTAMP,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -351,6 +352,21 @@ CREATE INDEX IF NOT EXISTS idx_user_aliases_lookup
 `;
 
 db.exec(SCHEMA);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS schema_migrations (
+    id TEXT PRIMARY KEY,
+    applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
+function applyMigration(id, operation) {
+  if (db.prepare('SELECT 1 FROM schema_migrations WHERE id = ?').get(id)) return;
+  db.transaction(() => {
+    operation();
+    db.prepare('INSERT INTO schema_migrations(id) VALUES (?)').run(id);
+  })();
+  console.log(`✓ Migracja: ${id}`);
+}
 
 function columnExists(table, column) {
   return db.prepare(`PRAGMA table_info(${table})`).all().some(row => row.name === column);
@@ -359,6 +375,9 @@ function columnExists(table, column) {
 function ensureLegacyColumns() {
   if (!columnExists('properties', 'owner_user_id')) {
     db.prepare('ALTER TABLE properties ADD COLUMN owner_user_id INTEGER').run();
+  }
+  if (!columnExists('users', 'session_version')) {
+    db.prepare('ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 1').run();
   }
   for (const table of ['tenants', 'payments', 'expenses', 'tasks', 'documents', 'recurring_costs']) {
     if (!columnExists(table, 'owner_user_id')) {
@@ -559,17 +578,6 @@ function correctKnownPropertyDistricts() {
   `).run();
 }
 
-ensureLegacyColumns();
-backfillAdminUser();
-backfillPropertyOwner();
-ensureRecurringCostIndex();
-ensureNotificationLogIndexes();
-ensurePaymentIndexes();
-normalizePaymentDueDates();
-backfillLateFees();
-separateAutoLateFeesFromBasePayments();
-correctKnownPropertyDistricts();
-
 function numSetting(key, fallback = 0) {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
   if (!row || row.value == null || row.value === '') return fallback;
@@ -599,6 +607,22 @@ function backfillRecurringCosts() {
   if (chrobrego && chrobregoProp) insert.run('kredyt', adminId, chrobregoProp.id, chrobrego, validFrom, 'Backfill from settings');
 }
 
-backfillRecurringCosts();
+applyMigration('2026-07-14-001-legacy-columns', ensureLegacyColumns);
+applyMigration('2026-07-14-002-owner-backfill', () => {
+  backfillAdminUser();
+  backfillPropertyOwner();
+});
+applyMigration('2026-07-14-003-indexes', () => {
+  ensureRecurringCostIndex();
+  ensureNotificationLogIndexes();
+  ensurePaymentIndexes();
+});
+applyMigration('2026-07-14-004-payment-repairs', () => {
+  normalizePaymentDueDates();
+  backfillLateFees();
+  separateAutoLateFeesFromBasePayments();
+  correctKnownPropertyDistricts();
+});
+applyMigration('2026-07-14-005-recurring-cost-backfill', backfillRecurringCosts);
 console.log('✓ Schemat bazy gotowy:', db.name);
 console.log('  Tabele:', db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map(r => r.name).join(', '));

@@ -6,6 +6,7 @@ param(
   [string]$UploadsDir = "/opt/propertyapp/data/uploads",
   [string]$ServiceName = "propertyapp.service",
   [string]$EnvFile = "/etc/propertyapp/auth.env",
+  [int]$SnapshotKeep = 14,
   [string]$GroqApiKey = $env:GROQ_API_KEY,
   [switch]$SkipTests,
   [switch]$SkipSnapshot,
@@ -121,6 +122,11 @@ pct exec "`$CT_ID" -- bash -lc "tar --exclude='./node_modules' --exclude='./data
 
 echo "== snapshot =="
 $snapshotBlock
+if [ "$SnapshotKeep" -gt 0 ]; then
+  pct listsnapshot "`$CT_ID" | awk 'NR > 1 && `$1 ~ /^predeploy-propertyapp-/ {print `$1}' | sort -r | tail -n +`$(( $SnapshotKeep + 1 )) | while IFS= read -r old; do
+    [ -z "`$old" ] || pct delsnapshot "`$CT_ID" "`$old"
+  done
+fi
 
 echo "== stage archive =="
 rm -rf "`$STAGE"
