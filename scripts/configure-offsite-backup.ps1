@@ -104,7 +104,6 @@ $psi.UseShellExecute = $false
 $psi.RedirectStandardInput = $true
 $psi.RedirectStandardOutput = $true
 $psi.RedirectStandardError = $true
-$psi.StandardInputEncoding = [Text.UTF8Encoding]::new($false)
 $process = [Diagnostics.Process]::new()
 $process.StartInfo = $psi
 [void]$process.Start()
