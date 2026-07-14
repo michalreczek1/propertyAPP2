@@ -72,7 +72,6 @@ $remoteStage = "/tmp/propertyapp-deploy-$commit-$timestamp"
 $remoteScript = "/tmp/propertyapp-deploy-$commit-$timestamp.sh"
 $remoteKey = "/tmp/propertyapp-groq-key-$timestamp.txt"
 $snapshotName = "predeploy-propertyapp-$timestamp"
-$dbBackup = "/opt/propertyapp/data/backups/property-$timestamp-predeploy.db"
 $appBackupDir = "/opt/propertyapp/backups/app-predeploy-$timestamp"
 
 Write-Host ""
@@ -110,7 +109,6 @@ ARCHIVE="$remoteArchive"
 STAGE="$remoteStage"
 REMOTE_KEY="$remoteKey"
 APP_BACKUP_DIR="$appBackupDir"
-DB_BACKUP="$dbBackup"
 
 echo "== preflight =="
 pct status "`$CT_ID"
@@ -192,7 +190,7 @@ echo "== cleanup =="
 rm -rf "`$STAGE" "`$ARCHIVE" "$remoteScript"
 
 echo "Deploy OK: $commit"
-echo "DB backup: `$DB_BACKUP"
+echo "DB backups: /opt/propertyapp/data/backups (online snapshot, integrity-checked)"
 echo "App backup: `$APP_BACKUP_DIR/app.tar"
 "@
 
