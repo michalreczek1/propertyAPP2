@@ -162,6 +162,30 @@ function verifyActionToken(req, token) {
   return data;
 }
 
+function actionTokenHash(token) {
+  return crypto.createHash('sha256').update(String(token)).digest('hex');
+}
+
+function claimActionToken(req, token, action) {
+  try {
+    db.prepare(`
+      INSERT INTO assistant_action_executions(token_hash, owner_user_id, action_type)
+      VALUES (?, ?, ?)
+    `).run(actionTokenHash(token), req.user && req.user.id ? req.user.id : null, action.type);
+  } catch (err) {
+    if (err && String(err.code || '').includes('SQLITE_CONSTRAINT')) {
+      const duplicate = new Error('action_already_executed');
+      duplicate.status = 409;
+      throw duplicate;
+    }
+    throw err;
+  }
+}
+
+function releaseActionToken(token) {
+  db.prepare('DELETE FROM assistant_action_executions WHERE token_hash = ?').run(actionTokenHash(token));
+}
+
 function normalizeText(value) {
   return String(value || '')
     .normalize('NFKD')
@@ -2323,9 +2347,7 @@ function generatePayments(req, period) {
   return tx();
 }
 
-async function executeAssistantAction(req, body) {
-  const input = ExecuteSchema.parse(body || {});
-  const action = verifyActionToken(req, input.token);
+async function executeClaimedAssistantAction(req, action) {
   if (action.type === 'mark_payment_paid') {
     const payment = markPaymentPaid(req, action.payment_id, action.paid_date || todayLocalISO());
     return {
@@ -2374,6 +2396,19 @@ async function executeAssistantAction(req, body) {
   const err = new Error('unsupported_action');
   err.status = 400;
   throw err;
+}
+
+async function executeAssistantAction(req, body) {
+  const input = ExecuteSchema.parse(body || {});
+  const action = verifyActionToken(req, input.token);
+  claimActionToken(req, input.token, action);
+  try {
+    return await executeClaimedAssistantAction(req, action);
+  } catch (err) {
+    // Nie blokuj poprawnej ponownej próby po błędzie przed wykonaniem akcji.
+    releaseActionToken(input.token);
+    throw err;
+  }
 }
 
 module.exports = {

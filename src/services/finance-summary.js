@@ -229,8 +229,8 @@ function perUnitForPeriod(db, period, ownerCosts, req = null) {
            (SELECT COUNT(*) FROM units ux WHERE ux.property_id = p.id) AS property_units
     FROM units u
     JOIN properties p ON p.id = u.property_id
-    LEFT JOIN tenants t ON t.current_unit_id = u.id AND t.status='active'
     LEFT JOIN payments pm ON pm.unit_id = u.id AND pm.period = ?
+    LEFT JOIN tenants t ON t.id = pm.tenant_id
     ${scope.sql ? 'WHERE ' + scope.sql : ''}
     ORDER BY p.name, u.code
   `).all(period, period, period, ...scope.params);

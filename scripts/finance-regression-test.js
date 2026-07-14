@@ -144,6 +144,11 @@ recurring.run('zarzadzanie', null, 500, '2026-01');
 recurring.run('kredyt', chrobregoId, 3030, '2026-01');
 recurring.run('kredyt', chrobregoId, 4000, '2026-05');
 
+// Historyczne rozliczenie musi wskazywać najemcę z płatności, nie osobę,
+// która obecnie zajmuje lokal.
+db.prepare("UPDATE tenants SET current_unit_id = NULL, status = 'inactive' WHERE id = ?").run(tenantIds[0]);
+tenant.run('New tenant', krId, 'active');
+
 const april = monthlyFinanceSummary(db, '2026-04');
 near(april.revenue.gross, 8590, 'April revenue');
 near(april.revenue.rent_paid, 6310, 'April rent tax base');
@@ -157,6 +162,7 @@ near(april.per_unit.reduce((sum, row) => sum + row.expenses, 0), april.expenses.
 const aprilKr = april.per_unit.find(row => row.unit_code === 'KR');
 near(aprilKr.direct_expenses, 0, 'KR has no direct unit expenses');
 near(aprilKr.allocated_expenses, 1065.54, 'KR gets property and owner costs allocated');
+assert.equal(aprilKr.tenant_name, 'Tenant 1', 'Historical payment keeps its original tenant');
 const aprilChrobregoAllocated = april.per_unit
   .filter(row => row.property_name.includes('Chrobrego'))
   .map(row => row.allocated_expenses)

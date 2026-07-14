@@ -668,14 +668,20 @@ async function main() {
     expect(String(r.data.title || '').includes('Podsumowanie'), JSON.stringify(r.data));
     return r.data.title;
   });
-  let aiTaskId = null, aiExpenseId = null, aiAuditTaskIds = [], aiFilledPaymentIds = [];
+  let aiTaskId = null, aiTaskToken = null, aiExpenseId = null, aiAuditTaskIds = [], aiFilledPaymentIds = [];
   await check('POST /api/assistant/execute creates task', async () => {
     const parsed = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'dodaj zadanie sprawdzić licznik prądu' });
     expect(parsed.ok && parsed.data.action && parsed.data.action.token, JSON.stringify(parsed));
+    aiTaskToken = parsed.data.action.token;
     const r = await api('POST', '/api/assistant/execute', { token: parsed.data.action.token });
     expect(r.ok && r.data.task && r.data.task.title.includes('sprawdzi'), JSON.stringify(r));
     aiTaskId = r.data.task.id;
     return `task=${aiTaskId}`;
+  });
+  await check('POST /api/assistant/execute rejects replayed token', async () => {
+    const r = await api('POST', '/api/assistant/execute', { token: aiTaskToken });
+    expect(r.status === 409 && r.data.error === 'action_already_executed', JSON.stringify(r));
+    return r.data.error;
   });
   await check('POST /api/assistant/execute adds expense', async () => {
     const parsed = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'dodaj koszt prąd 123 zł' });

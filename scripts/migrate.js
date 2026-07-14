@@ -332,6 +332,17 @@ CREATE TABLE IF NOT EXISTS ai_queries (
 CREATE INDEX IF NOT EXISTS idx_ai_queries_created ON ai_queries(created_at);
 CREATE INDEX IF NOT EXISTS idx_ai_queries_metric ON ai_queries(metric_used, unmatched);
 
+-- Jednorazowe wykonanie podpisanych akcji asystenta (ochrona przed retry/dwuklikiem)
+CREATE TABLE IF NOT EXISTS assistant_action_executions (
+  token_hash TEXT PRIMARY KEY,
+  owner_user_id INTEGER,
+  action_type TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_assistant_action_executions_created
+  ON assistant_action_executions(created_at);
+
 CREATE TABLE IF NOT EXISTS user_aliases (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   owner_user_id INTEGER,
@@ -624,5 +635,18 @@ applyMigration('2026-07-14-004-payment-repairs', () => {
   correctKnownPropertyDistricts();
 });
 applyMigration('2026-07-14-005-recurring-cost-backfill', backfillRecurringCosts);
+applyMigration('2026-07-14-006-assistant-action-idempotence', () => {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS assistant_action_executions (
+      token_hash TEXT PRIMARY KEY,
+      owner_user_id INTEGER,
+      action_type TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_assistant_action_executions_created
+      ON assistant_action_executions(created_at);
+  `);
+});
 console.log('✓ Schemat bazy gotowy:', db.name);
 console.log('  Tabele:', db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map(r => r.name).join(', '));

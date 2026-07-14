@@ -10,7 +10,7 @@ const { notFound, errorHandler } = require('./middleware/error');
 const { authStatus, installAuth, requireAuth } = require('./middleware/auth');
 
 const { startNotificationScheduler } = require('./services/notifications');
-const { purgeExpiredAiQueries } = require('./services/retention');
+const { purgeExpiredAiQueries, purgeExpiredAssistantActions } = require('./services/retention');
 
 const PORT = +(process.env.PORT || 8090);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -130,5 +130,7 @@ app.listen(PORT, HOST, () => {
   console.log(`  DB: ${db.name}`);
   const purged = purgeExpiredAiQueries();
   if (purged) console.log(`  AI retention: removed ${purged} expired records`);
+  const purgedActions = purgeExpiredAssistantActions();
+  if (purgedActions) console.log(`  Assistant action retention: removed ${purgedActions} expired records`);
   startNotificationScheduler();
 });
