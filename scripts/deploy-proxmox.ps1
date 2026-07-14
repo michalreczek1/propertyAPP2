@@ -18,14 +18,17 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-function Run($Command, [switch]$Secret) {
+function Run([string]$Description, [scriptblock]$Action, [switch]$Secret) {
   if ($Secret) {
     Write-Host ">> [secret command hidden]"
   } else {
-    Write-Host ">> $Command"
+    Write-Host ">> $Description"
   }
   if (-not $DryRun) {
-    Invoke-Expression $Command
+    & $Action
+    if ($LASTEXITCODE -ne 0) {
+      throw "Command failed ($LASTEXITCODE): $Description"
+    }
   }
 }
 
@@ -55,12 +58,12 @@ if ($RequireGroqKey -and [string]::IsNullOrWhiteSpace($GroqApiKey)) {
 }
 
 if (-not $SkipTests) {
-  Run "npm run smoke"
-  Run "npm run test:auth"
-  Run "npm run test:rental-model"
-  Run "npm run test:seed-safety"
-  Run "npm run test:finance"
-  Run "npm run test:ui"
+  Run "npm run smoke" { & npm run smoke }
+  Run "npm run test:auth" { & npm run test:auth }
+  Run "npm run test:rental-model" { & npm run test:rental-model }
+  Run "npm run test:seed-safety" { & npm run test:seed-safety }
+  Run "npm run test:finance" { & npm run test:finance }
+  Run "npm run test:ui" { & npm run test:ui }
 }
 
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
@@ -81,14 +84,16 @@ Write-Host "Branch/commit: $branch $commit"
 Write-Host "Snapshot: $snapshotName"
 Write-Host ""
 
-Run "git archive --format=tar --output `"$archivePath`" HEAD"
-Run "scp `"$archivePath`" ${SshHost}:$remoteArchive"
+$keyPath = $null
+$localRemoteScript = $null
+try {
+Run "git archive --format=tar --output `"$archivePath`" HEAD" { & git archive --format=tar --output $archivePath HEAD }
+Run "scp application archive" { & scp $archivePath "${SshHost}:$remoteArchive" }
 
 if (-not [string]::IsNullOrWhiteSpace($GroqApiKey)) {
   $keyPath = Join-Path $env:TEMP "propertyapp-groq-key-$timestamp.txt"
   [System.IO.File]::WriteAllText($keyPath, $GroqApiKey, [System.Text.UTF8Encoding]::new($false))
-  Run "scp `"$keyPath`" ${SshHost}:$remoteKey" -Secret
-  Remove-Item $keyPath -Force
+  Run "scp Groq key" { & scp $keyPath "${SshHost}:$remoteKey" } -Secret
 }
 
 $snapshotBlock = if ($SkipSnapshot) {
@@ -109,7 +114,11 @@ ENV_FILE="$EnvFile"
 ARCHIVE="$remoteArchive"
 STAGE="$remoteStage"
 REMOTE_KEY="$remoteKey"
+REMOTE_SCRIPT="$remoteScript"
 APP_BACKUP_DIR="$appBackupDir"
+
+cleanup() { rm -rf "`$STAGE" "`$ARCHIVE" "`$REMOTE_KEY" "`$REMOTE_SCRIPT"; }
+trap cleanup EXIT
 
 echo "== preflight =="
 pct status "`$CT_ID"
@@ -208,7 +217,6 @@ pct exec "`$CT_ID" -- systemctl is-active --quiet "`$SERVICE_NAME"
 pct exec "`$CT_ID" -- curl -fsS http://127.0.0.1:8090/health
 
 echo "== cleanup =="
-rm -rf "`$STAGE" "`$ARCHIVE" "$remoteScript"
 
 echo "Deploy OK: $commit"
 echo "DB backups: /opt/propertyapp/data/backups (online snapshot, integrity-checked)"
@@ -217,15 +225,18 @@ echo "App backup: `$APP_BACKUP_DIR/app.tar"
 
 $localRemoteScript = Join-Path $env:TEMP "propertyapp-deploy-$commit-$timestamp.sh"
 [System.IO.File]::WriteAllText($localRemoteScript, $remoteScriptContent, [System.Text.UTF8Encoding]::new($false))
-Run "scp `"$localRemoteScript`" ${SshHost}:$remoteScript"
-Remove-Item $localRemoteScript -Force
+Run "scp deployment script" { & scp $localRemoteScript "${SshHost}:$remoteScript" }
 
-Run "ssh $SshHost 'bash $remoteScript'"
-
-if (Test-Path $archivePath) {
-  Remove-Item $archivePath -Force
+Run "run deployment on Proxmox" { & ssh $SshHost "bash $remoteScript" }
+}
+finally {
+  foreach ($file in @($archivePath, $keyPath, $localRemoteScript)) {
+    if ($file -and (Test-Path -LiteralPath $file)) {
+      Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+    }
+  }
 }
 
 Write-Host ""
 Write-Host "Public smoke:"
-Run "curl.exe -I https://propertyapp.familyos.pl"
+Run "curl.exe -I https://propertyapp.familyos.pl" { & curl.exe -I https://propertyapp.familyos.pl }

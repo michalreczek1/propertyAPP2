@@ -62,6 +62,19 @@ router.post('/change-password', async (req, res) => {
 
 router.use(requireAdmin);
 
+router.get('/audit', (req, res) => {
+  const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 100));
+  const rows = db.prepare(`
+    SELECT a.id, a.action, a.resource, a.target_id, a.status_code, a.request_path, a.created_at,
+           u.username AS actor_username, u.display_name AS actor_display_name
+    FROM audit_log a
+    LEFT JOIN users u ON u.id = a.actor_user_id
+    ORDER BY a.id DESC
+    LIMIT ?
+  `).all(limit);
+  res.json(rows);
+});
+
 router.get('/users', (_req, res) => {
   const users = db.prepare(`
     SELECT ${USER_FIELDS},

@@ -24,6 +24,8 @@
     "test:rental-model": "node scripts/rental-model-test.js",
     "test:seed-safety": "node scripts/seed-safety-test.js",
     "test:ui": "playwright test",
+    "lint": "eslint .",
+    "test:ci": "npm run lint && npm run smoke && npm run test:auth && npm run test:rental-model && npm run test:seed-safety && npm run test:finance && npm run test:ui",
     "deploy:proxmox": "powershell -ExecutionPolicy Bypass -File scripts/deploy-proxmox.ps1",
     "migrate:prod": "npm run migrate",
     "setup": "npm run migrate && npm run seed",
@@ -41,6 +43,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@playwright/test": "^1.59.1"
+    "@playwright/test": "^1.59.1",
+    "eslint": "^9.39.5"
   }
 }

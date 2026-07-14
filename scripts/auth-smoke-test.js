@@ -102,8 +102,11 @@ async function main() {
   for (const unsafe of ['https://evil.example', '//evil.example', 'javascript:alert(1)', '/%5C%5Cevil.example']) {
     const login = await fetch(base + `/login?next=${encodeURIComponent(unsafe)}`);
     const html = await login.text();
-    expect(login.ok && html.includes('location.href="/"'), `login page retained unsafe next redirect: ${unsafe}`);
+    expect(login.ok && html.includes('data-next="%2F"'), `login page retained unsafe next redirect: ${unsafe}`);
+    expect(html.includes('<script src="/login.js"></script>') && !html.includes('<script>'), 'login page still contains inline JavaScript');
   }
+  const loginScript = await fetch(base + '/login.js');
+  expect(loginScript.ok && (loginScript.headers.get('content-type') || '').includes('javascript'), 'login JavaScript is not publicly available');
 
   const blocked = await fetch(base + '/api/dashboard');
   expect(blocked.status === 401, `expected unauthorized API, got ${blocked.status}`);
@@ -143,6 +146,8 @@ async function main() {
   const app = await fetch(base + '/', { headers: { Cookie: cookie } });
   const html = await app.text();
   expect(app.ok && html.includes('PropertyApp'), 'authenticated app shell did not render');
+  const csp = app.headers.get('content-security-policy') || '';
+  expect(csp.includes("script-src 'self'") && !csp.includes('unsafe-eval'), `missing strict script CSP: ${csp}`);
 
   const api = await fetch(base + '/api/dashboard', { headers: { Cookie: cookie } });
   expect(api.ok, `authenticated API failed: ${api.status}`);
@@ -191,6 +196,9 @@ async function main() {
   });
   expect(adminProperty.status === 201, `admin property failed: ${adminProperty.status}`);
   const adminPropertyId = (await adminProperty.json()).id;
+  const audit = await fetch(base + '/api/admin/audit', { headers: { Cookie: cookie } });
+  const auditRows = await audit.json();
+  expect(audit.ok && auditRows.some(row => row.resource === 'properties' && row.action === 'post'), 'property creation was not recorded in audit log');
 
   const createUser = await fetch(base + '/api/admin/users', {
     method: 'POST',

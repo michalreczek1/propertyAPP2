@@ -257,6 +257,7 @@ function loginPage(req, res) {
   if (status.user) return res.redirect('/');
   const configMissing = status.enabled && !status.configured;
   const safeNext = safeNextPath(req.query.next);
+  const encodedNext = encodeURIComponent(safeNext);
   res.setHeader('Cache-Control', 'no-store, must-revalidate');
   res.setHeader('Content-Type', 'text/html; charset=UTF-8');
   res.send(`<!DOCTYPE html>
@@ -285,7 +286,7 @@ button:disabled{opacity:.55;cursor:not-allowed}.err{display:none;color:#fecdd3;b
     <div class="title">PropertyApp</div>
     <div class="sub">${configMissing ? 'Logowanie wymaga konfiguracji na serwerze.' : 'Zaloguj się do panelu zarządzania najmem.'}</div>
   </div>
-  <form id="login-form">
+  <form id="login-form" data-next="${encodedNext}">
     <div class="err${configMissing ? ' on' : ''}" id="login-error">${configMissing ? 'Brakuje APP_AUTH_USER, APP_AUTH_PASSWORD_HASH albo APP_SESSION_SECRET.' : ''}</div>
     <div><label>Login<input name="username" autocomplete="username" ${configMissing ? 'disabled' : ''}></label></div>
     <div><label>Hasło<input name="password" type="password" autocomplete="current-password" ${configMissing ? 'disabled' : ''}></label></div>
@@ -293,20 +294,7 @@ button:disabled{opacity:.55;cursor:not-allowed}.err{display:none;color:#fecdd3;b
   </form>
   <div class="foot">Sesja jest zapisywana w bezpiecznym ciasteczku httpOnly.</div>
 </main>
-<script>
-const form=document.getElementById('login-form'),err=document.getElementById('login-error');
-form.addEventListener('submit',async e=>{
-  e.preventDefault(); err.className='err'; err.textContent='';
-  const btn=form.querySelector('button'); btn.disabled=true;
-  try{
-    const body=Object.fromEntries(new FormData(form).entries());
-    const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    const data=await r.json().catch(()=>({}));
-    if(!r.ok) throw new Error(data.error==='invalid_credentials'?'Nieprawidłowy login lub hasło.':data.error||'Błąd logowania');
-    location.href=${JSON.stringify(safeNext)};
-  }catch(ex){err.textContent=ex.message;err.className='err on';btn.disabled=false;}
-});
-</script>
+<script src="/login.js"></script>
 </body>
 </html>`);
 }

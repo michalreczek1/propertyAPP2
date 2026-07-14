@@ -11,6 +11,7 @@ const { authStatus, installAuth, requireAuth } = require('./middleware/auth');
 
 const { startNotificationScheduler } = require('./services/notifications');
 const { purgeExpiredAiQueries, purgeExpiredAssistantActions, purgeExpiredLoginAttempts } = require('./services/retention');
+const { auditMutation, purgeExpiredAuditLog } = require('./services/audit-log');
 
 const PORT = +(process.env.PORT || 8090);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -18,6 +19,21 @@ const HOST = process.env.HOST || '0.0.0.0';
 const app = express();
 app.disable('x-powered-by');
 if (process.env.TRUST_PROXY === '1') app.set('trust proxy', 1);
+app.use((_req, res, next) => {
+  res.setHeader('Content-Security-Policy', [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data:",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "frame-ancestors 'self'",
+    "form-action 'self'",
+  ].join('; '));
+  next();
+});
 app.use(morgan('tiny'));
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -31,6 +47,7 @@ app.get('/health', (_req, res) => {
 });
 
 app.use('/api', requireAuth);
+app.use('/api', auditMutation);
 app.use('/api/dashboard',  require('./routes/dashboard'));
 app.use('/api/reports',    require('./routes/reports'));
 app.use('/api/properties', require('./routes/properties'));
@@ -83,6 +100,7 @@ app.use('/vendor', express.static(path.join(__dirname, '..', 'node_modules', 'ch
 }));
 
 function requirePageAuth(req, res, next) {
+  if (req.path === '/login.js') return next();
   const status = authStatus(req);
   if (!status.enabled || status.user) return next();
   const nextUrl = encodeURIComponent(req.originalUrl || '/');
@@ -134,5 +152,7 @@ app.listen(PORT, HOST, () => {
   if (purgedActions) console.log(`  Assistant action retention: removed ${purgedActions} expired records`);
   const purgedLoginAttempts = purgeExpiredLoginAttempts();
   if (purgedLoginAttempts) console.log(`  Login rate-limit retention: removed ${purgedLoginAttempts} expired records`);
+  const purgedAuditLog = purgeExpiredAuditLog();
+  if (purgedAuditLog) console.log(`  Audit log retention: removed ${purgedAuditLog} expired records`);
   startNotificationScheduler();
 });

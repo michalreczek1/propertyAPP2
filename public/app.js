@@ -138,6 +138,51 @@ function escapeHtml(s) {
   if (s == null) return '';
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+
+// Starsze widoki generują przyciski z `onclick`. CSP blokuje wykonywanie
+// atrybutów inline, dlatego przed interakcją zamieniamy je na listenery z
+// kontrolowaną listą funkcji i bez dynamicznej ewaluacji JavaScript.
+const LEGACY_CLICK_ACTIONS = new Set([
+  'editPayment', 'deletePayment', 'editProperty', 'openTenantDetails',
+  'editContract', 'endContractFlow', 'tenantTurnover', 'editUnit',
+  'openSmsReminderPreview', 'resolveLateFee', 'openContractDocuments',
+  'deleteContract', 'deleteContractDocument', 'editOwnerMortgageCost',
+  'editExpense', 'deleteExpense', 'toggleTask', 'editTask', 'deleteTask',
+  'deleteDoc',
+]);
+
+function parseLegacyActionArgs(raw) {
+  if (!raw.trim()) return [];
+  return raw.split(',').map((part) => {
+    const value = part.trim();
+    if (value === 'null') return null;
+    if (/^\d+$/.test(value)) return Number(value);
+    const quoted = value.match(/^'([^']*)'$/);
+    if (quoted && /^[0-9-]+$/.test(quoted[1])) return quoted[1];
+    throw new Error('Unsupported legacy action argument');
+  });
+}
+
+function bindLegacyClickActions(root) {
+  const nodes = [];
+  if (root instanceof Element && root.matches('[onclick]')) nodes.push(root);
+  if (root.querySelectorAll) nodes.push(...root.querySelectorAll('[onclick]'));
+  for (const node of nodes) {
+    if (node.dataset.cspBound === '1') continue;
+    const match = String(node.getAttribute('onclick') || '').match(/^([A-Za-z][A-Za-z0-9_]*)\((.*)\)$/);
+    if (!match || !LEGACY_CLICK_ACTIONS.has(match[1])) continue;
+    let args;
+    try { args = parseLegacyActionArgs(match[2]); } catch { continue; }
+    node.removeAttribute('onclick');
+    node.dataset.cspBound = '1';
+    node.addEventListener('click', (event) => {
+      event.preventDefault();
+      const handler = window[match[1]];
+      if (typeof handler !== 'function') return;
+      Promise.resolve(handler(...args)).catch((error) => toast(error.message || 'Błąd akcji', 'err'));
+    });
+  }
+}
 function deltaPill(delta, opts={}) {
   if (delta == null || !Number.isFinite(delta) || delta === 0) return `<span class="delta-n">— bez zmian</span>`;
   const pct = (delta * 100).toFixed(1);
@@ -225,6 +270,7 @@ function modal({ title, body, footer, wide, onClose }) {
         ${footer?`<div class="modal-ft">${footer}</div>`:''}
       </div>
     </div>`;
+  bindLegacyClickActions(root);
   const close = () => { root.innerHTML = ''; if (onClose) onClose(); };
   root.querySelector('#m-close').onclick = close;
   root.querySelector('.modal-overlay').addEventListener('click', e => {
@@ -3438,6 +3484,12 @@ async function doExcelImport(file) {
 
 // ═══════════════════════ INIT ═══════════════════════
 function init() {
+  bindLegacyClickActions(document);
+  new MutationObserver((records) => {
+    for (const record of records) {
+      for (const node of record.addedNodes) bindLegacyClickActions(node);
+    }
+  }).observe(document.body, { childList: true, subtree: true });
   document.querySelectorAll('#nav .nav-item').forEach(it => {
     it.onclick = () => navigate(it.dataset.view);
   });

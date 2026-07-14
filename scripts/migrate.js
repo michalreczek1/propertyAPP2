@@ -683,5 +683,22 @@ applyMigration('2026-07-14-008-persistent-login-rate-limit', () => {
     CREATE INDEX IF NOT EXISTS idx_login_attempts_reset_at ON login_attempts(reset_at);
   `);
 });
+applyMigration('2026-07-14-009-audit-log', () => {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      actor_user_id INTEGER,
+      action TEXT NOT NULL,
+      resource TEXT NOT NULL,
+      target_id TEXT,
+      status_code INTEGER NOT NULL,
+      request_path TEXT NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
+    CREATE INDEX IF NOT EXISTS idx_audit_log_resource_target ON audit_log(resource, target_id);
+  `);
+});
 console.log('✓ Schemat bazy gotowy:', db.name);
 console.log('  Tabele:', db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map(r => r.name).join(', '));
