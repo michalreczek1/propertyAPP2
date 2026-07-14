@@ -25,7 +25,8 @@ const SETTING_KEYS = [
 const DEFAULT_TEMPLATES = {
   test: 'Test SMS PropertyApp: konfiguracja powiadomien dziala.',
   due_reminder: 'Przypomnienie: termin platnosci za {unit} ({period}) uplywa {due_date}. Kwota: {amount} zl.',
-  overdue: 'Przypomnienie: nie odnotowano platnosci za {unit} ({period}). Kwota: {amount} zl. Prosimy o uregulowanie.',
+  overdue:
+    'Przypomnienie: nie odnotowano platnosci za {unit} ({period}). Kwota: {amount} zl. Prosimy o uregulowanie.',
 };
 
 const DEFAULT_SETTINGS = {
@@ -62,7 +63,9 @@ function intSetting(settings, key, fallback) {
 
 function getRawSetting(req, key) {
   if (!canSeeAll(req) && tableExists('user_settings')) {
-    const row = db.prepare('SELECT value FROM user_settings WHERE owner_user_id = ? AND key = ?').get(ownerId(req), key);
+    const row = db
+      .prepare('SELECT value FROM user_settings WHERE owner_user_id = ? AND key = ?')
+      .get(ownerId(req), key);
     if (row) return row.value;
   }
   const global = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
@@ -108,8 +111,10 @@ function validateSettings(body) {
   if (h > 23 || m > 59) throw Object.assign(new Error('invalid_send_time'), { status: 400 });
   const overdueDays = Number(body.overdue_days ?? 1);
   const reminderDays = Number(body.reminder_days_before_due ?? 3);
-  if (!Number.isInteger(overdueDays) || overdueDays < 0 || overdueDays > 31) throw Object.assign(new Error('invalid_overdue_days'), { status: 400 });
-  if (!Number.isInteger(reminderDays) || reminderDays < 0 || reminderDays > 31) throw Object.assign(new Error('invalid_reminder_days'), { status: 400 });
+  if (!Number.isInteger(overdueDays) || overdueDays < 0 || overdueDays > 31)
+    throw Object.assign(new Error('invalid_overdue_days'), { status: 400 });
+  if (!Number.isInteger(reminderDays) || reminderDays < 0 || reminderDays > 31)
+    throw Object.assign(new Error('invalid_reminder_days'), { status: 400 });
   const templateTest = String(body.template_test || DEFAULT_TEMPLATES.test).trim();
   const templateDueReminder = String(body.template_due_reminder || DEFAULT_TEMPLATES.due_reminder).trim();
   const templateOverdue = String(body.template_overdue || DEFAULT_TEMPLATES.overdue).trim();
@@ -174,7 +179,9 @@ function monthLabel(period) {
 function templateContext(row) {
   const due = row.due_date ? row.due_date.slice(8, 10) + '.' + row.due_date.slice(5, 7) : 'terminu';
   const unit = row.unit_code || row.unit_name || 'lokal';
-  const amount = money(Number(row.rent_amount || 0) + Number(row.media_amount || 0) + Number(row.other_amount || 0));
+  const amount = money(
+    Number(row.rent_amount || 0) + Number(row.media_amount || 0) + Number(row.other_amount || 0),
+  );
   return {
     tenant: row.tenant_name || '',
     unit,
@@ -193,14 +200,15 @@ function renderTemplate(template, row) {
 }
 
 function buildMessage(type, row, settings) {
-  const template = type === 'overdue'
-    ? settings.template_overdue
-    : settings.template_due_reminder;
+  const template = type === 'overdue' ? settings.template_overdue : settings.template_due_reminder;
   return renderTemplate(template, row);
 }
 
 function messageHash(message) {
-  return crypto.createHash('sha256').update(String(message || '')).digest('hex');
+  return crypto
+    .createHash('sha256')
+    .update(String(message || ''))
+    .digest('hex');
 }
 
 function scopeSql(req, aliases = {}) {
@@ -217,11 +225,14 @@ function scopeSql(req, aliases = {}) {
 
 function eligiblePayments(type, settings, req, today = todayLocalISO()) {
   const scope = scopeSql(req);
-  const reminderClause = type === 'due_reminder'
-    ? `AND DATE(p.due_date, '-' || ? || ' day') = DATE(?)`
-    : `AND DATE(p.due_date, '+' || ? || ' day') <= DATE(?)`;
+  const reminderClause =
+    type === 'due_reminder'
+      ? `AND DATE(p.due_date, '-' || ? || ' day') = DATE(?)`
+      : `AND DATE(p.due_date, '+' || ? || ' day') <= DATE(?)`;
   const dayValue = type === 'due_reminder' ? settings.reminder_days_before_due : settings.overdue_days;
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT p.*, t.name AS tenant_name, t.phone, t.sms_consent, t.sms_disabled,
            u.name AS unit_name, u.code AS unit_code, pr.name AS property_name
     FROM payments p
@@ -243,36 +254,43 @@ function eligiblePayments(type, settings, req, today = todayLocalISO()) {
       )
       ${scope.sql}
     ORDER BY p.due_date, t.name
-  `).all(dayValue, today, type, ...scope.params);
+  `,
+    )
+    .all(dayValue, today, type, ...scope.params);
 }
 
 function insertLog(row, type, phone, message, status = 'queued', error = null) {
-  const result = db.prepare(`
+  const result = db
+    .prepare(
+      `
     INSERT INTO notification_logs (
       owner_user_id, payment_id, tenant_id, unit_id, period, channel, type,
       recipient_phone, message_hash, message_text, status, attempts,
       error_code, error_message, next_attempt_at
     )
     VALUES (?, ?, ?, ?, ?, 'sms', ?, ?, ?, ?, ?, 0, ?, ?, CURRENT_TIMESTAMP)
-  `).run(
-    row.owner_user_id || null,
-    row.id,
-    row.tenant_id,
-    row.unit_id,
-    row.period,
-    type,
-    phone,
-    messageHash(message),
-    message,
-    status,
-    error && error.code ? String(error.code) : null,
-    error && error.message ? String(error.message) : null
-  );
+  `,
+    )
+    .run(
+      row.owner_user_id || null,
+      row.id,
+      row.tenant_id,
+      row.unit_id,
+      row.period,
+      type,
+      phone,
+      messageHash(message),
+      message,
+      status,
+      error && error.code ? String(error.code) : null,
+      error && error.message ? String(error.message) : null,
+    );
   return db.prepare('SELECT * FROM notification_logs WHERE id = ?').get(result.lastInsertRowid);
 }
 
 function updateLogSuccess(logId, providerMessageId, simulated = false) {
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE notification_logs
     SET status = ?,
         attempts = attempts + 1,
@@ -283,7 +301,8 @@ function updateLogSuccess(logId, providerMessageId, simulated = false) {
         last_attempt_at = CURRENT_TIMESTAMP,
         sent_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(simulated ? 'simulated' : 'sent', providerMessageId || null, logId);
+  `,
+  ).run(simulated ? 'simulated' : 'sent', providerMessageId || null, logId);
 }
 
 function providerDateToSql(value) {
@@ -295,25 +314,29 @@ function providerDateToSql(value) {
 function updateDeliveryStatus(log, delivery) {
   if (!delivery) return { id: log.id, status: log.status, changed: false, reason: 'delivery_row_missing' };
   if (delivery.delivered) {
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE notification_logs
       SET status = 'delivered',
           error_code = NULL,
           error_message = NULL,
           delivered_at = COALESCE(?, delivered_at, CURRENT_TIMESTAMP)
       WHERE id = ?
-    `).run(providerDateToSql(delivery.deliveredAt), log.id);
+    `,
+    ).run(providerDateToSql(delivery.deliveredAt), log.id);
     return { id: log.id, status: 'delivered', changed: log.status !== 'delivered' };
   }
   if (delivery.rejectReason) {
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE notification_logs
       SET status = 'failed',
           error_code = 'delivery_rejected',
           error_message = ?,
           delivered_at = NULL
       WHERE id = ?
-    `).run(delivery.rejectReason, log.id);
+    `,
+    ).run(delivery.rejectReason, log.id);
     return { id: log.id, status: 'failed', changed: log.status !== 'failed', error: delivery.rejectReason };
   }
   return { id: log.id, status: log.status, changed: false, reason: 'delivery_pending' };
@@ -323,7 +346,8 @@ function updateLogFailure(logId, errorCode, errorMessage, attemptsBefore, noRetr
   const attempts = attemptsBefore + 1;
   const retryDelay = RETRY_DELAYS_MINUTES[Math.min(attempts - 1, RETRY_DELAYS_MINUTES.length - 1)];
   const finalStatus = noRetry || attempts >= MAX_ATTEMPTS ? 'failed' : 'queued';
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE notification_logs
     SET status = ?,
         attempts = ?,
@@ -332,7 +356,16 @@ function updateLogFailure(logId, errorCode, errorMessage, attemptsBefore, noRetr
         next_attempt_at = CASE WHEN ? = 'queued' THEN DATETIME('now', '+' || ? || ' minutes') ELSE NULL END,
         last_attempt_at = CURRENT_TIMESTAMP
     WHERE id = ?
-  `).run(finalStatus, attempts, errorCode || null, errorMessage || 'send_failed', finalStatus, retryDelay, logId);
+  `,
+  ).run(
+    finalStatus,
+    attempts,
+    errorCode || null,
+    errorMessage || 'send_failed',
+    finalStatus,
+    retryDelay,
+    logId,
+  );
 }
 
 async function sendLog(log, settings) {
@@ -347,29 +380,58 @@ async function sendLog(log, settings) {
       transactional: settings.transactional,
     });
   } catch (err) {
-    updateLogFailure(log.id, err.code || 'send_failed', err.message || 'send_failed', Number(log.attempts || 0), log.type === 'test');
-    return { ok: false, id: log.id, error: err.message || 'send_failed', error_code: err.code || 'send_failed' };
+    updateLogFailure(
+      log.id,
+      err.code || 'send_failed',
+      err.message || 'send_failed',
+      Number(log.attempts || 0),
+      log.type === 'test',
+    );
+    return {
+      ok: false,
+      id: log.id,
+      error: err.message || 'send_failed',
+      error_code: err.code || 'send_failed',
+    };
   }
   if (result.ok) {
     updateLogSuccess(log.id, result.messageId, settings.test_mode);
-    return { ok: true, id: log.id, message_id: result.messageId, status: settings.test_mode ? 'simulated' : 'sent' };
+    return {
+      ok: true,
+      id: log.id,
+      message_id: result.messageId,
+      status: settings.test_mode ? 'simulated' : 'sent',
+    };
   }
-  updateLogFailure(log.id, result.errorCode, result.errorMessage, Number(log.attempts || 0), log.type === 'test');
+  updateLogFailure(
+    log.id,
+    result.errorCode,
+    result.errorMessage,
+    Number(log.attempts || 0),
+    log.type === 'test',
+  );
   return { ok: false, id: log.id, error: result.errorMessage, error_code: result.errorCode };
 }
 
 async function enqueueAndSend(row, type, settings, dryRun = false) {
   const actualPhone = normalizePhone(row.phone);
-  const targetPhone = settings.test_mode && normalizePhone(settings.test_phone)
-    ? normalizePhone(settings.test_phone)
-    : actualPhone;
+  const targetPhone =
+    settings.test_mode && normalizePhone(settings.test_phone)
+      ? normalizePhone(settings.test_phone)
+      : actualPhone;
   const message = buildMessage(type, row, settings);
   if (!actualPhone) {
-    const skipped = insertLog(row, type, null, message, 'skipped', { code: 'invalid_phone', message: 'invalid_phone' });
+    const skipped = insertLog(row, type, null, message, 'skipped', {
+      code: 'invalid_phone',
+      message: 'invalid_phone',
+    });
     return { status: 'skipped', reason: 'invalid_phone', id: skipped && skipped.id };
   }
   if (!targetPhone) {
-    const skipped = insertLog(row, type, actualPhone, message, 'skipped', { code: 'test_phone_required', message: 'test_phone_required' });
+    const skipped = insertLog(row, type, actualPhone, message, 'skipped', {
+      code: 'test_phone_required',
+      message: 'test_phone_required',
+    });
     return { status: 'skipped', reason: 'test_phone_required', id: skipped && skipped.id };
   }
   if (dryRun) {
@@ -385,13 +447,30 @@ async function enqueueAndSend(row, type, settings, dryRun = false) {
   const log = insertLog(row, type, targetPhone, message);
   if (!log) return { status: 'skipped', reason: 'already_logged' };
   const sent = await sendLog(log, settings);
-  return sent.ok ? { status: sent.status || 'sent', id: log.id, message_id: sent.message_id } : { status: 'failed', id: log.id, error: sent.error };
+  return sent.ok
+    ? { status: sent.status || 'sent', id: log.id, message_id: sent.message_id }
+    : { status: 'failed', id: log.id, error: sent.error };
 }
 
-async function runNotificationScan({ req = null, type = 'all', dryRun = false, today = todayLocalISO() } = {}) {
+async function runNotificationScan({
+  req = null,
+  type = 'all',
+  dryRun = false,
+  today = todayLocalISO(),
+} = {}) {
   const settings = getNotificationSettings(req);
   const types = type === 'all' ? ['due_reminder', 'overdue'] : [type];
-  const result = { dry_run: dryRun, date: today, settings: { ...settings, token_configured: settings.token_configured }, scanned: 0, sent: 0, simulated: 0, failed: 0, skipped: 0, candidates: [] };
+  const result = {
+    dry_run: dryRun,
+    date: today,
+    settings: { ...settings, token_configured: settings.token_configured },
+    scanned: 0,
+    sent: 0,
+    simulated: 0,
+    failed: 0,
+    skipped: 0,
+    candidates: [],
+  };
   for (const currentType of types) {
     if (currentType === 'due_reminder' && !settings.reminder_enabled) continue;
     const rows = eligiblePayments(currentType, settings, req, today);
@@ -410,8 +489,12 @@ async function runNotificationScan({ req = null, type = 'all', dryRun = false, t
 
 function listLogs(req, limit = 80) {
   const safeLimit = Math.min(Math.max(Number(limit) || 80, 1), 300);
-  const scope = canSeeAll(req) ? { sql: '', params: [] } : { sql: 'WHERE nl.owner_user_id = ?', params: [ownerId(req)] };
-  return db.prepare(`
+  const scope = canSeeAll(req)
+    ? { sql: '', params: [] }
+    : { sql: 'WHERE nl.owner_user_id = ?', params: [ownerId(req)] };
+  return db
+    .prepare(
+      `
     SELECT nl.*, t.name AS tenant_name, u.code AS unit_code, u.name AS unit_name, pr.name AS property_name
     FROM notification_logs nl
     LEFT JOIN tenants t ON t.id = nl.tenant_id
@@ -420,13 +503,19 @@ function listLogs(req, limit = 80) {
     ${scope.sql}
     ORDER BY nl.created_at DESC, nl.id DESC
     LIMIT ?
-  `).all(...scope.params, safeLimit);
+  `,
+    )
+    .all(...scope.params, safeLimit);
 }
 
 async function processDueRetries(req = null) {
   const settings = getNotificationSettings(req);
-  const scope = canSeeAll(req) ? { sql: '', params: [] } : { sql: 'AND owner_user_id = ?', params: [ownerId(req)] };
-  const logs = db.prepare(`
+  const scope = canSeeAll(req)
+    ? { sql: '', params: [] }
+    : { sql: 'AND owner_user_id = ?', params: [ownerId(req)] };
+  const logs = db
+    .prepare(
+      `
     SELECT *
     FROM notification_logs
     WHERE status = 'queued'
@@ -436,7 +525,9 @@ async function processDueRetries(req = null) {
       ${scope.sql}
     ORDER BY created_at ASC
     LIMIT 20
-  `).all(MAX_ATTEMPTS, ...scope.params);
+  `,
+    )
+    .all(MAX_ATTEMPTS, ...scope.params);
   const result = { retried: 0, sent: 0, simulated: 0, failed: 0 };
   for (const log of logs) {
     result.retried += 1;
@@ -450,8 +541,12 @@ async function processDueRetries(req = null) {
 
 async function syncDeliveryStatuses(req = null, limit = 20) {
   const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 50);
-  const scope = canSeeAll(req) ? { sql: '', params: [] } : { sql: 'AND owner_user_id = ?', params: [ownerId(req)] };
-  const logs = db.prepare(`
+  const scope = canSeeAll(req)
+    ? { sql: '', params: [] }
+    : { sql: 'AND owner_user_id = ?', params: [ownerId(req)] };
+  const logs = db
+    .prepare(
+      `
     SELECT *
     FROM notification_logs
     WHERE status = 'sent'
@@ -460,24 +555,35 @@ async function syncDeliveryStatuses(req = null, limit = 20) {
       ${scope.sql}
     ORDER BY sent_at DESC, id DESC
     LIMIT ?
-  `).all(...scope.params, safeLimit);
+  `,
+    )
+    .all(...scope.params, safeLimit);
   const result = { checked: 0, delivered: 0, failed: 0, pending: 0, errors: [] };
   for (const log of logs) {
     try {
       const info = await getMessageInfo({ messageIds: [log.provider_message_id] });
       const rows = parseMessageInfo(info.message);
-      const expectedPhone = String(log.recipient_phone || '').replace(/\D/g, '').replace(/^48(?=\d{9}$)/, '');
-      const delivery = rows.find(item => {
-        const candidate = String(item.phone || '').replace(/\D/g, '').replace(/^48(?=\d{9}$)/, '');
-        return candidate && candidate === expectedPhone;
-      }) || rows[0];
+      const expectedPhone = String(log.recipient_phone || '')
+        .replace(/\D/g, '')
+        .replace(/^48(?=\d{9}$)/, '');
+      const delivery =
+        rows.find((item) => {
+          const candidate = String(item.phone || '')
+            .replace(/\D/g, '')
+            .replace(/^48(?=\d{9}$)/, '');
+          return candidate && candidate === expectedPhone;
+        }) || rows[0];
       const updated = updateDeliveryStatus(log, delivery);
       result.checked += 1;
       if (updated.status === 'delivered') result.delivered += 1;
       else if (updated.status === 'failed') result.failed += 1;
       else result.pending += 1;
     } catch (err) {
-      result.errors.push({ id: log.id, message_id: log.provider_message_id, error: err.message || 'status_sync_failed' });
+      result.errors.push({
+        id: log.id,
+        message_id: log.provider_message_id,
+        error: err.message || 'status_sync_failed',
+      });
     }
   }
   return result;
@@ -502,7 +608,9 @@ async function sendTestSms(req, phone, message) {
 
 function reminderPaymentRow(req, paymentId) {
   const scope = scopeSql(req, { payment: 'p', property: 'pr', tenant: 't' });
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT p.*, t.name AS tenant_name, t.phone, t.sms_consent, t.sms_disabled,
            u.name AS unit_name, u.code AS unit_code, pr.name AS property_name
     FROM payments p
@@ -512,22 +620,29 @@ function reminderPaymentRow(req, paymentId) {
     WHERE p.id = ?
       ${scope.sql}
     LIMIT 1
-  `).get(paymentId, ...scope.params);
+  `,
+    )
+    .get(paymentId, ...scope.params);
 }
 
 function previewPaymentReminder(req, paymentId) {
   const settings = getNotificationSettings(req);
   const row = reminderPaymentRow(req, paymentId);
   if (!row) return { ok: false, error: 'payment_not_found' };
-  if (row.status === 'paid') return { ok: false, error: 'payment_already_paid', tenant: row.tenant_name, period: row.period };
-  if (Number(row.sms_consent || 0) !== 1) return { ok: false, error: 'sms_consent_required', tenant: row.tenant_name, period: row.period };
-  if (Number(row.sms_disabled || 0) === 1) return { ok: false, error: 'sms_disabled', tenant: row.tenant_name, period: row.period };
+  if (row.status === 'paid')
+    return { ok: false, error: 'payment_already_paid', tenant: row.tenant_name, period: row.period };
+  if (Number(row.sms_consent || 0) !== 1)
+    return { ok: false, error: 'sms_consent_required', tenant: row.tenant_name, period: row.period };
+  if (Number(row.sms_disabled || 0) === 1)
+    return { ok: false, error: 'sms_disabled', tenant: row.tenant_name, period: row.period };
   const actualPhone = normalizePhone(row.phone);
   if (!actualPhone) return { ok: false, error: 'invalid_phone', tenant: row.tenant_name, period: row.period };
-  const targetPhone = settings.test_mode && normalizePhone(settings.test_phone)
-    ? normalizePhone(settings.test_phone)
-    : actualPhone;
-  if (!targetPhone) return { ok: false, error: 'test_phone_required', tenant: row.tenant_name, period: row.period };
+  const targetPhone =
+    settings.test_mode && normalizePhone(settings.test_phone)
+      ? normalizePhone(settings.test_phone)
+      : actualPhone;
+  if (!targetPhone)
+    return { ok: false, error: 'test_phone_required', tenant: row.tenant_name, period: row.period };
   const message = buildMessage('assistant_reminder', row, settings);
   return {
     ok: true,
@@ -576,7 +691,16 @@ function startNotificationScheduler() {
       if (localHHMM() < settings.send_time) return;
       schedulerState.lastRunDate = today;
       const result = await runNotificationScan({ type: 'all', today });
-      console.log('[notifications] daily scan', JSON.stringify({ date: today, sent: result.sent, failed: result.failed, skipped: result.skipped, scanned: result.scanned }));
+      console.log(
+        '[notifications] daily scan',
+        JSON.stringify({
+          date: today,
+          sent: result.sent,
+          failed: result.failed,
+          skipped: result.skipped,
+          scanned: result.scanned,
+        }),
+      );
     } catch (err) {
       console.error('[notifications] scheduler error', err && err.message ? err.message : err);
     }

@@ -28,23 +28,33 @@ function adminOwnerId() {
 }
 
 function unitByCode(code) {
-  const row = db.prepare(`
+  const row = db
+    .prepare(
+      `
     SELECT u.id, p.owner_user_id
     FROM units u
     JOIN properties p ON p.id = u.property_id
     WHERE u.code = ?
-  `).get(code);
+  `,
+    )
+    .get(code);
   if (!row) throw new Error(`Brak lokalu ${code}`);
   return row;
 }
 
 function ensureTenant(name, ownerUserId) {
-  const existing = db.prepare('SELECT id FROM tenants WHERE LOWER(name) = LOWER(?) ORDER BY id LIMIT 1').get(name);
+  const existing = db
+    .prepare('SELECT id FROM tenants WHERE LOWER(name) = LOWER(?) ORDER BY id LIMIT 1')
+    .get(name);
   if (existing) return existing.id;
-  const result = db.prepare(`
+  const result = db
+    .prepare(
+      `
     INSERT INTO tenants (owner_user_id, name, status)
     VALUES (?, ?, 'inactive')
-  `).run(ownerUserId, name);
+  `,
+    )
+    .run(ownerUserId, name);
   return result.lastInsertRowid;
 }
 
@@ -126,7 +136,9 @@ function renamePysToPtyts(ownerUserId) {
   if (!pys) return 0;
   const ptyts = db.prepare("SELECT id FROM tenants WHERE name = 'Ptyts' ORDER BY id LIMIT 1").get();
   if (!ptyts) {
-    db.prepare("UPDATE tenants SET name = 'Ptyts', owner_user_id = COALESCE(owner_user_id, ?) WHERE id = ?").run(ownerUserId, pys.id);
+    db.prepare(
+      "UPDATE tenants SET name = 'Ptyts', owner_user_id = COALESCE(owner_user_id, ?) WHERE id = ?",
+    ).run(ownerUserId, pys.id);
     return 1;
   }
   db.prepare('UPDATE payments SET tenant_id = ? WHERE tenant_id = ?').run(ptyts.id, pys.id);
@@ -189,7 +201,9 @@ const tx = db.transaction(() => {
   upsertSummary.run({ period: '2023-12', ...summaryLike202312 });
   const renameCount = renamePysToPtyts(ownerUserId);
 
-  const p2AlexReset = db.prepare(`
+  const p2AlexReset = db
+    .prepare(
+      `
     UPDATE payments
     SET total_paid = 0,
         paid_date = NULL,
@@ -199,16 +213,22 @@ const tx = db.transaction(() => {
         late_fee_manual = 1
     WHERE period = '2025-09'
       AND unit_id = (SELECT id FROM units WHERE code = 'P2')
-  `).run().changes;
+  `,
+    )
+    .run().changes;
 
-  const lateFeesCleared = db.prepare(`
+  const lateFeesCleared = db
+    .prepare(
+      `
     UPDATE payments
     SET late_fee_amount = 0,
         late_fee_paid = 0,
         late_fee_manual = 1
     WHERE period LIKE '2025-%'
       AND (COALESCE(late_fee_amount, 0) <> 0 OR COALESCE(late_fee_paid, 0) <> 0)
-  `).run().changes;
+  `,
+    )
+    .run().changes;
 
   return { renameCount, p2AlexReset, lateFeesCleared };
 });

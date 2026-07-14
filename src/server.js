@@ -2,6 +2,7 @@
 'use strict';
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const express = require('express');
 const morgan = require('morgan');
 
@@ -10,7 +11,11 @@ const { notFound, errorHandler } = require('./middleware/error');
 const { authStatus, installAuth, requireAuth } = require('./middleware/auth');
 
 const { startNotificationScheduler } = require('./services/notifications');
-const { purgeExpiredAiQueries, purgeExpiredAssistantActions, purgeExpiredLoginAttempts } = require('./services/retention');
+const {
+  purgeExpiredAiQueries,
+  purgeExpiredAssistantActions,
+  purgeExpiredLoginAttempts,
+} = require('./services/retention');
 const { auditMutation, purgeExpiredAuditLog } = require('./services/audit-log');
 
 const PORT = +(process.env.PORT || 8090);
@@ -20,18 +25,23 @@ const app = express();
 app.disable('x-powered-by');
 if (process.env.TRUST_PROXY === '1') app.set('trust proxy', 1);
 app.use((_req, res, next) => {
-  res.setHeader('Content-Security-Policy', [
-    "default-src 'self'",
-    "script-src 'self'",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src 'self' https://fonts.gstatic.com",
-    "img-src 'self' data:",
-    "connect-src 'self'",
-    "object-src 'none'",
-    "base-uri 'self'",
-    "frame-ancestors 'self'",
-    "form-action 'self'",
-  ].join('; '));
+  const styleNonce = crypto.randomBytes(18).toString('base64url');
+  res.locals.cspStyleNonce = styleNonce;
+  res.setHeader(
+    'Content-Security-Policy',
+    [
+      "default-src 'self'",
+      "script-src 'self'",
+      `style-src 'self' 'nonce-${styleNonce}' https://fonts.googleapis.com`,
+      "font-src 'self' https://fonts.gstatic.com",
+      "img-src 'self' data:",
+      "connect-src 'self'",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "frame-ancestors 'self'",
+      "form-action 'self'",
+    ].join('; '),
+  );
   next();
 });
 app.use(morgan('tiny'));
@@ -48,22 +58,22 @@ app.get('/health', (_req, res) => {
 
 app.use('/api', requireAuth);
 app.use('/api', auditMutation);
-app.use('/api/dashboard',  require('./routes/dashboard'));
-app.use('/api/reports',    require('./routes/reports'));
+app.use('/api/dashboard', require('./routes/dashboard'));
+app.use('/api/reports', require('./routes/reports'));
 app.use('/api/properties', require('./routes/properties'));
-app.use('/api/units',      require('./routes/units'));
-app.use('/api/tenants',    require('./routes/tenants'));
-app.use('/api/contracts',  require('./routes/contracts'));
-app.use('/api/payments',   require('./routes/payments'));
-app.use('/api/expenses',   require('./routes/expenses'));
-app.use('/api/tasks',      require('./routes/tasks'));
-app.use('/api/documents',  require('./routes/documents'));
-app.use('/api/settings',   require('./routes/settings'));
-app.use('/api/admin',      require('./routes/admin'));
+app.use('/api/units', require('./routes/units'));
+app.use('/api/tenants', require('./routes/tenants'));
+app.use('/api/contracts', require('./routes/contracts'));
+app.use('/api/payments', require('./routes/payments'));
+app.use('/api/expenses', require('./routes/expenses'));
+app.use('/api/tasks', require('./routes/tasks'));
+app.use('/api/documents', require('./routes/documents'));
+app.use('/api/settings', require('./routes/settings'));
+app.use('/api/admin', require('./routes/admin'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/assistant', require('./routes/assistant'));
-app.use('/api/import',     require('./routes/import'));
-app.use('/api/export',     require('./routes/export'));
+app.use('/api/import', require('./routes/import'));
+app.use('/api/export', require('./routes/export'));
 
 // Frontend (statyczne)
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -86,18 +96,24 @@ app.get('/apple-touch-icon.png', (_req, res) => {
   res.type('image/png');
   res.sendFile(path.join(PUBLIC_DIR, 'icons', 'apple-touch-icon.png'));
 });
-app.use('/icons', express.static(path.join(PUBLIC_DIR, 'icons'), {
-  index: false,
-  setHeaders(res) {
-    immutableAsset(res);
-  },
-}));
-app.use('/vendor', express.static(path.join(__dirname, '..', 'node_modules', 'chart.js', 'dist'), {
-  index: false,
-  setHeaders(res) {
-    immutableAsset(res);
-  },
-}));
+app.use(
+  '/icons',
+  express.static(path.join(PUBLIC_DIR, 'icons'), {
+    index: false,
+    setHeaders(res) {
+      immutableAsset(res);
+    },
+  }),
+);
+app.use(
+  '/vendor',
+  express.static(path.join(__dirname, '..', 'node_modules', 'chart.js', 'dist'), {
+    index: false,
+    setHeaders(res) {
+      immutableAsset(res);
+    },
+  }),
+);
 
 function requirePageAuth(req, res, next) {
   if (req.path === '/login.js') return next();
@@ -108,17 +124,19 @@ function requirePageAuth(req, res, next) {
 }
 
 app.use(requirePageAuth);
-app.use(express.static(PUBLIC_DIR, {
-  index: false,
-  setHeaders(res, filePath) {
-    if (/\.(js|css)$/.test(filePath)) {
-      // wersja w URL (?v=mtime) zmienia się przy każdym deploy → bezpieczny długi cache
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    } else if (filePath.endsWith('.html')) {
-      res.setHeader('Cache-Control', 'no-store, must-revalidate');
-    }
-  },
-}));
+app.use(
+  express.static(PUBLIC_DIR, {
+    index: false,
+    setHeaders(res, filePath) {
+      if (/\.(js|css)$/.test(filePath)) {
+        // wersja w URL (?v=mtime) zmienia się przy każdym deploy → bezpieczny długi cache
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      } else if (filePath.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-store, must-revalidate');
+      }
+    },
+  }),
+);
 
 function serveIndex(_req, res) {
   let html = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8');
@@ -130,6 +148,10 @@ function serveIndex(_req, res) {
       html = html.replace(re, `$1/${f}?v=${v}$1`);
     } catch {}
   }
+  html = html.replace(
+    '</head>',
+    `<meta name="csp-style-nonce" content="${res.locals.cspStyleNonce}"></head>`,
+  );
   res.setHeader('Cache-Control', 'no-store, must-revalidate');
   res.setHeader('Content-Type', 'text/html; charset=UTF-8');
   res.send(html);
@@ -151,7 +173,8 @@ app.listen(PORT, HOST, () => {
   const purgedActions = purgeExpiredAssistantActions();
   if (purgedActions) console.log(`  Assistant action retention: removed ${purgedActions} expired records`);
   const purgedLoginAttempts = purgeExpiredLoginAttempts();
-  if (purgedLoginAttempts) console.log(`  Login rate-limit retention: removed ${purgedLoginAttempts} expired records`);
+  if (purgedLoginAttempts)
+    console.log(`  Login rate-limit retention: removed ${purgedLoginAttempts} expired records`);
   const purgedAuditLog = purgeExpiredAuditLog();
   if (purgedAuditLog) console.log(`  Audit log retention: removed ${purgedAuditLog} expired records`);
   startNotificationScheduler();

@@ -36,7 +36,9 @@ function settingsMap(req) {
   const map = {};
   for (const r of rows) map[r.key] = r.value;
   if (!canSeeAll(req) && tableExists('user_settings')) {
-    const scopedRows = db.prepare('SELECT key, value FROM user_settings WHERE owner_user_id = ?').all(ownerId(req));
+    const scopedRows = db
+      .prepare('SELECT key, value FROM user_settings WHERE owner_user_id = ?')
+      .all(ownerId(req));
     for (const r of scopedRows) map[r.key] = r.value;
   }
   if (!map['costs.valid_from_period']) map['costs.valid_from_period'] = '2026-01';
@@ -44,9 +46,12 @@ function settingsMap(req) {
 }
 
 function getSetting(req, key, fallback = null) {
-  const row = !canSeeAll(req) && tableExists('user_settings')
-    ? db.prepare('SELECT value FROM user_settings WHERE owner_user_id = ? AND key = ?').get(ownerId(req), key)
-    : null;
+  const row =
+    !canSeeAll(req) && tableExists('user_settings')
+      ? db
+          .prepare('SELECT value FROM user_settings WHERE owner_user_id = ? AND key = ?')
+          .get(ownerId(req), key)
+      : null;
   if (row) return row.value;
   const global = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
   return global ? global.value : fallback;
@@ -85,14 +90,25 @@ function normalizeEntries(body) {
 
 function propertyIdByName(fragment) {
   const rows = db.prepare('SELECT id, name FROM properties').all();
-  const plain = fragment.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  const row = rows.find(p => String(p.name || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().includes(plain));
+  const plain = fragment
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  const row = rows.find((p) =>
+    String(p.name || '')
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .includes(plain),
+  );
   return row ? row.id : null;
 }
 
 function upsertRecurringCost(category, propertyId, amount, validFrom, notes, userId = null) {
   if (!tableExists('recurring_costs')) return;
-  const existing = db.prepare(`
+  const existing = db
+    .prepare(
+      `
     SELECT id FROM recurring_costs
     WHERE category = ?
       AND COALESCE(property_id, 0) = COALESCE(?, 0)
@@ -100,35 +116,67 @@ function upsertRecurringCost(category, propertyId, amount, validFrom, notes, use
       AND valid_from_period = ?
       AND active = 1
     LIMIT 1
-  `).get(category, propertyId, userId, validFrom);
+  `,
+    )
+    .get(category, propertyId, userId, validFrom);
   if (existing) {
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE recurring_costs
       SET amount = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(amount, notes, existing.id);
+    `,
+    ).run(amount, notes, existing.id);
   } else {
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO recurring_costs(category, owner_user_id, property_id, amount, valid_from_period, notes, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    `).run(category, userId, propertyId, amount, validFrom, notes);
+    `,
+    ).run(category, userId, propertyId, amount, validFrom, notes);
   }
 }
 
 function syncRecurringCosts(body, req) {
-  const hasCostUpdate = ['cost.management.monthly', 'cost.mortgage.koscielna.monthly', 'cost.mortgage.chrobrego.monthly']
-    .some(key => Object.prototype.hasOwnProperty.call(body, key));
+  const hasCostUpdate = [
+    'cost.management.monthly',
+    'cost.mortgage.koscielna.monthly',
+    'cost.mortgage.chrobrego.monthly',
+  ].some((key) => Object.prototype.hasOwnProperty.call(body, key));
   if (!hasCostUpdate) return;
-  const validFrom = String(body['costs.valid_from_period'] || getSetting(req, 'costs.valid_from_period', '2026-01'));
+  const validFrom = String(
+    body['costs.valid_from_period'] || getSetting(req, 'costs.valid_from_period', '2026-01'),
+  );
   const uid = ownerId(req);
   if (Object.prototype.hasOwnProperty.call(body, 'cost.management.monthly')) {
-    upsertRecurringCost('zarzadzanie', null, Number(body['cost.management.monthly'] || 0), validFrom, 'Owner management cost from settings', uid);
+    upsertRecurringCost(
+      'zarzadzanie',
+      null,
+      Number(body['cost.management.monthly'] || 0),
+      validFrom,
+      'Owner management cost from settings',
+      uid,
+    );
   }
   if (Object.prototype.hasOwnProperty.call(body, 'cost.mortgage.koscielna.monthly')) {
-    upsertRecurringCost('kredyt', propertyIdByName('koscielna'), Number(body['cost.mortgage.koscielna.monthly'] || 0), validFrom, 'Mortgage cost from settings', uid);
+    upsertRecurringCost(
+      'kredyt',
+      propertyIdByName('koscielna'),
+      Number(body['cost.mortgage.koscielna.monthly'] || 0),
+      validFrom,
+      'Mortgage cost from settings',
+      uid,
+    );
   }
   if (Object.prototype.hasOwnProperty.call(body, 'cost.mortgage.chrobrego.monthly')) {
-    upsertRecurringCost('kredyt', propertyIdByName('chrobrego'), Number(body['cost.mortgage.chrobrego.monthly'] || 0), validFrom, 'Mortgage cost from settings', uid);
+    upsertRecurringCost(
+      'kredyt',
+      propertyIdByName('chrobrego'),
+      Number(body['cost.mortgage.chrobrego.monthly'] || 0),
+      validFrom,
+      'Mortgage cost from settings',
+      uid,
+    );
   }
 }
 
@@ -139,11 +187,11 @@ router.get('/', (req, res) => {
 function activeRecurringCost(category, propertyId, period, req) {
   if (!tableExists('recurring_costs')) return null;
   const uid = ownerId(req);
-  const ownerClause = canSeeAll(req)
-    ? ''
-    : 'AND COALESCE(rc.owner_user_id, 0) = COALESCE(?, 0)';
+  const ownerClause = canSeeAll(req) ? '' : 'AND COALESCE(rc.owner_user_id, 0) = COALESCE(?, 0)';
   const ownerParams = canSeeAll(req) ? [] : [uid];
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT *
     FROM recurring_costs rc
     WHERE rc.active = 1
@@ -154,7 +202,9 @@ function activeRecurringCost(category, propertyId, period, req) {
       AND (rc.valid_to_period IS NULL OR rc.valid_to_period = '' OR rc.valid_to_period >= ?)
     ORDER BY rc.valid_from_period DESC, rc.id DESC
     LIMIT 1
-  `).get(category, propertyId, ...ownerParams, period, period);
+  `,
+    )
+    .get(category, propertyId, ...ownerParams, period, period);
 }
 
 router.get('/owner-costs', (req, res) => {
@@ -162,13 +212,17 @@ router.get('/owner-costs', (req, res) => {
   const period = String(req.query.period || savedPeriod || '2026-01');
   if (!isValidPeriod(period)) return res.status(400).json({ error: 'invalid_period' });
   const scope = propertyScope(req, 'p');
-  const properties = db.prepare(`
+  const properties = db
+    .prepare(
+      `
     SELECT id, name FROM properties p
     ${scope.sql ? 'WHERE ' + scope.sql : ''}
     ORDER BY name COLLATE NOCASE
-  `).all(...scope.params);
+  `,
+    )
+    .all(...scope.params);
   const management = activeRecurringCost('zarzadzanie', null, period, req);
-  const mortgages = properties.map(property => {
+  const mortgages = properties.map((property) => {
     const row = activeRecurringCost('kredyt', property.id, period, req);
     return {
       property_id: property.id,
@@ -179,7 +233,9 @@ router.get('/owner-costs', (req, res) => {
   });
   res.json({
     valid_from_period: period,
-    management_monthly: management ? Number(management.amount || 0) : numFromSettings(req, 'cost.management.monthly', 0),
+    management_monthly: management
+      ? Number(management.amount || 0)
+      : numFromSettings(req, 'cost.management.monthly', 0),
     mortgages,
   });
 });
@@ -209,7 +265,7 @@ router.put('/owner-costs', (req, res) => {
   let mortgages;
   try {
     management = normalizeAmount(body.management_monthly, 'management_monthly');
-    mortgages = body.mortgages.map(row => ({
+    mortgages = body.mortgages.map((row) => ({
       property_id: Number(row.property_id),
       amount: normalizeAmount(row.amount, `mortgage:${row.property_id}`),
     }));
@@ -218,10 +274,17 @@ router.put('/owner-costs', (req, res) => {
   }
 
   const scope = propertyScope(req, 'p');
-  const known = new Set(db.prepare(`
+  const known = new Set(
+    db
+      .prepare(
+        `
     SELECT id FROM properties p
     ${scope.sql ? 'WHERE ' + scope.sql : ''}
-  `).all(...scope.params).map(row => Number(row.id)));
+  `,
+      )
+      .all(...scope.params)
+      .map((row) => Number(row.id)),
+  );
   for (const row of mortgages) {
     if (!Number.isInteger(row.property_id) || !known.has(row.property_id)) {
       return res.status(400).json({ error: `unknown_property:${row.property_id}` });
@@ -245,9 +308,23 @@ router.put('/owner-costs', (req, res) => {
       upsertUserSetting.run(uid, 'costs.valid_from_period', validFrom);
       upsertUserSetting.run(uid, 'cost.management.monthly', String(management));
     }
-    upsertRecurringCost('zarzadzanie', null, management, validFrom, 'Owner management cost from settings', uid);
+    upsertRecurringCost(
+      'zarzadzanie',
+      null,
+      management,
+      validFrom,
+      'Owner management cost from settings',
+      uid,
+    );
     for (const row of mortgages) {
-      upsertRecurringCost('kredyt', row.property_id, row.amount, validFrom, 'Mortgage cost from settings', uid);
+      upsertRecurringCost(
+        'kredyt',
+        row.property_id,
+        row.amount,
+        validFrom,
+        'Mortgage cost from settings',
+        uid,
+      );
     }
   });
   tx();
@@ -268,14 +345,26 @@ router.put('/owner-costs/mortgage', (req, res) => {
   }
 
   const scope = propertyScope(req, 'p');
-  const property = db.prepare(`
+  const property = db
+    .prepare(
+      `
     SELECT id FROM properties p
     WHERE p.id = ?
       ${scope.sql ? 'AND ' + scope.sql : ''}
-  `).get(propertyId, ...scope.params);
-  if (!Number.isInteger(propertyId) || !property) return res.status(400).json({ error: `unknown_property:${body.property_id}` });
+  `,
+    )
+    .get(propertyId, ...scope.params);
+  if (!Number.isInteger(propertyId) || !property)
+    return res.status(400).json({ error: `unknown_property:${body.property_id}` });
 
-  upsertRecurringCost('kredyt', propertyId, amount, validFrom, 'Mortgage cost from expenses edit', ownerId(req));
+  upsertRecurringCost(
+    'kredyt',
+    propertyId,
+    amount,
+    validFrom,
+    'Mortgage cost from expenses edit',
+    ownerId(req),
+  );
   res.json({ ok: true, property_id: propertyId, amount, valid_from_period: validFrom });
 });
 

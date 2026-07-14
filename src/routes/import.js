@@ -29,7 +29,11 @@ function excelImportEnabled() {
 
 function removeUploaded(filePath) {
   if (!filePath) return;
-  try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+  try {
+    fs.unlinkSync(filePath);
+  } catch {
+    /* ignore */
+  }
 }
 
 router.get('/status', (_req, res) => {
@@ -41,7 +45,7 @@ router.get('/status', (_req, res) => {
 });
 
 router.post('/excel/dry-run', requireAdmin, upload.single('file'), async (req, res, next) => {
-  const filePath = req.file ? req.file.path : (req.body && req.body.path);
+  const filePath = req.file ? req.file.path : req.body && req.body.path;
   try {
     if (!filePath) return res.status(400).json({ error: 'no_file' });
     const result = runDryRun(filePath, req.body && req.body.filter, { quiet: true });
@@ -54,7 +58,7 @@ router.post('/excel/dry-run', requireAdmin, upload.single('file'), async (req, r
 });
 
 router.post('/excel', requireAdmin, upload.single('file'), async (req, res, next) => {
-  const filePath = req.file ? req.file.path : (req.body && req.body.path);
+  const filePath = req.file ? req.file.path : req.body && req.body.path;
   try {
     if (!filePath) return res.status(400).json({ error: 'no_file' });
     if (!excelImportEnabled()) {

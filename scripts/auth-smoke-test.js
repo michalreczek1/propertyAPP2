@@ -37,12 +37,15 @@ function expect(condition, message) {
 }
 
 function legacyToken(username) {
-  const payload = Buffer.from(JSON.stringify({
-    u: username,
-    iat: Date.now(),
-    exp: Date.now() + 60_000,
-  })).toString('base64url');
-  const sig = crypto.createHmac('sha256', 'test-secret-for-auth-smoke-with-enough-length')
+  const payload = Buffer.from(
+    JSON.stringify({
+      u: username,
+      iat: Date.now(),
+      exp: Date.now() + 60_000,
+    }),
+  ).toString('base64url');
+  const sig = crypto
+    .createHmac('sha256', 'test-secret-for-auth-smoke-with-enough-length')
     .update(payload)
     .digest('base64url');
   return `${payload}.${sig}`;
@@ -64,15 +67,15 @@ async function startServer() {
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  serverProc.stdout.on('data', d => process.env.VERBOSE && process.stdout.write('[srv] ' + d));
-  serverProc.stderr.on('data', d => process.stderr.write('[srv-err] ' + d));
+  serverProc.stdout.on('data', (d) => process.env.VERBOSE && process.stdout.write('[srv] ' + d));
+  serverProc.stderr.on('data', (d) => process.stderr.write('[srv-err] ' + d));
 
   for (let i = 0; i < 40; i++) {
     try {
       const res = await fetch(base + '/health');
       if (res.ok) return;
     } catch {}
-    await new Promise(resolve => setTimeout(resolve, 150));
+    await new Promise((resolve) => setTimeout(resolve, 150));
   }
   throw new Error('server did not start');
 }
@@ -80,7 +83,7 @@ async function startServer() {
 async function stopServer() {
   if (serverProc && !serverProc.killed) {
     serverProc.kill('SIGINT');
-    await new Promise(resolve => {
+    await new Promise((resolve) => {
       const timer = setTimeout(resolve, 1000);
       serverProc.once('exit', () => {
         clearTimeout(timer);
@@ -99,14 +102,28 @@ async function main() {
   expect(root.status === 302, `expected redirect to login, got ${root.status}`);
   expect((root.headers.get('location') || '').startsWith('/login'), 'missing login redirect');
 
-  for (const unsafe of ['https://evil.example', '//evil.example', 'javascript:alert(1)', '/%5C%5Cevil.example']) {
+  for (const unsafe of [
+    'https://evil.example',
+    '//evil.example',
+    'javascript:alert(1)',
+    '/%5C%5Cevil.example',
+  ]) {
     const login = await fetch(base + `/login?next=${encodeURIComponent(unsafe)}`);
     const html = await login.text();
-    expect(login.ok && html.includes('data-next="%2F"'), `login page retained unsafe next redirect: ${unsafe}`);
-    expect(html.includes('<script src="/login.js"></script>') && !html.includes('<script>'), 'login page still contains inline JavaScript');
+    expect(
+      login.ok && html.includes('data-next="%2F"'),
+      `login page retained unsafe next redirect: ${unsafe}`,
+    );
+    expect(
+      html.includes('<script src="/login.js"></script>') && !html.includes('<script>'),
+      'login page still contains inline JavaScript',
+    );
   }
   const loginScript = await fetch(base + '/login.js');
-  expect(loginScript.ok && (loginScript.headers.get('content-type') || '').includes('javascript'), 'login JavaScript is not publicly available');
+  expect(
+    loginScript.ok && (loginScript.headers.get('content-type') || '').includes('javascript'),
+    'login JavaScript is not publicly available',
+  );
 
   const blocked = await fetch(base + '/api/dashboard');
   expect(blocked.status === 401, `expected unauthorized API, got ${blocked.status}`);
@@ -125,7 +142,10 @@ async function main() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: limitedUsername, password: 'bad' }),
     });
-    expect(response.status === 401, `expected failed rate-limit attempt ${attempt} to return 401, got ${response.status}`);
+    expect(
+      response.status === 401,
+      `expected failed rate-limit attempt ${attempt} to return 401, got ${response.status}`,
+    );
   }
   const limited = await fetch(base + '/api/auth/login', {
     method: 'POST',
@@ -147,17 +167,26 @@ async function main() {
   const html = await app.text();
   expect(app.ok && html.includes('PropertyApp'), 'authenticated app shell did not render');
   const csp = app.headers.get('content-security-policy') || '';
-  expect(csp.includes("script-src 'self'") && !csp.includes('unsafe-eval'), `missing strict script CSP: ${csp}`);
+  expect(
+    csp.includes("script-src 'self'") && !csp.includes('unsafe-inline') && !csp.includes('unsafe-eval'),
+    `missing strict CSP: ${csp}`,
+  );
 
   const api = await fetch(base + '/api/dashboard', { headers: { Cookie: cookie } });
   expect(api.ok, `authenticated API failed: ${api.status}`);
 
   const pdf = await fetch(base + '/api/export/report.pdf?period=2026-05', { headers: { Cookie: cookie } });
   expect(pdf.ok, `authenticated PDF export failed: ${pdf.status}`);
-  expect((pdf.headers.get('content-type') || '').includes('application/pdf'), 'PDF export returned wrong content type');
+  expect(
+    (pdf.headers.get('content-type') || '').includes('application/pdf'),
+    'PDF export returned wrong content type',
+  );
   expect((pdf.headers.get('cache-control') || '').includes('no-store'), 'PDF export is cacheable');
   const pdfBytes = await pdf.arrayBuffer();
-  expect(pdfBytes.byteLength > 10_000, `PDF export too small, fonts may not be embedded: ${pdfBytes.byteLength} bytes`);
+  expect(
+    pdfBytes.byteLength > 10_000,
+    `PDF export too small, fonts may not be embedded: ${pdfBytes.byteLength} bytes`,
+  );
 
   const adminSettingsSeed = await fetch(base + '/api/settings', {
     method: 'PUT',
@@ -177,7 +206,10 @@ async function main() {
   expect(legacyChange.ok, `legacy session password change failed: ${legacyChange.status}`);
 
   const staleSession = await fetch(base + '/api/admin/users', { headers: { Cookie: cookie } });
-  expect(staleSession.status === 401, `password change did not invalidate the previous session: ${staleSession.status}`);
+  expect(
+    staleSession.status === 401,
+    `password change did not invalidate the previous session: ${staleSession.status}`,
+  );
   const freshLogin = await fetch(base + '/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -198,12 +230,20 @@ async function main() {
   const adminPropertyId = (await adminProperty.json()).id;
   const audit = await fetch(base + '/api/admin/audit', { headers: { Cookie: cookie } });
   const auditRows = await audit.json();
-  expect(audit.ok && auditRows.some(row => row.resource === 'properties' && row.action === 'post'), 'property creation was not recorded in audit log');
+  expect(
+    audit.ok && auditRows.some((row) => row.resource === 'properties' && row.action === 'post'),
+    'property creation was not recorded in audit log',
+  );
 
   const createUser = await fetch(base + '/api/admin/users', {
     method: 'POST',
     headers: { Cookie: cookie, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: 'tester', display_name: 'Tester', role: 'user', password: 'secret-pass-2' }),
+    body: JSON.stringify({
+      username: 'tester',
+      display_name: 'Tester',
+      role: 'user',
+      password: 'secret-pass-2',
+    }),
   });
   expect(createUser.status === 201, `admin create user failed: ${createUser.status}`);
   const createdUser = await createUser.json();
@@ -217,7 +257,9 @@ async function main() {
   const userCookie = userLogin.headers.get('set-cookie');
   expect(userCookie && userCookie.includes('propertyapp_session='), 'missing user session cookie');
 
-  const hiddenAdminProperty = await fetch(base + `/api/properties/${adminPropertyId}`, { headers: { Cookie: userCookie } });
+  const hiddenAdminProperty = await fetch(base + `/api/properties/${adminPropertyId}`, {
+    headers: { Cookie: userCookie },
+  });
   expect(hiddenAdminProperty.status === 404, `user can see admin property: ${hiddenAdminProperty.status}`);
 
   const userProperty = await fetch(base + '/api/properties', {
@@ -230,7 +272,10 @@ async function main() {
 
   const userProperties = await fetch(base + '/api/properties', { headers: { Cookie: userCookie } });
   const visibleProperties = await userProperties.json();
-  expect(visibleProperties.length === 1 && visibleProperties[0].id === userPropertyId, 'user property list is not isolated');
+  expect(
+    visibleProperties.length === 1 && visibleProperties[0].id === userPropertyId,
+    'user property list is not isolated',
+  );
 
   const forbiddenUnit = await fetch(base + '/api/units', {
     method: 'POST',
@@ -261,13 +306,16 @@ async function main() {
     method: 'POST',
     headers: { Cookie: cookie },
   });
-  expect(logout.ok && (logout.headers.get('set-cookie') || '').includes('propertyapp_session='), 'logout did not clear cookie');
+  expect(
+    logout.ok && (logout.headers.get('set-cookie') || '').includes('propertyapp_session='),
+    'logout did not clear cookie',
+  );
 
   console.log('Auth smoke test OK');
 }
 
 main()
-  .catch(err => {
+  .catch((err) => {
     console.error(err.message);
     process.exitCode = 1;
   })

@@ -13,7 +13,9 @@ function errorHandler(err, req, res, _next) {
     return res.status(400).json({ error: 'db_error', code: err.code, message: err.message });
   }
   console.error('[error]', err);
-  res.status(err.status || 500).json({ error: err.code || 'internal_error', message: err.message || 'Internal Server Error' });
+  res
+    .status(err.status || 500)
+    .json({ error: err.code || 'internal_error', message: err.message || 'Internal Server Error' });
 }
 
 module.exports = { notFound, errorHandler };

@@ -8,7 +8,9 @@ const { canSeeAll, ownerId, propertyScope } = require('../utils/scope');
 function getNum(db, key, fallback = 0, req = null) {
   let row = null;
   if (!canSeeAll(req)) {
-    row = db.prepare('SELECT value FROM user_settings WHERE owner_user_id = ? AND key = ?').get(ownerId(req), key);
+    row = db
+      .prepare('SELECT value FROM user_settings WHERE owner_user_id = ? AND key = ?')
+      .get(ownerId(req), key);
   }
   if (!row) row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
   if (!row || row.value == null || row.value === '') return fallback;
@@ -49,7 +51,7 @@ function allocateRounded(total, rows, weightKey) {
   if (!safeTotal || !weightSum || !rows.length) return rows.map(() => 0);
 
   const raw = rows.map((row, index) => {
-    const value = safeTotal * (Number(row[weightKey]) || 0) / weightSum;
+    const value = (safeTotal * (Number(row[weightKey]) || 0)) / weightSum;
     return { index, floor: Math.floor(value), frac: value - Math.floor(value) };
   });
   let left = safeTotal - raw.reduce((sum, row) => sum + row.floor, 0);
@@ -60,14 +62,14 @@ function allocateRounded(total, rows, weightKey) {
     left -= 1;
   }
   raw.sort((a, b) => a.index - b.index);
-  return raw.map(row => row.floor);
+  return raw.map((row) => row.floor);
 }
 
 function allocateMoneyEvenly(total, count) {
   const safeCount = Math.max(1, count || 1);
   const cents = Math.round((Number(total) || 0) * 100);
   const base = Math.floor(cents / safeCount);
-  let remainder = cents - (base * safeCount);
+  let remainder = cents - base * safeCount;
   return Array.from({ length: safeCount }, () => {
     const value = base + (remainder > 0 ? 1 : 0);
     if (remainder > 0) remainder -= 1;
@@ -97,7 +99,9 @@ function scopePaymentClause(req, propertyAlias = 'pr', paymentAlias = 'pm', tena
 
 function baseForPeriod(db, period, req = null) {
   const scope = scopePaymentClause(req, 'pr', 'pm', 't');
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT
       COALESCE(SUM(rent_amount + media_amount + other_amount), 0) AS gross_expected,
       COALESCE(SUM(rent_amount + media_amount + other_amount + COALESCE(late_fee_amount, 0)), 0) AS expected_with_late_fees,
@@ -121,16 +125,22 @@ function baseForPeriod(db, period, req = null) {
     LEFT JOIN tenants t ON t.id = pm.tenant_id
     WHERE pm.period = ?
     ${scope.sql}
-  `).get(period, ...scope.params);
+  `,
+    )
+    .get(period, ...scope.params);
 }
 
 function costsForPeriod(db, period, req = null) {
   const ownerCosts = getOwnerCosts(db, period, req);
-  const expenseScope = canSeeAll(req) ? { sql: '', params: [] } : {
-    sql: 'AND (e.owner_user_id = ? OR p.owner_user_id = ? OR up.owner_user_id = ?)',
-    params: [ownerId(req), ownerId(req), ownerId(req)],
-  };
-  const categories = db.prepare(`
+  const expenseScope = canSeeAll(req)
+    ? { sql: '', params: [] }
+    : {
+        sql: 'AND (e.owner_user_id = ? OR p.owner_user_id = ? OR up.owner_user_id = ?)',
+        params: [ownerId(req), ownerId(req), ownerId(req)],
+      };
+  const categories = db
+    .prepare(
+      `
     SELECT e.category, SUM(e.amount) AS total
     FROM expenses e
     LEFT JOIN properties p ON p.id = e.property_id
@@ -139,7 +149,9 @@ function costsForPeriod(db, period, req = null) {
     WHERE strftime('%Y-%m', e.date) = ?
       ${expenseScope.sql}
     GROUP BY category
-  `).all(period, ...expenseScope.params);
+  `,
+    )
+    .all(period, ...expenseScope.params);
   const withOwner = appendOwnerCostCategories(categories, ownerCosts);
   return {
     ownerCosts,
@@ -150,7 +162,9 @@ function costsForPeriod(db, period, req = null) {
 
 function propertiesForPeriod(db, period, tax, ownerCosts, req = null) {
   const scope = propertyScope(req, 'p');
-  const properties = db.prepare(`
+  const properties = db
+    .prepare(
+      `
     SELECT p.*,
       (SELECT COUNT(*) FROM units u WHERE u.property_id = p.id) AS units_count,
       (SELECT COUNT(*) FROM units u WHERE u.property_id = p.id AND u.status='rented') AS units_rented,
@@ -183,13 +197,15 @@ function propertiesForPeriod(db, period, tax, ownerCosts, req = null) {
     FROM properties p
     ${scope.sql ? 'WHERE ' + scope.sql : ''}
     ORDER BY p.name
-  `).all(period, period, period, period, ...scope.params);
+  `,
+    )
+    .all(period, period, period, period, ...scope.params);
 
   const propertyCount = properties.length || 1;
   const baseTaxParts = allocateRounded(tax.podatek, properties, 'rent_paid');
   const additionalTaxParts = properties.map((p) => {
     const name = String(p.name || '').toLowerCase();
-    return (name.includes('kościelna') || name.includes('koscielna')) ? (tax.podatek_koscielna || 0) : 0;
+    return name.includes('kościelna') || name.includes('koscielna') ? tax.podatek_koscielna || 0 : 0;
   });
   if ((tax.podatek_koscielna || 0) && !additionalTaxParts.some(Boolean) && additionalTaxParts.length) {
     additionalTaxParts[0] = tax.podatek_koscielna;
@@ -213,7 +229,9 @@ function propertiesForPeriod(db, period, tax, ownerCosts, req = null) {
 
 function perUnitForPeriod(db, period, ownerCosts, req = null) {
   const scope = propertyScope(req, 'p');
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT u.id AS unit_id, u.name AS unit_name, u.code AS unit_code,
            u.property_id, p.name AS property_name, p.district,
            t.name AS tenant_name, t.avatar_color,
@@ -236,9 +254,11 @@ function perUnitForPeriod(db, period, ownerCosts, req = null) {
     LEFT JOIN tenants t ON t.id = pm.tenant_id
     ${scope.sql ? 'WHERE ' + scope.sql : ''}
     ORDER BY p.name, u.code
-  `).all(period, period, period, ...scope.params);
+  `,
+    )
+    .all(period, period, period, ...scope.params);
 
-  const propertyCount = new Set(rows.map(row => row.property_id)).size || 1;
+  const propertyCount = new Set(rows.map((row) => row.property_id)).size || 1;
   const rowsByProperty = new Map();
   for (const row of rows) {
     const key = row.property_id;
@@ -249,12 +269,20 @@ function perUnitForPeriod(db, period, ownerCosts, req = null) {
   const allocatedByUnit = new Map();
   for (const propertyRows of rowsByProperty.values()) {
     const first = propertyRows[0];
-    const ownerForProperty = ownerCostsForProperty(ownerCosts, first.property_name, propertyCount, first.property_id);
-    const shares = allocateMoneyEvenly((first.property_expenses || 0) + ownerForProperty, propertyRows.length);
+    const ownerForProperty = ownerCostsForProperty(
+      ownerCosts,
+      first.property_name,
+      propertyCount,
+      first.property_id,
+    );
+    const shares = allocateMoneyEvenly(
+      (first.property_expenses || 0) + ownerForProperty,
+      propertyRows.length,
+    );
     propertyRows.forEach((row, index) => allocatedByUnit.set(row.unit_id, shares[index] || 0));
   }
 
-  return rows.map(row => {
+  return rows.map((row) => {
     const allocated = allocatedByUnit.get(row.unit_id) || 0;
     return {
       ...row,

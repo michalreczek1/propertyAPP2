@@ -19,12 +19,16 @@ if (form && err) {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data.error === 'invalid_credentials'
-          ? 'Nieprawidłowy login lub hasło.'
-          : data.error || 'Błąd logowania');
+        throw new Error(
+          data.error === 'invalid_credentials'
+            ? 'Nieprawidłowy login lub hasło.'
+            : data.error || 'Błąd logowania',
+        );
       }
       let next = '/';
-      try { next = decodeURIComponent(form.dataset.next || '%2F'); } catch {}
+      try {
+        next = decodeURIComponent(form.dataset.next || '%2F');
+      } catch {}
       location.href = next;
     } catch (error) {
       err.textContent = error.message;

@@ -62,7 +62,9 @@ function setupPdfFonts(doc) {
 router.get('/payments.csv', (req, res) => {
   const period = req.query.period || currentPeriod();
   const scoped = !canSeeAll(req);
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT pm.period, t.name AS tenant, pr.name AS property, u.name AS unit, u.code,
            pm.due_date, pm.paid_date, pm.rent_amount, pm.media_amount, pm.other_amount,
            COALESCE(pm.late_fee_amount, 0) AS late_fee_amount,
@@ -76,19 +78,50 @@ router.get('/payments.csv', (req, res) => {
     WHERE pm.period = ?
       ${scoped ? 'AND (pm.owner_user_id = ? OR pr.owner_user_id = ? OR t2.owner_user_id = ?)' : ''}
     ORDER BY pr.name, u.code
-  `).all(period, ...(scoped ? [ownerId(req), ownerId(req), ownerId(req)] : []));
+  `,
+    )
+    .all(period, ...(scoped ? [ownerId(req), ownerId(req), ownerId(req)] : []));
 
-  const header = ['period','tenant','property','unit','code','due_date','paid_date',
-                  'rent','media','other','late_fee','late_fee_paid','paid','status','notes'];
+  const header = [
+    'period',
+    'tenant',
+    'property',
+    'unit',
+    'code',
+    'due_date',
+    'paid_date',
+    'rent',
+    'media',
+    'other',
+    'late_fee',
+    'late_fee_paid',
+    'paid',
+    'status',
+    'notes',
+  ];
   const lines = [header.join(',')];
   for (const r of rows) {
-    lines.push([
-      r.period, r.tenant, r.property, r.unit, r.code,
-      r.due_date || '', r.paid_date || '',
-      r.rent_amount, r.media_amount, r.other_amount,
-      r.late_fee_amount, r.late_fee_paid,
-      r.total_paid, r.status, r.notes || ''
-    ].map(csvEscape).join(','));
+    lines.push(
+      [
+        r.period,
+        r.tenant,
+        r.property,
+        r.unit,
+        r.code,
+        r.due_date || '',
+        r.paid_date || '',
+        r.rent_amount,
+        r.media_amount,
+        r.other_amount,
+        r.late_fee_amount,
+        r.late_fee_paid,
+        r.total_paid,
+        r.status,
+        r.notes || '',
+      ]
+        .map(csvEscape)
+        .join(','),
+    );
   }
 
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -119,7 +152,10 @@ router.get('/report.pdf', (req, res) => {
   doc.fillColor('#1a1d23');
 
   doc.font(fonts.bold).fontSize(14).text('Podsumowanie');
-  doc.font(fonts.regular).fontSize(11).text(`Przychód zatwierdzony: ${fmtPLN(summary.revenue.gross)} PLN`);
+  doc
+    .font(fonts.regular)
+    .fontSize(11)
+    .text(`Przychód zatwierdzony: ${fmtPLN(summary.revenue.gross)} PLN`);
   doc.text(`  - Czynsz zatwierdzony: ${fmtPLN(summary.revenue.rent_paid)} PLN`);
   doc.text(`  - Media + czynsz w przychodach: ${fmtPLN(summary.revenue.media)} PLN`);
   doc.text(`  - Inne zatwierdzone: ${fmtPLN(summary.revenue.other_paid || 0)} PLN`);
@@ -128,7 +164,8 @@ router.get('/report.pdf', (req, res) => {
   if (ownerCosts.management) doc.text(`  - Zarządzanie: ${fmtPLN(ownerCosts.management)} PLN`);
   if (ownerCosts.mortgage_total) doc.text(`  - Kredyty: ${fmtPLN(ownerCosts.mortgage_total)} PLN`);
   doc.text(`Podatek (ryczałt): ${fmtPLN(summary.tax.podatek || 0)} PLN`);
-  if (summary.tax.podatek_koscielna) doc.text(`Podatek dodatkowy: ${fmtPLN(summary.tax.podatek_koscielna)} PLN`);
+  if (summary.tax.podatek_koscielna)
+    doc.text(`Podatek dodatkowy: ${fmtPLN(summary.tax.podatek_koscielna)} PLN`);
   doc.text(`Podatek razem: ${fmtPLN(summary.tax.podatek_suma || 0)} PLN`);
   doc.text(`Netto dla właściciela: ${fmtPLN(summary.net_for_owner)} PLN`, { underline: true });
   doc.moveDown();
@@ -136,7 +173,9 @@ router.get('/report.pdf', (req, res) => {
   doc.font(fonts.bold).fontSize(14).text('Per nieruchomość');
   doc.font(fonts.regular).fontSize(11);
   for (const p of summary.properties) {
-    doc.text(`- ${p.name} (${p.district || '-'}): przychód ${fmtPLN(p.revenue)} PLN, koszty ${fmtPLN(p.expenses)} PLN, podatek ${fmtPLN(p.tax)} PLN, netto ${fmtPLN(p.net)} PLN`);
+    doc.text(
+      `- ${p.name} (${p.district || '-'}): przychód ${fmtPLN(p.revenue)} PLN, koszty ${fmtPLN(p.expenses)} PLN, podatek ${fmtPLN(p.tax)} PLN, netto ${fmtPLN(p.net)} PLN`,
+    );
   }
 
   doc.end();

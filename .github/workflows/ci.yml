@@ -16,10 +16,12 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run lint
+      - run: npm run format:check
       - run: npm run smoke
       - run: npm run test:auth
       - run: npm run test:rental-model
       - run: npm run test:seed-safety
       - run: npm run test:finance
       - run: npm run test:ui
+      - run: npm run test:coverage
       - run: npm audit --omit=dev --audit-level=moderate

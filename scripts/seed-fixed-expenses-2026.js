@@ -98,10 +98,16 @@ const tx = db.transaction(() => {
 
 tx();
 
-console.log(JSON.stringify({
-  period_from: START,
-  period_to: END,
-  removed_fixed: removedFixed,
-  removed_legacy_2026: removedLegacy,
-  inserted,
-}, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      period_from: START,
+      period_to: END,
+      removed_fixed: removedFixed,
+      removed_legacy_2026: removedLegacy,
+      inserted,
+    },
+    null,
+    2,
+  ),
+);

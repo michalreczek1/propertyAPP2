@@ -14,7 +14,14 @@ const uploadsDir = path.join(testDir, 'uploads');
 fs.rmSync(testDir, { recursive: true, force: true });
 fs.mkdirSync(uploadsDir, { recursive: true });
 
-const env = { ...process.env, DB_FILE: dbFile, UPLOADS_DIR: uploadsDir, NODE_ENV: 'test', PORT: process.env.PORT || '8090', HOST: '127.0.0.1' };
+const env = {
+  ...process.env,
+  DB_FILE: dbFile,
+  UPLOADS_DIR: uploadsDir,
+  NODE_ENV: 'test',
+  PORT: process.env.PORT || '8090',
+  HOST: '127.0.0.1',
+};
 for (const script of ['scripts/migrate.js', 'scripts/seed.js']) {
   const result = spawnSync(process.execPath, [script], { cwd: root, env, encoding: 'utf8' });
   if (result.status !== 0) {

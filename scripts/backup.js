@@ -60,20 +60,33 @@ async function main() {
   const recoveryArchive = archiveRecoveryFiles(outDir, stamp);
 
   const stat = fs.statSync(file);
-  console.log(`[backup] ok ${file} (${(stat.size/1024).toFixed(1)} kB; restore verified)${recoveryArchive ? `; files=${recoveryArchive}` : ''}`);
+  console.log(
+    `[backup] ok ${file} (${(stat.size / 1024).toFixed(1)} kB; restore verified)${recoveryArchive ? `; files=${recoveryArchive}` : ''}`,
+  );
 
   // rotacja
-  const files = fs.readdirSync(outDir)
-    .filter(f => f.startsWith('property-') && f.endsWith('.db'))
-    .map(f => ({ f, t: fs.statSync(path.join(outDir, f)).mtimeMs }))
+  const files = fs
+    .readdirSync(outDir)
+    .filter((f) => f.startsWith('property-') && f.endsWith('.db'))
+    .map((f) => ({ f, t: fs.statSync(path.join(outDir, f)).mtimeMs }))
     .sort((a, b) => b.t - a.t);
   const toRemove = files.slice(KEEP_LAST);
   for (const { f } of toRemove) {
-    try { fs.unlinkSync(path.join(outDir, f)); console.log(`[backup] usunięto stary: ${f}`); }
-    catch (e) { console.error(`[backup] nie mogę usunąć ${f}: ${e.message}`); }
-    try { fs.unlinkSync(path.join(outDir, f.replace(/\.db$/, '-recovery-files.tar.gz'))); }
-    catch { /* archive may not exist for older backups */ }
+    try {
+      fs.unlinkSync(path.join(outDir, f));
+      console.log(`[backup] usunięto stary: ${f}`);
+    } catch (e) {
+      console.error(`[backup] nie mogę usunąć ${f}: ${e.message}`);
+    }
+    try {
+      fs.unlinkSync(path.join(outDir, f.replace(/\.db$/, '-recovery-files.tar.gz')));
+    } catch {
+      /* archive may not exist for older backups */
+    }
   }
 }
 
-main().catch(e => { console.error('[backup] BŁĄD:', e.message); process.exit(1); });
+main().catch((e) => {
+  console.error('[backup] BŁĄD:', e.message);
+  process.exit(1);
+});

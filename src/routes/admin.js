@@ -10,7 +10,12 @@ const USER_FIELDS = `
 `;
 
 const CreateUserSchema = z.object({
-  username: z.string().trim().min(3).max(64).regex(/^[a-zA-Z0-9._-]+$/),
+  username: z
+    .string()
+    .trim()
+    .min(3)
+    .max(64)
+    .regex(/^[a-zA-Z0-9._-]+$/),
   display_name: z.string().trim().max(120).optional().nullable(),
   role: z.enum(['admin', 'user']).default('user'),
   password: z.string().min(8).max(200),
@@ -44,7 +49,7 @@ function userById(id) {
 }
 
 function normalizeActive(value) {
-  return value === undefined ? undefined : (value ? 1 : 0);
+  return value === undefined ? undefined : value ? 1 : 0;
 }
 
 router.post('/change-password', async (req, res) => {
@@ -55,8 +60,9 @@ router.post('/change-password', async (req, res) => {
   if (!user) return res.status(404).json({ error: 'not_found' });
   const ok = await bcrypt.compare(parsed.data.current_password, user.password_hash);
   if (!ok) return res.status(400).json({ error: 'invalid_current_password' });
-  db.prepare('UPDATE users SET password_hash = ?, session_version = session_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-    .run(bcrypt.hashSync(parsed.data.new_password, 12), user.id);
+  db.prepare(
+    'UPDATE users SET password_hash = ?, session_version = session_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+  ).run(bcrypt.hashSync(parsed.data.new_password, 12), user.id);
   res.json({ ok: true });
 });
 
@@ -64,24 +70,32 @@ router.use(requireAdmin);
 
 router.get('/audit', (req, res) => {
   const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 100));
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT a.id, a.action, a.resource, a.target_id, a.status_code, a.request_path, a.created_at,
            u.username AS actor_username, u.display_name AS actor_display_name
     FROM audit_log a
     LEFT JOIN users u ON u.id = a.actor_user_id
     ORDER BY a.id DESC
     LIMIT ?
-  `).all(limit);
+  `,
+    )
+    .all(limit);
   res.json(rows);
 });
 
 router.get('/users', (_req, res) => {
-  const users = db.prepare(`
+  const users = db
+    .prepare(
+      `
     SELECT ${USER_FIELDS},
       (SELECT COUNT(*) FROM properties p WHERE p.owner_user_id = users.id) AS properties_count
     FROM users
     ORDER BY active DESC, role = 'admin' DESC, username COLLATE NOCASE
-  `).all();
+  `,
+    )
+    .all();
   res.json(users);
 });
 
@@ -92,10 +106,14 @@ router.post('/users', (req, res) => {
   const exists = db.prepare('SELECT 1 FROM users WHERE LOWER(username) = LOWER(?)').get(b.username);
   if (exists) return res.status(409).json({ error: 'username_exists' });
   const hash = bcrypt.hashSync(b.password, 12);
-  const r = db.prepare(`
+  const r = db
+    .prepare(
+      `
     INSERT INTO users(username, display_name, role, password_hash, active)
     VALUES (?, ?, ?, ?, ?)
-  `).run(b.username, b.display_name || b.username, b.role, hash, b.active ? 1 : 0);
+  `,
+    )
+    .run(b.username, b.display_name || b.username, b.role, hash, b.active ? 1 : 0);
   res.status(201).json(userById(r.lastInsertRowid));
 });
 

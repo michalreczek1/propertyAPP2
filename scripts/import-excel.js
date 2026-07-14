@@ -28,18 +28,24 @@ const TENANT_ALIASES = {
   // klucz znormalizowany → kanoniczna forma
   // (klucz to wynik normalize() — bez wielkich liter, ze ściągniętymi diakrytykami
   //  Unicode jak akcenty łączone, ale ł/ś/ż zostają jako same z siebie)
-  'pys': 'Pyś',
-  'gajali': 'Gajali',
-  'gojali': 'Gajali',
-  'kluczynski': 'Kluczyński',
-  'krzyzaniak': 'Krzyżaniak',
-  'lisiecki': 'Lisiecki',
-  'liśiecki': 'Lisiecki',
+  pys: 'Pyś',
+  gajali: 'Gajali',
+  gojali: 'Gajali',
+  kluczynski: 'Kluczyński',
+  krzyzaniak: 'Krzyżaniak',
+  lisiecki: 'Lisiecki',
+  liśiecki: 'Lisiecki',
 };
 
 const PALETTE = [
-  '#e1f5ee/#085041','#e6f1fb/#0c447c','#faeeda/#633806','#eeedfe/#3c3489',
-  '#fbeaf0/#72243e','#eaf3de/#27500a','#faece7/#712b13','#e8eaf0/#374151',
+  '#e1f5ee/#085041',
+  '#e6f1fb/#0c447c',
+  '#faeeda/#633806',
+  '#eeedfe/#3c3489',
+  '#fbeaf0/#72243e',
+  '#eaf3de/#27500a',
+  '#faece7/#712b13',
+  '#e8eaf0/#374151',
 ];
 
 function canonName(raw) {
@@ -54,7 +60,9 @@ function canonName(raw) {
   return TENANT_ALIASES[key] || firstPart;
 }
 
-function pickColor(idx) { return PALETTE[idx % PALETTE.length]; }
+function pickColor(idx) {
+  return PALETTE[idx % PALETTE.length];
+}
 
 // ── helpers do XLSX ─────────────────────────────────
 function sheetToMatrix(ws) {
@@ -107,18 +115,26 @@ function normalizeTaxValue(value) {
 function ensureTenant(name, color) {
   const exist = db.prepare(`SELECT id FROM tenants WHERE LOWER(name) = LOWER(?)`).get(name);
   if (exist) return exist.id;
-  const r = db.prepare(`
+  const r = db
+    .prepare(
+      `
     INSERT INTO tenants (name, status, avatar_color)
     VALUES (?, 'active', ?)
-  `).run(name, color);
+  `,
+    )
+    .run(name, color);
   return r.lastInsertRowid;
 }
 
 function findUnit(propertyName, code) {
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT u.id FROM units u JOIN properties p ON p.id = u.property_id
     WHERE p.name = ? AND u.code = ?
-  `).get(propertyName, code);
+  `,
+    )
+    .get(propertyName, code);
 }
 
 // W aktualnej bazie pokoje P1..P6 sa w nieruchomosci "Os. B. Chrobrego 28/21".
@@ -127,7 +143,9 @@ function unitForRoomNo(roomNo) {
   return findUnit('Os. B. Chrobrego 28/21', code);
 }
 
-function unitForMarek() { return findUnit('Kościelna 30/21', 'KR'); }
+function unitForMarek() {
+  return findUnit('Kościelna 30/21', 'KR');
+}
 
 function paymentStatus(totalPaid, expectedTotal) {
   const paid = Number(totalPaid) || 0;
@@ -191,19 +209,19 @@ function importMonthSection(matrix, headerRowIdx, period, log) {
     if (idx >= 0) {
       tableRow = r;
       cols = {
-        no:        findCol(row, ['']),  // pierwsza kolumna; znajdziemy po negatywie
-        name:      idx,
-        due_day:   findCol(row, ['do kiedy']),
-        total:     findCol(row, ['przelew', 'wplata', 'wpłata']),
-        rent:      findCol(row, ['czynsz']),
-        media:     findCol(row, ['zaliczki na media','zaliczki']),
-        other:     findCol(row, ['inne oplaty','inne op']),
-        contract:  findCol(row, ['umowa do']),
+        no: findCol(row, ['']), // pierwsza kolumna; znajdziemy po negatywie
+        name: idx,
+        due_day: findCol(row, ['do kiedy']),
+        total: findCol(row, ['przelew', 'wplata', 'wpłata']),
+        rent: findCol(row, ['czynsz']),
+        media: findCol(row, ['zaliczki na media', 'zaliczki']),
+        other: findCol(row, ['inne oplaty', 'inne op']),
+        contract: findCol(row, ['umowa do']),
       };
       break;
     }
   }
-  if (!cols) return { ok:false, reason: 'no_table_header' };
+  if (!cols) return { ok: false, reason: 'no_table_header' };
 
   // Numer pokoju jest w kolumnie *przed* "dane os."
   const noCol = cols.name - 1;
@@ -221,7 +239,7 @@ function importMonthSection(matrix, headerRowIdx, period, log) {
     const media = asNumber(row[cols.media]);
 
     // koniec sekcji: pusty wiersz po przynajmniej jednym najemcy
-    const isEmpty = (noVal == null && nameVal == null && total == null && rent == null);
+    const isEmpty = noVal == null && nameVal == null && total == null && rent == null;
     if (isEmpty) {
       if (countedTenants > 0) break;
       continue; // jeszcze nic nie znaleziono — szukaj dalej
@@ -232,7 +250,7 @@ function importMonthSection(matrix, headerRowIdx, period, log) {
     const name = canonName(nameVal);
     if (!name) continue;
     if (!roomNo) continue;
-    if (roomNo > 10) break;  // bezpiecznik, weszliśmy w inny blok
+    if (roomNo > 10) break; // bezpiecznik, weszliśmy w inny blok
 
     countedTenants++;
 
@@ -260,15 +278,18 @@ function importMonthSection(matrix, headerRowIdx, period, log) {
     inserted++;
 
     // przypisz najemcę do tego lokalu jako bieżącego, jeśli niepusty
-    db.prepare(`
+    db.prepare(
+      `
       UPDATE tenants SET current_unit_id = ? WHERE id = ? AND (current_unit_id IS NULL OR current_unit_id != ?)
-    `).run(unit.id, tenantId, unit.id);
+    `,
+    ).run(unit.id, tenantId, unit.id);
   }
 
   // ── Sekcja sumaryczna ──
   // Stary format (2020-2022): "Przelewy | A. Wize | Dla mnie | …"
   // Nowy format (2023+):       "Czynsz   | Marek   | Dla mnie | …"
-  let summaryRow = -1, summaryHdr = null;
+  let summaryRow = -1,
+    summaryHdr = null;
   for (let r = tableRow + 1; r < Math.min(tableRow + 25, matrix.length); r++) {
     const row = matrix[r] || [];
     const dlaMnieIdx = findCol(row, ['dla mnie']);
@@ -276,11 +297,11 @@ function importMonthSection(matrix, headerRowIdx, period, log) {
     if (dlaMnieIdx >= 0 && czynszIdx >= 0) {
       summaryHdr = {
         czynsz: czynszIdx,
-        marek:  findCol(row, ['marek','a. wize','wize']),
+        marek: findCol(row, ['marek', 'a. wize', 'wize']),
         dla_mnie: dlaMnieIdx,
         media_adv: findCol(row, ['zaliczki']),
-        media_paid: findCol(row, ['zaplacone media','zapłacone']),
-        media_left: findCol(row, ['zostalo','zostało']),
+        media_paid: findCol(row, ['zaplacone media', 'zapłacone']),
+        media_left: findCol(row, ['zostalo', 'zostało']),
         penalties: findCol(row, ['kary']),
         total: findCol(row, ['suma']),
       };
@@ -294,14 +315,14 @@ function importMonthSection(matrix, headerRowIdx, period, log) {
     summary = {
       period,
       czynsz_total: asNumber(v[summaryHdr.czynsz]),
-      marek_total:  asNumber(v[summaryHdr.marek]),
-      dla_mnie:     asNumber(v[summaryHdr.dla_mnie]),
+      marek_total: asNumber(v[summaryHdr.marek]),
+      dla_mnie: asNumber(v[summaryHdr.dla_mnie]),
       media_advance_total: asNumber(v[summaryHdr.media_adv]),
-      media_paid:   asNumber(v[summaryHdr.media_paid]),
-      media_left:   asNumber(v[summaryHdr.media_left]),
-      penalties:    asNumber(v[summaryHdr.penalties]),
-      total:        asNumber(v[summaryHdr.total]),
-      podatek:      null,
+      media_paid: asNumber(v[summaryHdr.media_paid]),
+      media_left: asNumber(v[summaryHdr.media_left]),
+      penalties: asNumber(v[summaryHdr.penalties]),
+      total: asNumber(v[summaryHdr.total]),
+      podatek: null,
       podatek_koscielna: null,
       podatek_suma: null,
     };
@@ -337,7 +358,10 @@ function importMonthSection(matrix, headerRowIdx, period, log) {
       let n = null;
       for (let c = 0; c < row.length; c++) {
         const v = normalizeTaxValue(row[c]);
-        if (v != null && normalize(row[c]) !== first) { n = v; break; }
+        if (v != null && normalize(row[c]) !== first) {
+          n = v;
+          break;
+        }
       }
       if (first === 'podatek' || first === 'podatek:') summary.podatek = n;
       else if (first.includes('koscielna') || first.includes('kościelna')) summary.podatek_koscielna = n;
@@ -350,14 +374,16 @@ function importMonthSection(matrix, headerRowIdx, period, log) {
     upsertSummary.run(summary);
   }
 
-  return { ok:true, inserted, summary, period };
+  return { ok: true, inserted, summary, period };
 }
 
 // ── główna funkcja ──────────────────────────────────
 function runImport(filePath, opts = {}) {
   const log = opts.quiet ? () => {} : (...a) => console.log(...a);
   if (!opts.allowWrite && process.env.ENABLE_EXCEL_IMPORT !== '1') {
-    throw new Error('Import XLSX zapisuje dane i jest domyślnie zablokowany. Ustaw ENABLE_EXCEL_IMPORT=1 tylko na czas kontrolowanego importu.');
+    throw new Error(
+      'Import XLSX zapisuje dane i jest domyślnie zablokowany. Ustaw ENABLE_EXCEL_IMPORT=1 tylko na czas kontrolowanego importu.',
+    );
   }
   if (!fs.existsSync(filePath)) throw new Error('Plik nie istnieje: ' + filePath);
   const wb = XLSX.readFile(filePath);
@@ -405,6 +431,10 @@ module.exports = { runImport };
 
 if (require.main === module) {
   const file = process.argv[2] || path.join(__dirname, '..', 'ROZLICZENIA Z NAJEMCAMI.xlsx');
-  try { runImport(file); }
-  catch (e) { console.error('Błąd importu:', e.message); process.exit(1); }
+  try {
+    runImport(file);
+  } catch (e) {
+    console.error('Błąd importu:', e.message);
+    process.exit(1);
+  }
 }

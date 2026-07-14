@@ -4,8 +4,18 @@ const db = require('../db');
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const AUDITED_RESOURCES = new Set([
-  'payments', 'expenses', 'contracts', 'assistant', 'properties', 'units',
-  'tenants', 'tasks', 'documents', 'settings', 'admin', 'notifications',
+  'payments',
+  'expenses',
+  'contracts',
+  'assistant',
+  'properties',
+  'units',
+  'tenants',
+  'tasks',
+  'documents',
+  'settings',
+  'admin',
+  'notifications',
 ]);
 
 function tableExists() {
@@ -28,10 +38,12 @@ function auditMutation(req, res, next) {
   res.on('finish', () => {
     if (res.statusCode >= 400 || !tableExists()) return;
     try {
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO audit_log(actor_user_id, action, resource, target_id, status_code, request_path)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run(
+      `,
+      ).run(
         req.user && req.user.id ? req.user.id : null,
         req.method.toLowerCase(),
         details.resource,
@@ -50,7 +62,8 @@ function auditMutation(req, res, next) {
 function purgeExpiredAuditLog() {
   const days = Math.max(1, Number(process.env.AUDIT_LOG_RETENTION_DAYS || 365));
   if (!tableExists()) return 0;
-  return db.prepare("DELETE FROM audit_log WHERE created_at < datetime('now', '-' || ? || ' days')").run(days).changes;
+  return db.prepare("DELETE FROM audit_log WHERE created_at < datetime('now', '-' || ? || ' days')").run(days)
+    .changes;
 }
 
 module.exports = { auditMutation, purgeExpiredAuditLog };

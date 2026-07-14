@@ -91,7 +91,9 @@ const prop = db.prepare('INSERT INTO properties(name, district, type) VALUES (?,
 const koscielnaId = prop.run('Kościelna 30/21', 'Centrum', 'mieszkanie').lastInsertRowid;
 const chrobregoId = prop.run('Os. B. Chrobrego 28/21', 'Piątkowo', 'pokoje').lastInsertRowid;
 
-const unit = db.prepare('INSERT INTO units(property_id, name, code, base_rent, base_media, status) VALUES (?, ?, ?, ?, ?, ?)');
+const unit = db.prepare(
+  'INSERT INTO units(property_id, name, code, base_rent, base_media, status) VALUES (?, ?, ?, ?, ?, ?)',
+);
 const krId = unit.run(koscielnaId, 'Lokal', 'KR', 2150, 850, 'rented').lastInsertRowid;
 const roomIds = [
   unit.run(chrobregoId, 'Pokój 1', 'P1', 690, 240, 'rented').lastInsertRowid,
@@ -103,7 +105,9 @@ const roomIds = [
 ];
 
 const tenant = db.prepare('INSERT INTO tenants(name, current_unit_id, status) VALUES (?, ?, ?)');
-const tenantIds = [krId, ...roomIds].map((unitId, i) => tenant.run(`Tenant ${i + 1}`, unitId, 'active').lastInsertRowid);
+const tenantIds = [krId, ...roomIds].map(
+  (unitId, i) => tenant.run(`Tenant ${i + 1}`, unitId, 'active').lastInsertRowid,
+);
 
 const payment = db.prepare(`
   INSERT INTO payments(period, tenant_id, unit_id, due_day, due_date, paid_date, rent_amount, media_amount, total_paid, status)
@@ -124,14 +128,20 @@ for (const [tenantId, unitId, rent, media] of aprilPayments) {
 }
 payment.run('2026-06', tenantIds[0], krId, '2026-06-10', '2026-06-10', 100, 0, 100, 'paid');
 payment.run('2026-06', tenantIds[1], roomIds[0], '2026-06-10', '2026-06-10', 100, 0, 100, 'paid');
-db.prepare(`
+db.prepare(
+  `
   INSERT INTO payments(period, tenant_id, unit_id, due_day, due_date, paid_date, rent_amount, media_amount, late_fee_amount, late_fee_paid, total_paid, status)
   VALUES (?, ?, ?, 10, ?, ?, ?, ?, ?, ?, ?, ?)
-`).run('2026-08', tenantIds[0], krId, '2026-08-10', '2026-08-12', 1000, 100, 50, 50, 1100, 'paid');
+`,
+).run('2026-08', tenantIds[0], krId, '2026-08-10', '2026-08-12', 1000, 100, 50, 50, 1100, 'paid');
 payment.run('2026-09', tenantIds[0], krId, '2026-09-10', '2026-09-10', 1000, 100, 1200, 'paid');
 
-const expense = db.prepare('INSERT INTO expenses(property_id, category, amount, date, description) VALUES (?, ?, ?, ?, ?)');
-const unitExpense = db.prepare('INSERT INTO expenses(unit_id, category, amount, date, description) VALUES (?, ?, ?, ?, ?)');
+const expense = db.prepare(
+  'INSERT INTO expenses(property_id, category, amount, date, description) VALUES (?, ?, ?, ?, ?)',
+);
+const unitExpense = db.prepare(
+  'INSERT INTO expenses(unit_id, category, amount, date, description) VALUES (?, ?, ?, ?, ?)',
+);
 expense.run(chrobregoId, 'czynsz', 1710, '2026-04-01', 'Czynsz Chrobrego');
 expense.run(chrobregoId, 'internet', 64, '2026-04-01', 'Internet Chrobrego');
 expense.run(chrobregoId, 'prad', 150, '2026-04-01', 'Prąd Chrobrego');
@@ -141,7 +151,9 @@ expense.run(chrobregoId, 'remonty', 30, '2026-04-01', 'Testowy remont');
 expense.run(chrobregoId, 'kredyt', 100, '2026-07-01', 'Manualny koszt kredytu');
 unitExpense.run(krId, 'remonty', 77, '2026-10-01', 'Koszt tylko dla lokalu KR');
 
-const recurring = db.prepare('INSERT INTO recurring_costs(category, property_id, amount, valid_from_period, active) VALUES (?, ?, ?, ?, 1)');
+const recurring = db.prepare(
+  'INSERT INTO recurring_costs(category, property_id, amount, valid_from_period, active) VALUES (?, ?, ?, ?, 1)',
+);
 recurring.run('zarzadzanie', null, 500, '2026-01');
 recurring.run('kredyt', chrobregoId, 3030, '2026-01');
 recurring.run('kredyt', chrobregoId, 4000, '2026-05');
@@ -158,18 +170,34 @@ near(april.revenue.media, 2280, 'April media revenue');
 near(april.expenses.total, 6299.54, 'April expenses');
 near(april.tax.podatek_suma, 536, 'April tax');
 near(april.net_for_owner, 1754.46, 'April net');
-near(april.properties.reduce((sum, p) => sum + p.tax, 0), april.totals.tax_total, 'Property taxes sum to total tax');
-near(april.costs_by_category.reduce((sum, row) => sum + row.total, 0), april.expenses.total, 'Cost categories sum to expenses');
-near(april.per_unit.reduce((sum, row) => sum + row.expenses, 0), april.expenses.total, 'Per-unit allocated expenses sum to total expenses');
-const aprilKr = april.per_unit.find(row => row.unit_code === 'KR');
+near(
+  april.properties.reduce((sum, p) => sum + p.tax, 0),
+  april.totals.tax_total,
+  'Property taxes sum to total tax',
+);
+near(
+  april.costs_by_category.reduce((sum, row) => sum + row.total, 0),
+  april.expenses.total,
+  'Cost categories sum to expenses',
+);
+near(
+  april.per_unit.reduce((sum, row) => sum + row.expenses, 0),
+  april.expenses.total,
+  'Per-unit allocated expenses sum to total expenses',
+);
+const aprilKr = april.per_unit.find((row) => row.unit_code === 'KR');
 near(aprilKr.direct_expenses, 0, 'KR has no direct unit expenses');
 near(aprilKr.allocated_expenses, 1065.54, 'KR gets property and owner costs allocated');
 assert.equal(aprilKr.tenant_name, 'Tenant 1', 'Historical payment keeps its original tenant');
 const aprilChrobregoAllocated = april.per_unit
-  .filter(row => row.property_name.includes('Chrobrego'))
-  .map(row => row.allocated_expenses)
+  .filter((row) => row.property_name.includes('Chrobrego'))
+  .map((row) => row.allocated_expenses)
   .sort((a, b) => b - a);
-assert.deepEqual(aprilChrobregoAllocated, [872.34, 872.34, 872.33, 872.33, 872.33, 872.33], 'Chrobrego property and owner costs are allocated across rooms with cent remainder');
+assert.deepEqual(
+  aprilChrobregoAllocated,
+  [872.34, 872.34, 872.33, 872.33, 872.33, 872.33],
+  'Chrobrego property and owner costs are allocated across rooms with cent remainder',
+);
 
 const may = monthlyFinanceSummary(db, '2026-05');
 near(may.revenue.gross, 0, 'May pending revenue is zero');
@@ -181,11 +209,19 @@ near(april.expenses.total, 6299.54, 'April total is unchanged by May recurring c
 
 const june = monthlyFinanceSummary(db, '2026-06');
 near(june.tax.podatek_suma, 17, 'June aggregate tax rounds once from total rent');
-near(june.properties.reduce((sum, p) => sum + p.tax, 0), 17, 'June property tax allocation sums to aggregate tax');
-assert.deepEqual(june.properties.map(p => p.tax).sort((a, b) => b - a), [9, 8], 'June property tax allocation absorbs rounding delta');
+near(
+  june.properties.reduce((sum, p) => sum + p.tax, 0),
+  17,
+  'June property tax allocation sums to aggregate tax',
+);
+assert.deepEqual(
+  june.properties.map((p) => p.tax).sort((a, b) => b - a),
+  [9, 8],
+  'June property tax allocation absorbs rounding delta',
+);
 
 const july = monthlyFinanceSummary(db, '2026-07');
-const julyCreditRows = july.costs_by_category.filter(row => row.category === 'kredyt');
+const julyCreditRows = july.costs_by_category.filter((row) => row.category === 'kredyt');
 assert.equal(julyCreditRows.length, 1, 'Manual and owner mortgage costs are merged into one credit category');
 near(julyCreditRows[0].total, 4100, 'Credit category includes manual and owner mortgage costs');
 
@@ -201,7 +237,7 @@ near(september.revenue.rent_paid, 1000, 'Tax base still uses scheduled rent, not
 near(september.tax.podatek_suma, 85, 'Overpayment does not inflate tax');
 
 const october = monthlyFinanceSummary(db, '2026-10');
-const octoberKr = october.properties.find(row => row.id === Number(koscielnaId));
+const octoberKr = october.properties.find((row) => row.id === Number(koscielnaId));
 near(octoberKr.direct_expenses, 77, 'Property summary includes expenses assigned directly to its unit');
 
 console.log('✓ Finance regression tests passed');

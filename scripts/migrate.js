@@ -389,7 +389,10 @@ function applyMigration(id, operation) {
 }
 
 function columnExists(table, column) {
-  return db.prepare(`PRAGMA table_info(${table})`).all().some(row => row.name === column);
+  return db
+    .prepare(`PRAGMA table_info(${table})`)
+    .all()
+    .some((row) => row.name === column);
 }
 
 function ensureLegacyColumns() {
@@ -433,22 +436,27 @@ function backfillAdminUser() {
   const username = process.env.APP_AUTH_USER || 'michal';
   const passwordHash = process.env.APP_AUTH_PASSWORD_HASH;
   if (!passwordHash) return;
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO users(username, display_name, role, password_hash, active)
     VALUES (?, ?, 'admin', ?, 1)
-  `).run(username, 'Property Manager', passwordHash);
+  `,
+  ).run(username, 'Property Manager', passwordHash);
 }
 
 function backfillPropertyOwner() {
   const admin = db.prepare("SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").get();
   if (!admin) return;
   db.prepare('UPDATE properties SET owner_user_id = ? WHERE owner_user_id IS NULL').run(admin.id);
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE tenants
     SET owner_user_id = ?
     WHERE owner_user_id IS NULL
-  `).run(admin.id);
-  db.prepare(`
+  `,
+  ).run(admin.id);
+  db.prepare(
+    `
     UPDATE payments
     SET owner_user_id = COALESCE((
       SELECT p.owner_user_id
@@ -459,8 +467,10 @@ function backfillPropertyOwner() {
       SELECT t.owner_user_id FROM tenants t WHERE t.id = payments.tenant_id
     ), ?)
     WHERE owner_user_id IS NULL
-  `).run(admin.id);
-  db.prepare(`
+  `,
+  ).run(admin.id);
+  db.prepare(
+    `
     UPDATE expenses
     SET owner_user_id = COALESCE((
       SELECT p.owner_user_id FROM properties p WHERE p.id = expenses.property_id
@@ -471,8 +481,10 @@ function backfillPropertyOwner() {
       WHERE u.id = expenses.unit_id
     ), ?)
     WHERE owner_user_id IS NULL
-  `).run(admin.id);
-  db.prepare(`
+  `,
+  ).run(admin.id);
+  db.prepare(
+    `
     UPDATE tasks
     SET owner_user_id = COALESCE((
       SELECT p.owner_user_id FROM properties p WHERE p.id = tasks.property_id
@@ -485,66 +497,83 @@ function backfillPropertyOwner() {
       SELECT t.owner_user_id FROM tenants t WHERE t.id = tasks.tenant_id
     ), ?)
     WHERE owner_user_id IS NULL
-  `).run(admin.id);
+  `,
+  ).run(admin.id);
   db.prepare('UPDATE documents SET owner_user_id = ? WHERE owner_user_id IS NULL').run(admin.id);
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE recurring_costs
     SET owner_user_id = COALESCE((
       SELECT p.owner_user_id FROM properties p WHERE p.id = recurring_costs.property_id
     ), ?)
     WHERE owner_user_id IS NULL
-  `).run(admin.id);
+  `,
+  ).run(admin.id);
 }
 
 function ensureRecurringCostIndex() {
   db.prepare('DROP INDEX IF EXISTS uniq_recurring_costs_open').run();
-  db.prepare(`
+  db.prepare(
+    `
     CREATE UNIQUE INDEX IF NOT EXISTS uniq_recurring_costs_open
       ON recurring_costs(category, COALESCE(owner_user_id, 0), COALESCE(property_id, 0), valid_from_period)
       WHERE active = 1
-  `).run();
+  `,
+  ).run();
 }
 
 function ensureNotificationLogIndexes() {
   db.prepare('DROP INDEX IF EXISTS uniq_notification_logs_payment_type').run();
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE notification_logs
     SET status = 'simulated'
     WHERE type = 'test'
       AND status = 'sent'
       AND provider_message_id = '12345'
-  `).run();
-  db.prepare(`
+  `,
+  ).run();
+  db.prepare(
+    `
     UPDATE notification_logs
     SET status = 'failed',
         next_attempt_at = NULL
     WHERE type = 'test'
       AND status = 'queued'
       AND error_message IS NOT NULL
-  `).run();
+  `,
+  ).run();
 }
 
 function ensurePaymentIndexes() {
   db.prepare('DROP INDEX IF EXISTS uniq_payments_period_unit').run();
   db.prepare('DROP INDEX IF EXISTS uniq_payments_period_unit_tenant').run();
-  db.prepare(`
+  db.prepare(
+    `
     CREATE UNIQUE INDEX IF NOT EXISTS uniq_payments_period_unit_tenant
       ON payments(period, unit_id, tenant_id)
       WHERE unit_id IS NOT NULL AND tenant_id IS NOT NULL
-  `).run();
-  db.prepare(`
+  `,
+  ).run();
+  db.prepare(
+    `
     CREATE UNIQUE INDEX IF NOT EXISTS uniq_payments_period_unit_no_tenant
       ON payments(period, unit_id)
       WHERE unit_id IS NOT NULL AND tenant_id IS NULL
-  `).run();
+  `,
+  ).run();
 }
 
 function normalizePaymentDueDates() {
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT id, period, due_day, due_date
     FROM payments
     WHERE due_day IS NOT NULL
-  `).all();
+  `,
+    )
+    .all();
   const update = db.prepare('UPDATE payments SET due_date = ? WHERE id = ?');
   const tx = db.transaction(() => {
     for (const row of rows) {
@@ -556,7 +585,8 @@ function normalizePaymentDueDates() {
 }
 
 function backfillLateFees() {
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE payments
     SET late_fee_amount = 50,
         late_fee_paid = MIN(50, COALESCE(late_fee_paid, 0))
@@ -565,8 +595,10 @@ function backfillLateFees() {
       AND paid_date IS NOT NULL
       AND due_date IS NOT NULL
       AND DATE(paid_date) > DATE(due_date)
-  `).run();
-  db.prepare(`
+  `,
+  ).run();
+  db.prepare(
+    `
     UPDATE payments
     SET late_fee_amount = 0,
         late_fee_paid = 0
@@ -575,27 +607,32 @@ function backfillLateFees() {
         OR paid_date IS NULL
         OR due_date IS NULL
         OR DATE(paid_date) <= DATE(due_date))
-  `).run();
+  `,
+  ).run();
 }
 
 function separateAutoLateFeesFromBasePayments() {
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE payments
     SET total_paid = MAX(0, COALESCE(total_paid, 0) - COALESCE(late_fee_paid, 0)),
         late_fee_paid = 0
     WHERE COALESCE(late_fee_manual, 0) = 0
       AND COALESCE(late_fee_paid, 0) > 0
       AND COALESCE(total_paid, 0) > (COALESCE(rent_amount, 0) + COALESCE(media_amount, 0) + COALESCE(other_amount, 0))
-  `).run();
+  `,
+  ).run();
 }
 
 function correctKnownPropertyDistricts() {
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE properties
     SET district = 'Piątkowo'
     WHERE name LIKE '%Chrobrego%'
       AND district = 'Rataje'
-  `).run();
+  `,
+  ).run();
 }
 
 function numSetting(key, fallback = 0) {
@@ -615,7 +652,12 @@ function backfillRecurringCosts() {
   const admin = db.prepare("SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").get();
   const adminId = admin ? admin.id : null;
   const propByName = db.prepare('SELECT id, name FROM properties').all();
-  const findProp = (fragment) => propByName.find(p => String(p.name || '').toLowerCase().includes(fragment));
+  const findProp = (fragment) =>
+    propByName.find((p) =>
+      String(p.name || '')
+        .toLowerCase()
+        .includes(fragment),
+    );
   const koscielnaProp = findProp('kościelna') || findProp('koscielna');
   const chrobregoProp = findProp('chrobrego');
   const insert = db.prepare(`
@@ -623,8 +665,10 @@ function backfillRecurringCosts() {
     VALUES (?, ?, ?, ?, ?, ?)
   `);
   if (management) insert.run('zarzadzanie', adminId, null, management, validFrom, 'Backfill from settings');
-  if (koscielna && koscielnaProp) insert.run('kredyt', adminId, koscielnaProp.id, koscielna, validFrom, 'Backfill from settings');
-  if (chrobrego && chrobregoProp) insert.run('kredyt', adminId, chrobregoProp.id, chrobrego, validFrom, 'Backfill from settings');
+  if (koscielna && koscielnaProp)
+    insert.run('kredyt', adminId, koscielnaProp.id, koscielna, validFrom, 'Backfill from settings');
+  if (chrobrego && chrobregoProp)
+    insert.run('kredyt', adminId, chrobregoProp.id, chrobrego, validFrom, 'Backfill from settings');
 }
 
 applyMigration('2026-07-14-001-legacy-columns', ensureLegacyColumns);
@@ -658,7 +702,8 @@ applyMigration('2026-07-14-006-assistant-action-idempotence', () => {
   `);
 });
 applyMigration('2026-07-14-007-normalize-unit-occupancy', () => {
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE units
     SET status = 'vacant'
     WHERE status = 'rented'
@@ -670,7 +715,8 @@ applyMigration('2026-07-14-007-normalize-unit-occupancy', () => {
         SELECT 1 FROM tenants t
         WHERE t.current_unit_id = units.id AND t.status = 'active'
       )
-  `).run();
+  `,
+  ).run();
 });
 applyMigration('2026-07-14-008-persistent-login-rate-limit', () => {
   db.exec(`
@@ -701,4 +747,11 @@ applyMigration('2026-07-14-009-audit-log', () => {
   `);
 });
 console.log('✓ Schemat bazy gotowy:', db.name);
-console.log('  Tabele:', db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map(r => r.name).join(', '));
+console.log(
+  '  Tabele:',
+  db
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+    .all()
+    .map((r) => r.name)
+    .join(', '),
+);

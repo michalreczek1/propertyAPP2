@@ -14,22 +14,51 @@ function normalizeText(value) {
 }
 
 function comparableToken(value) {
-  return normalizeText(value)
-    .replace(/(skiego|ckiego|owej|ego|ami|ach|owi|em|ej|ie|ow|ów|a|e|y|i)$/i, '');
+  return normalizeText(value).replace(/(skiego|ckiego|owej|ego|ami|ach|owi|em|ej|ie|ow|ów|a|e|y|i)$/i, '');
 }
 
 function matchTokens(value) {
   const stop = new Set([
-    'czy', 'ile', 'ilu', 'podaj', 'sume', 'suma', 'razem', 'mialem', 'mial',
-    'najemca', 'najemcy', 'najemcow', 'najemc', 'zeszly', 'zeszlym',
-    'poprzedni', 'poprzednim', 'roku', 'rok', 'tym', 'ten', 'tego', 'miesiac',
-    'miesiacu', 'platnosc', 'platnosci', 'podatek', 'podatku', 'dochod',
-    'dochodow', 'przychod', 'przychodow', 'koszt', 'koszty', 'netto',
+    'czy',
+    'ile',
+    'ilu',
+    'podaj',
+    'sume',
+    'suma',
+    'razem',
+    'mialem',
+    'mial',
+    'najemca',
+    'najemcy',
+    'najemcow',
+    'najemc',
+    'zeszly',
+    'zeszlym',
+    'poprzedni',
+    'poprzednim',
+    'roku',
+    'rok',
+    'tym',
+    'ten',
+    'tego',
+    'miesiac',
+    'miesiacu',
+    'platnosc',
+    'platnosci',
+    'podatek',
+    'podatku',
+    'dochod',
+    'dochodow',
+    'przychod',
+    'przychodow',
+    'koszt',
+    'koszty',
+    'netto',
   ]);
   return normalizeText(value)
     .split(/\s+/)
     .map(comparableToken)
-    .filter(token => token.length >= 3 && !stop.has(token));
+    .filter((token) => token.length >= 3 && !stop.has(token));
 }
 
 function tokensOverlap(left, right) {
@@ -40,18 +69,25 @@ function tokensOverlap(left, right) {
   for (const leftToken of a) {
     for (const rightToken of b) {
       if (leftToken === rightToken) score += 3;
-      else if (leftToken.length >= 4 && rightToken.length >= 4 && (leftToken.includes(rightToken) || rightToken.includes(leftToken))) score += 1;
+      else if (
+        leftToken.length >= 4 &&
+        rightToken.length >= 4 &&
+        (leftToken.includes(rightToken) || rightToken.includes(leftToken))
+      )
+        score += 1;
     }
   }
   return score;
 }
 
 function includesAny(text, words) {
-  return words.some(word => text.includes(word));
+  return words.some((word) => text.includes(word));
 }
 
 function shiftPeriod(period, delta) {
-  const [year, month] = String(period || todayLocalISO().slice(0, 7)).split('-').map(Number);
+  const [year, month] = String(period || todayLocalISO().slice(0, 7))
+    .split('-')
+    .map(Number);
   const d = new Date(year, month - 1 + delta, 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
@@ -75,9 +111,21 @@ function earlierPeriod(left, right) {
 
 function wantsFullYear(text) {
   return includesAny(text, [
-    'caly rok', 'calym roku', 'za caly', 'pelny rok', 'pelnym roku',
-    'do konca roku', 'prognoza', 'prognoze', 'prognozowany', 'planowany',
-    'ile zarobie', 'ile zarobimy', 'oczekiwany', 'oczekiwane', 'naleznosci',
+    'caly rok',
+    'calym roku',
+    'za caly',
+    'pelny rok',
+    'pelnym roku',
+    'do konca roku',
+    'prognoza',
+    'prognoze',
+    'prognozowany',
+    'planowany',
+    'ile zarobie',
+    'ile zarobimy',
+    'oczekiwany',
+    'oczekiwane',
+    'naleznosci',
     'co powinno wplynac',
   ]);
 }
@@ -115,9 +163,18 @@ function periodFromMessage(message, fallbackPeriod) {
   if (parsed) return parsed.period;
   const text = normalizeText(message);
   const months = [
-    ['styczen', '01'], ['luty', '02'], ['marzec', '03'], ['kwiecien', '04'],
-    ['maj', '05'], ['czerwiec', '06'], ['lipiec', '07'], ['sierpien', '08'],
-    ['wrzesien', '09'], ['pazdziernik', '10'], ['listopad', '11'], ['grudzien', '12'],
+    ['styczen', '01'],
+    ['luty', '02'],
+    ['marzec', '03'],
+    ['kwiecien', '04'],
+    ['maj', '05'],
+    ['czerwiec', '06'],
+    ['lipiec', '07'],
+    ['sierpien', '08'],
+    ['wrzesien', '09'],
+    ['pazdziernik', '10'],
+    ['listopad', '11'],
+    ['grudzien', '12'],
   ];
   const year = (text.match(/\b(20\d{2})\b/) || [null, String(new Date().getFullYear())])[1];
   const hit = months.find(([name]) => text.includes(name));
@@ -129,40 +186,119 @@ function parsePeriodRange(message, fallbackPeriod, bounds = {}) {
   const text = normalizeText(message);
   const fallback = fallbackPeriod || todayLocalISO().slice(0, 7);
   const fallbackYear = Number(String(fallback).slice(0, 4));
-  if (includesAny(text, ['od poczatku', 'od startu', 'od poczatku danych', 'caly okres', 'wszystkie lata', 'wszystkich danych'])) {
+  if (
+    includesAny(text, [
+      'od poczatku',
+      'od startu',
+      'od poczatku danych',
+      'caly okres',
+      'wszystkie lata',
+      'wszystkich danych',
+    ])
+  ) {
     const start = bounds.min || `${fallbackYear}-01`;
     const end = bounds.max || fallback;
-    return { mode: 'all', start, end, label: 'od początku danych', periods: periodsBetween(start, end), source: 'rule' };
+    return {
+      mode: 'all',
+      start,
+      end,
+      label: 'od początku danych',
+      periods: periodsBetween(start, end),
+      source: 'rule',
+    };
   }
   if (includesAny(text, ['ostatnie 6 miesiecy', 'ostatnich 6 miesiecy'])) {
     const start = shiftPeriod(fallback, -5);
-    return { mode: 'rolling', start, end: fallback, label: `ostatnie 6 miesięcy (${periodLabel(start)} - ${periodLabel(fallback)})`, periods: periodsBetween(start, fallback), source: 'rule' };
+    return {
+      mode: 'rolling',
+      start,
+      end: fallback,
+      label: `ostatnie 6 miesięcy (${periodLabel(start)} - ${periodLabel(fallback)})`,
+      periods: periodsBetween(start, fallback),
+      source: 'rule',
+    };
   }
   if (includesAny(text, ['ostatnie 12 miesiecy', 'ostatnich 12 miesiecy'])) {
     const start = shiftPeriod(fallback, -11);
-    return { mode: 'rolling', start, end: fallback, label: `ostatnie 12 miesięcy (${periodLabel(start)} - ${periodLabel(fallback)})`, periods: periodsBetween(start, fallback), source: 'rule' };
+    return {
+      mode: 'rolling',
+      start,
+      end: fallback,
+      label: `ostatnie 12 miesięcy (${periodLabel(start)} - ${periodLabel(fallback)})`,
+      periods: periodsBetween(start, fallback),
+      source: 'rule',
+    };
   }
   const directPeriod = String(message || '').match(/\b(20\d{2})-(0[1-9]|1[0-2])\b/);
   if (directPeriod) {
     const period = directPeriod[0];
-    return { mode: 'period', period, start: period, end: period, label: periodLabel(period), periods: [period], source: 'rule' };
+    return {
+      mode: 'period',
+      period,
+      start: period,
+      end: period,
+      label: periodLabel(period),
+      periods: [period],
+      source: 'rule',
+    };
   }
   const monthPeriod = parsePolishMonthYear(message);
   if (monthPeriod) {
     const period = monthPeriod.period;
-    return { mode: 'period', period, start: period, end: period, label: periodLabel(period), periods: [period], source: 'rule' };
+    return {
+      mode: 'period',
+      period,
+      start: period,
+      end: period,
+      label: periodLabel(period),
+      periods: [period],
+      source: 'rule',
+    };
   }
   const explicitYear = String(message || '').match(/\b(20\d{2})\b/);
-  if (explicitYear || includesAny(text, ['w tym roku', 'ten rok', 'biezacy rok', 'obecny rok', 'aktualny rok', 'w zeszlym roku', 'zeszlym roku', 'poprzedni rok', 'poprzednim roku'])) {
-    const year = explicitYear ? Number(explicitYear[1]) : (includesAny(text, ['w zeszlym roku', 'zeszlym roku', 'poprzedni rok', 'poprzednim roku']) ? fallbackYear - 1 : fallbackYear);
+  if (
+    explicitYear ||
+    includesAny(text, [
+      'w tym roku',
+      'ten rok',
+      'biezacy rok',
+      'obecny rok',
+      'aktualny rok',
+      'w zeszlym roku',
+      'zeszlym roku',
+      'poprzedni rok',
+      'poprzednim roku',
+    ])
+  ) {
+    const year = explicitYear
+      ? Number(explicitYear[1])
+      : includesAny(text, ['w zeszlym roku', 'zeszlym roku', 'poprzedni rok', 'poprzednim roku'])
+        ? fallbackYear - 1
+        : fallbackYear;
     return yearRange(year, fallback, text, 'year');
   }
   if (includesAny(text, ['poprzedni miesiac', 'zeszly miesiac'])) {
     const period = shiftPeriod(fallback, -1);
-    return { mode: 'period', period, start: period, end: period, label: periodLabel(period), periods: [period], source: 'rule' };
+    return {
+      mode: 'period',
+      period,
+      start: period,
+      end: period,
+      label: periodLabel(period),
+      periods: [period],
+      source: 'rule',
+    };
   }
   const period = periodFromMessage(message, fallback);
-  return { mode: 'period', period, start: period, end: period, label: periodLabel(period), periods: [period], source: 'rule' };
+  return {
+    mode: 'period',
+    period,
+    start: period,
+    end: period,
+    label: periodLabel(period),
+    periods: [period],
+    source: 'rule',
+  };
 }
 
 function cleanEntityName(value) {
@@ -171,25 +307,40 @@ function cleanEntityName(value) {
     .replace(/mar[zż][aęey]/gi, ' ')
     .replace(/zarobi[łl]e[msś]?|zarobile[ms]?/gi, ' ')
     .replace(/najwi[eę]ksz[aąey]?|nieruchomo[śs][cć]i?|kt[oó]ra|ktora/gi, ' ')
-    .replace(/\b(czy|ile|ilu|jak|jaka|jaki|jakie|jest|liczysz|liczyc|liczy[cć]|podaj|mia[łl]em|sprawd[zź]|podsumuj|poka[zż]|status|dla|do|za|z|ze|na|w|przy)\b/gi, ' ')
-    .replace(/\b(ten|ta|to|tym|roku|rok|miesi[aą]cu|miesi[aą]c|poprzedni|zesz[łl]y|bie[zż][aą]cy|obecny|aktualny|od|pocz[aą]tku|danych|ca[łl]y|okres|ostatnie|ostatnich)\b/gi, ' ')
+    .replace(
+      /\b(czy|ile|ilu|jak|jaka|jaki|jakie|jest|liczysz|liczyc|liczy[cć]|podaj|mia[łl]em|sprawd[zź]|podsumuj|poka[zż]|status|dla|do|za|z|ze|na|w|przy)\b/gi,
+      ' ',
+    )
+    .replace(
+      /\b(ten|ta|to|tym|roku|rok|miesi[aą]cu|miesi[aą]c|poprzedni|zesz[łl]y|bie[zż][aą]cy|obecny|aktualny|od|pocz[aą]tku|danych|ca[łl]y|okres|ostatnie|ostatnich)\b/gi,
+      ' ',
+    )
     .replace(/\b(20\d{2}-\d{2}|20\d{2})\b/g, ' ')
-    .replace(/\b(stycz[eńn]|styczniu|luty|lutym|marzec|marcu|kwiecien|kwiecie[nń]|kwietniu|maj|maju|czerwiec|czerwcu|lipiec|lipcu|sierpien|sierpie[nń]|sierpniu|wrzesien|wrzesie[nń]|wrzesniu|wrze[śs]niu|pazdziernik|pa[zź]dziernik|pa[zź]dzierniku|listopad|listopadzie|grudzien|grudzie[nń]|grudniu)\b/gi, ' ')
-    .replace(/\b(suma|sum[eę]|razem|dochod[oó]w?|przychod[oó]w?|wp[łl]yw[oó]w?|wp[łl]aty|wplaty|zysk|zarobi[łl]e[msś]?|zarobile[ms]?|netto|koszt[oó]w?|mar[zż]a|mar[zż][eęy]|zap[łl]aci[łl]a?|zap[łl]acili|op[łl]aci[łl]a?|wp[łl]aci[łl]a?|wp[łl]acili|p[łl]atno[śs][ćc]|p[łl]atno[śs]ci|najemc[oó]w|najemcy|najemca|podatek|podatku)\b/gi, ' ')
+    .replace(
+      /\b(stycz[eńn]|styczniu|luty|lutym|marzec|marcu|kwiecien|kwiecie[nń]|kwietniu|maj|maju|czerwiec|czerwcu|lipiec|lipcu|sierpien|sierpie[nń]|sierpniu|wrzesien|wrzesie[nń]|wrzesniu|wrze[śs]niu|pazdziernik|pa[zź]dziernik|pa[zź]dzierniku|listopad|listopadzie|grudzien|grudzie[nń]|grudniu)\b/gi,
+      ' ',
+    )
+    .replace(
+      /\b(suma|sum[eę]|razem|dochod[oó]w?|przychod[oó]w?|wp[łl]yw[oó]w?|wp[łl]aty|wplaty|zysk|zarobi[łl]e[msś]?|zarobile[ms]?|netto|koszt[oó]w?|mar[zż]a|mar[zż][eęy]|zap[łl]aci[łl]a?|zap[łl]acili|op[łl]aci[łl]a?|wp[łl]aci[łl]a?|wp[łl]acili|p[łl]atno[śs][ćc]|p[łl]atno[śs]ci|najemc[oó]w|najemcy|najemca|podatek|podatku)\b/gi,
+      ' ',
+    )
     .replace(/\s+/g, ' ')
     .trim();
 }
 
 function extractPropertySubject(message) {
   const raw = String(message || '').trim();
-  const hit = raw.match(/\b(?:z|ze|na|przy|dla|w)\s+(.+?)(?:\s+\b(?:w|we|za|od)\b\s+(?:tym|zesz[łl]ym|poprzednim|20\d{2}|pocz[aą]tku)|[?.,;:]|$)/i);
+  const hit = raw.match(
+    /\b(?:z|ze|na|przy|dla|w)\s+(.+?)(?:\s+\b(?:w|we|za|od)\b\s+(?:tym|zesz[łl]ym|poprzednim|20\d{2}|pocz[aą]tku)|[?.,;:]|$)/i,
+  );
   const candidate = cleanEntityName(hit ? hit[1] : raw);
   return candidate || cleanEntityName(raw);
 }
 
 function extractTenantSubject(message) {
   const raw = String(message || '').trim();
-  const action = /\b(?:zap[łl]aci[łl]a?|zap[łl]acili|op[łl]aci[łl]a?|wp[łl]aci[łl]a?|wp[łl]acili|zalega|winien|wisi)\b/i;
+  const action =
+    /\b(?:zap[łl]aci[łl]a?|zap[łl]acili|op[łl]aci[łl]a?|wp[łl]aci[łl]a?|wp[łl]acili|zalega|winien|wisi)\b/i;
   const parts = raw.split(action);
   const before = cleanEntityName(parts[0] || '');
   const after = cleanEntityName(parts.slice(1).join(' ') || '');

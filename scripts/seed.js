@@ -12,33 +12,33 @@
 const db = require('../src/db');
 
 const properties = [
-  { name: 'Kościelna 30/21',      address: 'ul. Kościelna 30/21',      district: 'Centrum', type: 'mieszkanie' },
+  { name: 'Kościelna 30/21', address: 'ul. Kościelna 30/21', district: 'Centrum', type: 'mieszkanie' },
   { name: 'Os. B. Chrobrego 28/21', address: 'Os. B. Chrobrego 28/21', district: 'Piątkowo', type: 'pokoje' },
 ];
 
 const units = [
   // Kościelna 30/21 — jeden lokal (Hubert)
-  { property: 'Kościelna 30/21',       name: 'Lokal',   code: 'KR', base_rent: 3000, base_media: 0 },
+  { property: 'Kościelna 30/21', name: 'Lokal', code: 'KR', base_rent: 3000, base_media: 0 },
 
   // Os. B. Chrobrego 28/21 — 6 pokoi
-  { property: 'Os. B. Chrobrego 28/21', name: 'Pokój 1', code: 'P1', base_rent: 690,  base_media: 240 },
-  { property: 'Os. B. Chrobrego 28/21', name: 'Pokój 2', code: 'P2', base_rent: 760,  base_media: 240 },
-  { property: 'Os. B. Chrobrego 28/21', name: 'Pokój 3', code: 'P3', base_rent: 660,  base_media: 240 },
-  { property: 'Os. B. Chrobrego 28/21', name: 'Pokój 4', code: 'P4', base_rent: 590,  base_media: 240 },
-  { property: 'Os. B. Chrobrego 28/21', name: 'Pokój 5', code: 'P5', base_rent: 690,  base_media: 240 },
-  { property: 'Os. B. Chrobrego 28/21', name: 'Pokój 6', code: 'P6', base_rent: 770,  base_media: 230 },
+  { property: 'Os. B. Chrobrego 28/21', name: 'Pokój 1', code: 'P1', base_rent: 690, base_media: 240 },
+  { property: 'Os. B. Chrobrego 28/21', name: 'Pokój 2', code: 'P2', base_rent: 760, base_media: 240 },
+  { property: 'Os. B. Chrobrego 28/21', name: 'Pokój 3', code: 'P3', base_rent: 660, base_media: 240 },
+  { property: 'Os. B. Chrobrego 28/21', name: 'Pokój 4', code: 'P4', base_rent: 590, base_media: 240 },
+  { property: 'Os. B. Chrobrego 28/21', name: 'Pokój 5', code: 'P5', base_rent: 690, base_media: 240 },
+  { property: 'Os. B. Chrobrego 28/21', name: 'Pokój 6', code: 'P6', base_rent: 770, base_media: 230 },
 ];
 
 const settings = {
-  'company.name':    'Property Manager',
+  'company.name': 'Property Manager',
   'company.address': '',
-  'company.nip':     '',
-  'tax.rate':        '8.5',
-  'tax.koscielna':   '0',
+  'company.nip': '',
+  'tax.rate': '8.5',
+  'tax.koscielna': '0',
   'cost.management.monthly': '500',
-  'currency':        'PLN',
-  'locale':          'pl-PL',
-  'app.title':       'PropertyApp',
+  currency: 'PLN',
+  locale: 'pl-PL',
+  'app.title': 'PropertyApp',
 };
 
 const upsertProperty = db.prepare(`
@@ -91,5 +91,5 @@ tx();
 
 const propCount = db.prepare('SELECT COUNT(*) AS c FROM properties').get().c;
 const unitCount = db.prepare('SELECT COUNT(*) AS c FROM units').get().c;
-const setCount  = db.prepare('SELECT COUNT(*) AS c FROM settings').get().c;
+const setCount = db.prepare('SELECT COUNT(*) AS c FROM settings').get().c;
 console.log(`✓ Seed: ${propCount} nieruchomości, ${unitCount} lokali, ${setCount} ustawień`);

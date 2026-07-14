@@ -35,8 +35,9 @@ function getDownloadName(document) {
     'image/jpg': '.jpg',
     'image/png': '.png',
   };
-  const ext = extByMime[String(document.mime_type || '').toLowerCase()]
-    || path.extname(document.file_path || '').toLowerCase();
+  const ext =
+    extByMime[String(document.mime_type || '').toLowerCase()] ||
+    path.extname(document.file_path || '').toLowerCase();
   return ext ? `${name}${ext}` : name;
 }
 
@@ -71,18 +72,33 @@ function canAccessRelated(req, type, id) {
 router.get('/', (req, res) => {
   const where = [];
   const params = [];
-  if (req.query.entity_type) { where.push('related_entity_type = ?'); params.push(req.query.entity_type); }
-  if (req.query.entity_id)   { where.push('related_entity_id = ?'); params.push(req.query.entity_id); }
-  if (req.query.category)    { where.push('category = ?'); params.push(req.query.category); }
+  if (req.query.entity_type) {
+    where.push('related_entity_type = ?');
+    params.push(req.query.entity_type);
+  }
+  if (req.query.entity_id) {
+    where.push('related_entity_id = ?');
+    params.push(req.query.entity_id);
+  }
+  if (req.query.category) {
+    where.push('category = ?');
+    params.push(req.query.category);
+  }
   if (req.user && req.user.id && req.user.role !== 'admin') {
     where.push('owner_user_id = ?');
     params.push(req.user.id);
   }
-  res.json(db.prepare(`
+  res.json(
+    db
+      .prepare(
+        `
     SELECT * FROM documents
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
     ORDER BY uploaded_at DESC
-  `).all(...params));
+  `,
+      )
+      .all(...params),
+  );
 });
 
 router.get('/:id', (req, res) => {
@@ -114,20 +130,24 @@ router.post('/', upload.single('file'), (req, res) => {
     removeUploadedFile(req.file);
     return res.status(404).json({ error: 'related_not_found' });
   }
-  const r = db.prepare(`
+  const r = db
+    .prepare(
+      `
     INSERT INTO documents (owner_user_id, name, file_path, mime_type, size_bytes, related_entity_type, related_entity_id, category, notes)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    ownerId(req),
-    req.body.name || req.file.originalname,
-    req.file.filename,
-    req.file.mimetype,
-    req.file.size,
-    entityType,
-    entityId,
-    req.body.category || 'inne',
-    req.body.notes || null
-  );
+  `,
+    )
+    .run(
+      ownerId(req),
+      req.body.name || req.file.originalname,
+      req.file.filename,
+      req.file.mimetype,
+      req.file.size,
+      entityType,
+      entityId,
+      req.body.category || 'inne',
+      req.body.notes || null,
+    );
   res.status(201).json(db.prepare('SELECT * FROM documents WHERE id = ?').get(r.lastInsertRowid));
 });
 
@@ -137,7 +157,11 @@ router.delete('/:id', (req, res) => {
   if (!d) return res.status(404).json({ error: 'not_found' });
   const abs = resolveUploadPath(d.file_path);
   if (abs) {
-    try { fs.unlinkSync(abs); } catch { /* ignore missing */ }
+    try {
+      fs.unlinkSync(abs);
+    } catch {
+      /* ignore missing */
+    }
   }
   db.prepare('DELETE FROM documents WHERE id = ?').run(req.params.id);
   res.json({ ok: true });

@@ -58,6 +58,8 @@ if ($RequireGroqKey -and [string]::IsNullOrWhiteSpace($GroqApiKey)) {
 }
 
 if (-not $SkipTests) {
+  Run "npm run lint" { & npm run lint }
+  Run "npm run format:check" { & npm run format:check }
   Run "npm run smoke" { & npm run smoke }
   Run "npm run test:auth" { & npm run test:auth }
   Run "npm run test:rental-model" { & npm run test:rental-model }

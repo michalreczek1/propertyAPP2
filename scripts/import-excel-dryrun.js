@@ -22,7 +22,20 @@ function normalize(s) {
     .replace(/\s+/g, ' ')
     .trim();
 }
-const PL_MONTHS = ['styczeń','luty','marzec','kwiecień','maj','czerwiec','lipiec','sierpień','wrzesień','październik','listopad','grudzień'];
+const PL_MONTHS = [
+  'styczeń',
+  'luty',
+  'marzec',
+  'kwiecień',
+  'maj',
+  'czerwiec',
+  'lipiec',
+  'sierpień',
+  'wrzesień',
+  'październik',
+  'listopad',
+  'grudzień',
+];
 const PL_MONTHS_NORM = PL_MONTHS.map(normalize);
 
 function parsePolishMonthYear(text) {
@@ -33,16 +46,20 @@ function parsePolishMonthYear(text) {
   const year = +ym[1];
   for (let i = 0; i < PL_MONTHS_NORM.length; i++) {
     if (n.includes(PL_MONTHS_NORM[i])) {
-      return { year, month: i+1, period: `${year}-${String(i+1).padStart(2,'0')}` };
+      return { year, month: i + 1, period: `${year}-${String(i + 1).padStart(2, '0')}` };
     }
   }
   return null;
 }
 
 const TENANT_ALIASES = {
-  'pys':'Pyś','gajali':'Gajali','gojali':'Gajali',
-  'kluczynski':'Kluczyński','krzyzaniak':'Krzyżaniak',
-  'lisiecki':'Lisiecki','liśiecki':'Lisiecki',
+  pys: 'Pyś',
+  gajali: 'Gajali',
+  gojali: 'Gajali',
+  kluczynski: 'Kluczyński',
+  krzyzaniak: 'Krzyżaniak',
+  lisiecki: 'Lisiecki',
+  liśiecki: 'Lisiecki',
 };
 function canonName(raw) {
   if (!raw) return null;
@@ -56,7 +73,7 @@ function canonName(raw) {
 function asNumber(v) {
   if (v == null || v === '') return null;
   if (typeof v === 'number') return v;
-  const s = String(v).replace(/\s/g,'').replace(',', '.');
+  const s = String(v).replace(/\s/g, '').replace(',', '.');
   const n = Number(s);
   return Number.isFinite(n) ? n : null;
 }
@@ -64,7 +81,8 @@ function asNumber(v) {
 function findCol(row, fragments) {
   if (!Array.isArray(fragments)) fragments = [fragments];
   for (let i = 0; i < row.length; i++) {
-    const c = row[i]; if (c == null) continue;
+    const c = row[i];
+    if (c == null) continue;
     const n = normalize(c);
     for (const f of fragments) if (n.includes(f)) return i;
   }
@@ -87,11 +105,12 @@ function normalizeTaxValue(value) {
 }
 
 function sheetToMatrix(ws) {
-  return XLSX.utils.sheet_to_json(ws, { header:1, defval:null, blankrows:true });
+  return XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, blankrows: true });
 }
 
 function importMonthSection(matrix, headerRowIdx, period) {
-  let cols = null, tableRow = -1;
+  let cols = null,
+    tableRow = -1;
   for (let r = headerRowIdx; r < Math.min(headerRowIdx + 5, matrix.length); r++) {
     const row = matrix[r] || [];
     if (r > headerRowIdx && looksLikeMonthHeader(rowFirstNonEmpty(row))) break;
@@ -100,17 +119,17 @@ function importMonthSection(matrix, headerRowIdx, period) {
       tableRow = r;
       cols = {
         name: idx,
-        due_day:  findCol(row, ['do kiedy']),
-        total:    findCol(row, ['przelew','wplata','wpłata']),
-        rent:     findCol(row, ['czynsz']),
-        media:    findCol(row, ['zaliczki na media','zaliczki']),
-        other:    findCol(row, ['inne oplaty','inne op']),
+        due_day: findCol(row, ['do kiedy']),
+        total: findCol(row, ['przelew', 'wplata', 'wpłata']),
+        rent: findCol(row, ['czynsz']),
+        media: findCol(row, ['zaliczki na media', 'zaliczki']),
+        other: findCol(row, ['inne oplaty', 'inne op']),
         contract: findCol(row, ['umowa do']),
       };
       break;
     }
   }
-  if (!cols) return { ok:false, reason:'no_table_header' };
+  if (!cols) return { ok: false, reason: 'no_table_header' };
   const noCol = cols.name - 1;
   const tenants = [];
   let countedTenants = 0;
@@ -118,12 +137,15 @@ function importMonthSection(matrix, headerRowIdx, period) {
     const row = matrix[r] || [];
     const noVal = noCol >= 0 ? row[noCol] : null;
     const nameVal = row[cols.name];
-    const due  = asNumber(row[cols.due_day]);
-    const total= asNumber(row[cols.total]);
+    const due = asNumber(row[cols.due_day]);
+    const total = asNumber(row[cols.total]);
     const rent = asNumber(row[cols.rent]);
-    const media= asNumber(row[cols.media]);
-    const isEmpty = (noVal==null && nameVal==null && total==null && rent==null);
-    if (isEmpty) { if (countedTenants > 0) break; continue; }
+    const media = asNumber(row[cols.media]);
+    const isEmpty = noVal == null && nameVal == null && total == null && rent == null;
+    if (isEmpty) {
+      if (countedTenants > 0) break;
+      continue;
+    }
     const roomNo = asNumber(noVal);
     const name = canonName(nameVal);
     if (!name || !roomNo) continue;
@@ -134,19 +156,20 @@ function importMonthSection(matrix, headerRowIdx, period) {
 
   // sumaryczna
   let summary = null;
-  let summaryRow = -1, hdr = null;
+  let summaryRow = -1,
+    hdr = null;
   for (let r = tableRow + 1; r < Math.min(tableRow + 25, matrix.length); r++) {
     const row = matrix[r] || [];
     const dlaMnieIdx = findCol(row, ['dla mnie']);
-    const czynszIdx  = findCol(row, ['czynsz', 'przelewy']);
+    const czynszIdx = findCol(row, ['czynsz', 'przelewy']);
     if (dlaMnieIdx >= 0 && czynszIdx >= 0) {
       hdr = {
         czynsz: czynszIdx,
-        marek: findCol(row, ['marek','a. wize','wize']),
+        marek: findCol(row, ['marek', 'a. wize', 'wize']),
         dla_mnie: dlaMnieIdx,
         media_adv: findCol(row, ['zaliczki']),
-        media_paid: findCol(row, ['zaplacone media','zapłacone']),
-        media_left: findCol(row, ['zostalo','zostało']),
+        media_paid: findCol(row, ['zaplacone media', 'zapłacone']),
+        media_left: findCol(row, ['zostalo', 'zostało']),
         penalties: findCol(row, ['kary']),
         total: findCol(row, ['suma']),
       };
@@ -158,14 +181,16 @@ function importMonthSection(matrix, headerRowIdx, period) {
     const v = matrix[summaryRow] || [];
     summary = {
       czynsz_total: asNumber(v[hdr.czynsz]),
-      marek_total:  asNumber(v[hdr.marek]),
-      dla_mnie:     asNumber(v[hdr.dla_mnie]),
-      media_adv:    asNumber(v[hdr.media_adv]),
-      media_paid:   asNumber(v[hdr.media_paid]),
-      media_left:   asNumber(v[hdr.media_left]),
-      penalties:    asNumber(v[hdr.penalties]),
-      total:        asNumber(v[hdr.total]),
-      podatek: null, podatek_koscielna: null, podatek_suma: null,
+      marek_total: asNumber(v[hdr.marek]),
+      dla_mnie: asNumber(v[hdr.dla_mnie]),
+      media_adv: asNumber(v[hdr.media_adv]),
+      media_paid: asNumber(v[hdr.media_paid]),
+      media_left: asNumber(v[hdr.media_left]),
+      penalties: asNumber(v[hdr.penalties]),
+      total: asNumber(v[hdr.total]),
+      podatek: null,
+      podatek_koscielna: null,
+      podatek_suma: null,
     };
     for (let r = summaryRow; r < Math.min(summaryRow + 8, matrix.length); r++) {
       const row = matrix[r] || [];
@@ -173,7 +198,10 @@ function importMonthSection(matrix, headerRowIdx, period) {
       let n = null;
       for (let c = 0; c < row.length; c++) {
         const x = normalizeTaxValue(row[c]);
-        if (x != null && normalize(row[c]) !== first) { n = x; break; }
+        if (x != null && normalize(row[c]) !== first) {
+          n = x;
+          break;
+        }
       }
       if (first === 'podatek' || first === 'podatek:') summary.podatek = n;
       else if (first.includes('koscielna') || first.includes('kościelna')) summary.podatek_koscielna = n;
@@ -183,16 +211,26 @@ function importMonthSection(matrix, headerRowIdx, period) {
       summary.podatek_suma = (summary.podatek || 0) + (summary.podatek_koscielna || 0) || null;
     }
   }
-  return { ok:true, period, tenants, summary };
+  return { ok: true, period, tenants, summary };
 }
 
 function run(filePath, filter, opts = {}) {
   const quiet = !!opts.quiet;
-  const log = (...args) => { if (!quiet) console.log(...args); };
+  const log = (...args) => {
+    if (!quiet) console.log(...args);
+  };
   if (!fs.existsSync(filePath)) throw new Error('Brak pliku: ' + filePath);
   const wb = XLSX.readFile(filePath);
 
-  const stats = { sheets:0, periods:0, payments:0, summaries:0, missingHdr:0, partialPayments:0, unpaidPayments:0 };
+  const stats = {
+    sheets: 0,
+    periods: 0,
+    payments: 0,
+    summaries: 0,
+    missingHdr: 0,
+    partialPayments: 0,
+    unpaidPayments: 0,
+  };
   const allFindings = [];
 
   for (const sheetName of wb.SheetNames) {
@@ -216,15 +254,23 @@ function run(filePath, filter, opts = {}) {
       }
       stats.periods++;
       stats.payments += result.tenants.length;
-      stats.partialPayments += result.tenants.filter(t => (t.total || 0) > 0 && (t.total || 0) < ((t.rent || 0) + (t.media || 0))).length;
-      stats.unpaidPayments += result.tenants.filter(t => !(t.total > 0)).length;
+      stats.partialPayments += result.tenants.filter(
+        (t) => (t.total || 0) > 0 && (t.total || 0) < (t.rent || 0) + (t.media || 0),
+      ).length;
+      stats.unpaidPayments += result.tenants.filter((t) => !(t.total > 0)).length;
       if (result.summary) stats.summaries++;
       allFindings.push(result);
 
-      log(`  • ${parsed.period}: ${result.tenants.length} najemców` +
-        (result.summary ? `, summary OK (czynsz=${result.summary.czynsz_total}, dla_mnie=${result.summary.dla_mnie}, total=${result.summary.total}, podatek=${result.summary.podatek})` : ', BEZ summary'));
+      log(
+        `  • ${parsed.period}: ${result.tenants.length} najemców` +
+          (result.summary
+            ? `, summary OK (czynsz=${result.summary.czynsz_total}, dla_mnie=${result.summary.dla_mnie}, total=${result.summary.total}, podatek=${result.summary.podatek})`
+            : ', BEZ summary'),
+      );
       for (const t of result.tenants) {
-        log(`      P${t.roomNo}  ${t.name.padEnd(15)}  due=${t.due ?? '–'}  rent=${t.rent ?? 0}  media=${t.media ?? 0}  total=${t.total ?? 0}`);
+        log(
+          `      P${t.roomNo}  ${t.name.padEnd(15)}  due=${t.due ?? '–'}  rent=${t.rent ?? 0}  media=${t.media ?? 0}  total=${t.total ?? 0}`,
+        );
       }
     }
   }
@@ -246,11 +292,13 @@ function run(filePath, filter, opts = {}) {
     ...stats,
     uniqueTenants: names.length,
     tenants: names,
-    periods: allFindings.map(f => ({
+    periods: allFindings.map((f) => ({
       period: f.period,
       payments: f.tenants.length,
-      partialPayments: f.tenants.filter(t => (t.total || 0) > 0 && (t.total || 0) < ((t.rent || 0) + (t.media || 0))).length,
-      unpaidPayments: f.tenants.filter(t => !(t.total > 0)).length,
+      partialPayments: f.tenants.filter(
+        (t) => (t.total || 0) > 0 && (t.total || 0) < (t.rent || 0) + (t.media || 0),
+      ).length,
+      unpaidPayments: f.tenants.filter((t) => !(t.total > 0)).length,
       hasSummary: !!f.summary,
       rentTotal: f.tenants.reduce((s, t) => s + (t.rent || 0), 0),
       mediaTotal: f.tenants.reduce((s, t) => s + (t.media || 0), 0),
@@ -262,8 +310,12 @@ function run(filePath, filter, opts = {}) {
 if (require.main === module) {
   const file = process.argv[2] || path.join(__dirname, '..', 'ROZLICZENIA Z NAJEMCAMI.xlsx');
   const filter = process.argv[3] || null;
-  try { run(file, filter); }
-  catch (e) { console.error('Błąd:', e.message); process.exit(1); }
+  try {
+    run(file, filter);
+  } catch (e) {
+    console.error('Błąd:', e.message);
+    process.exit(1);
+  }
 }
 
 module.exports = { run };

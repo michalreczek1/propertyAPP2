@@ -26,7 +26,7 @@ function getConfig() {
   const envFlag = process.env.APP_AUTH_ENABLED;
   const enabled = explicitlyDisabled(envFlag)
     ? false
-    : (truthy(envFlag) || process.env.NODE_ENV === 'production' || configured);
+    : truthy(envFlag) || process.env.NODE_ENV === 'production' || configured;
   return { enabled, configured, username, passwordHash, sessionSecret };
 }
 
@@ -53,22 +53,30 @@ function publicUser(row) {
 
 function getDbUserByUsername(username) {
   if (!tableExists('users')) return null;
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT id, username, display_name, role, password_hash, active, session_version
     FROM users
     WHERE LOWER(username) = LOWER(?)
     LIMIT 1
-  `).get(username);
+  `,
+    )
+    .get(username);
 }
 
 function getDbUserById(id) {
   if (!tableExists('users') || !id) return null;
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT id, username, display_name, role, active, session_version
     FROM users
     WHERE id = ?
     LIMIT 1
-  `).get(id);
+  `,
+    )
+    .get(id);
 }
 
 function parseCookies(header) {
@@ -99,15 +107,17 @@ function safeEqual(a, b) {
 
 function createToken(user, secret) {
   const now = Date.now();
-  const payload = base64url(JSON.stringify({
-    id: user.id || null,
-    u: user.username,
-    role: user.role || 'user',
-    name: user.display_name || user.username,
-    sv: Number(user.session_version || 1),
-    iat: now,
-    exp: now + SESSION_TTL_MS,
-  }));
+  const payload = base64url(
+    JSON.stringify({
+      id: user.id || null,
+      u: user.username,
+      role: user.role || 'user',
+      name: user.display_name || user.username,
+      sv: Number(user.session_version || 1),
+      iat: now,
+      exp: now + SESSION_TTL_MS,
+    }),
+  );
   return `${payload}.${sign(payload, secret)}`;
 }
 
@@ -149,7 +159,11 @@ function clearSessionCookie(req, res) {
 function safeNextPath(value) {
   if (typeof value !== 'string') return '/';
   let decoded;
-  try { decoded = decodeURIComponent(value); } catch { return '/'; }
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    return '/';
+  }
   if (!decoded.startsWith('/') || /^[/\\]{2}/.test(decoded)) return '/';
   try {
     const target = new URL(decoded, 'http://propertyapp.local');
@@ -177,16 +191,20 @@ function checkRateLimit(req, username) {
       const keyHash = rateLimitKey(req, username);
       const cur = db.prepare('SELECT failures, reset_at FROM login_attempts WHERE key_hash = ?').get(keyHash);
       if (!cur || now > Number(cur.reset_at)) {
-        db.prepare(`
+        db.prepare(
+          `
           INSERT INTO login_attempts(key_hash, failures, reset_at, updated_at)
           VALUES (?, 1, ?, CURRENT_TIMESTAMP)
           ON CONFLICT(key_hash) DO UPDATE SET
             failures = 1, reset_at = excluded.reset_at, updated_at = CURRENT_TIMESTAMP
-        `).run(keyHash, now + LOGIN_LIMIT_WINDOW_MS);
+        `,
+        ).run(keyHash, now + LOGIN_LIMIT_WINDOW_MS);
         return true;
       }
       const failures = Number(cur.failures) + 1;
-      db.prepare('UPDATE login_attempts SET failures = ?, updated_at = CURRENT_TIMESTAMP WHERE key_hash = ?').run(failures, keyHash);
+      db.prepare(
+        'UPDATE login_attempts SET failures = ?, updated_at = CURRENT_TIMESTAMP WHERE key_hash = ?',
+      ).run(failures, keyHash);
       return failures <= LOGIN_LIMIT_MAX;
     })();
   }
@@ -216,7 +234,8 @@ function authStatus(req) {
   let user = null;
   if (session && session.id) {
     const row = getDbUserById(session.id);
-    if (row && row.active !== 0 && Number(session.sv || 1) === Number(row.session_version || 1)) user = publicUser(row);
+    if (row && row.active !== 0 && Number(session.sv || 1) === Number(row.session_version || 1))
+      user = publicUser(row);
   } else if (session && session.u) {
     const row = getDbUserByUsername(session.u);
     if (row && row.active !== 0 && Number(session.sv || 1) === Number(row.session_version || 1)) {
@@ -266,7 +285,7 @@ function loginPage(req, res) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Logowanie - PropertyApp</title>
-<style>
+<style nonce="${res.locals.cspStyleNonce}">
 :root{--bg:#070714;--surface:rgba(255,255,255,.055);--border:rgba(255,255,255,.12);--t1:#eeeeff;--t2:#aaaad8;--t3:#6c6c98;--violet:#8b5cf6;--cyan:#06b6d4;--rose:#f43f5e}
 *{box-sizing:border-box}body{margin:0;min-height:100vh;min-height:100dvh;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--t1);background:radial-gradient(circle at 18% 12%,rgba(139,92,246,.22),transparent 34%),radial-gradient(circle at 82% 78%,rgba(6,182,212,.14),transparent 32%),var(--bg);display:grid;place-items:center;padding:22px}
 .card{width:min(420px,100%);background:var(--surface);border:1px solid var(--border);border-radius:18px;box-shadow:0 28px 80px rgba(0,0,0,.45);backdrop-filter:blur(18px);overflow:hidden}
@@ -306,15 +325,19 @@ function installAuth(app) {
     const config = getConfig();
     if (!config.enabled) return res.json({ ok: true, disabled: true });
     if (!config.configured) return res.status(503).json({ error: 'auth_not_configured' });
-    const username = String(req.body && req.body.username || '').trim();
-    const password = String(req.body && req.body.password || '');
+    const username = String((req.body && req.body.username) || '').trim();
+    const password = String((req.body && req.body.password) || '');
     if (!checkRateLimit(req, username)) return res.status(429).json({ error: 'too_many_attempts' });
     let user = null;
     const dbUser = getDbUserByUsername(username);
-    if (dbUser && dbUser.active !== 0 && await bcrypt.compare(password, dbUser.password_hash)) {
+    if (dbUser && dbUser.active !== 0 && (await bcrypt.compare(password, dbUser.password_hash))) {
       db.prepare('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?').run(dbUser.id);
       user = publicUser(dbUser);
-    } else if (!dbUser && username === config.username && await bcrypt.compare(password, config.passwordHash)) {
+    } else if (
+      !dbUser &&
+      username === config.username &&
+      (await bcrypt.compare(password, config.passwordHash))
+    ) {
       user = { id: null, username, display_name: username, role: 'admin' };
     }
     if (!user) return res.status(401).json({ error: 'invalid_credentials' });

@@ -20,16 +20,23 @@ function tableExists(db, name) {
 
 function getRecurringRows(db, period, req = null) {
   if (!tableExists(db, 'recurring_costs')) return [];
-  const hasOwnerColumn = db.prepare('PRAGMA table_info(recurring_costs)').all().some(column => column.name === 'owner_user_id');
+  const hasOwnerColumn = db
+    .prepare('PRAGMA table_info(recurring_costs)')
+    .all()
+    .some((column) => column.name === 'owner_user_id');
   const uid = ownerId(req);
   const scopeParams = canSeeAll(req) ? [] : [uid, uid];
-  const scopeClause = canSeeAll(req) ? '' : `
+  const scopeClause = canSeeAll(req)
+    ? ''
+    : `
       AND (
         (rc.property_id IS NULL AND rc.owner_user_id = @uid)
         OR p.owner_user_id = @uid
       )
   `;
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT rc.*, p.name AS property_name
     FROM recurring_costs rc
     LEFT JOIN properties p ON p.id = rc.property_id
@@ -48,7 +55,9 @@ function getRecurringRows(db, period, req = null) {
           AND (rc2.valid_to_period IS NULL OR rc2.valid_to_period = '' OR rc2.valid_to_period >= ?)
       )
     ORDER BY rc.category, rc.property_id
-  `.replaceAll('@uid', '?')).all(...scopeParams, period, period, period, period);
+  `.replaceAll('@uid', '?'),
+    )
+    .all(...scopeParams, period, period, period, period);
 }
 
 function getOwnerCosts(db, period = currentPeriod(), req = null) {
@@ -67,7 +76,11 @@ function getOwnerCosts(db, period = currentPeriod(), req = null) {
       } else if (row.category === 'kredyt') {
         mortgageTotal += amount;
         if (row.property_id) {
-          byProperty[row.property_id] = byProperty[row.property_id] || { management: 0, mortgage: 0, total: 0 };
+          byProperty[row.property_id] = byProperty[row.property_id] || {
+            management: 0,
+            mortgage: 0,
+            total: 0,
+          };
           byProperty[row.property_id].mortgage += amount;
           byProperty[row.property_id].total += amount;
         }
@@ -143,7 +156,9 @@ function monthRangeFromDates(from, to) {
 function ownerExpenseRows(db, filters = {}) {
   const scopeSql = filters.user && !canSeeAll(filters.user) ? 'WHERE owner_user_id = ?' : '';
   const scopeParams = filters.user && !canSeeAll(filters.user) ? [ownerId(filters.user)] : [];
-  const properties = db.prepare(`SELECT id, name FROM properties ${scopeSql} ORDER BY name`).all(...scopeParams);
+  const properties = db
+    .prepare(`SELECT id, name FROM properties ${scopeSql} ORDER BY name`)
+    .all(...scopeParams);
   const propertyCount = properties.length || 1;
   const months = monthRangeFromDates(filters.from || filters.period, filters.to || filters.period);
   const rows = [];
@@ -153,7 +168,12 @@ function ownerExpenseRows(db, filters = {}) {
     const date = `${period}-01`;
     for (const property of properties) {
       const managementShare = +(ownerCosts.management / propertyCount).toFixed(2);
-      const mortgage = ownerCostsForProperty({ ...ownerCosts, management: 0 }, property.name, propertyCount, property.id);
+      const mortgage = ownerCostsForProperty(
+        { ...ownerCosts, management: 0 },
+        property.name,
+        propertyCount,
+        property.id,
+      );
 
       if (managementShare) {
         rows.push({
@@ -195,7 +215,7 @@ function ownerExpenseRows(db, filters = {}) {
     }
   }
 
-  return rows.filter(row => {
+  return rows.filter((row) => {
     if (filters.category && row.category !== filters.category) return false;
     if (filters.property_id && String(row.property_id) !== String(filters.property_id)) return false;
     return true;

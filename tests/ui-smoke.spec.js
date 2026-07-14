@@ -57,7 +57,13 @@ async function createPaymentFixture(request, prefix, options = {}) {
   expect(payment.ok()).toBeTruthy();
   const paymentData = await payment.json();
 
-  return { name: suffix, propertyId: propertyData.id, unitId: unitData.id, tenantId: tenantData.id, paymentId: paymentData.id };
+  return {
+    name: suffix,
+    propertyId: propertyData.id,
+    unitId: unitData.id,
+    tenantId: tenantData.id,
+    paymentId: paymentData.id,
+  };
 }
 
 async function cleanupPaymentFixture(request, fixture) {
@@ -72,6 +78,7 @@ test('dashboard and expenses render without clipping the app shell', async ({ pa
   let fixture = null;
   await page.goto('/#dashboard');
   await expect(page.getByText('Przychód miesiąca')).toBeVisible();
+  await expect(page.locator('[onclick]')).toHaveCount(0);
   await expect(page.getByText('Netto właściciel').first()).toBeVisible();
   await expect(page.getByText('AI audyt danych')).toBeVisible();
 
@@ -137,7 +144,11 @@ test('mortgage owner cost can be edited from expenses', async ({ page, request }
     expect(seed.ok()).toBeTruthy();
 
     await page.goto('/#koszty');
-    const row = page.locator('tbody tr').filter({ hasText: propertyName }).filter({ hasText: 'Rata kredytu hipotecznego' }).first();
+    const row = page
+      .locator('tbody tr')
+      .filter({ hasText: propertyName })
+      .filter({ hasText: 'Rata kredytu hipotecznego' })
+      .first();
     await expect(row).toBeVisible();
     await row.getByTitle('Edytuj ratę kredytu').click();
     await expect(page.getByText('Edytuj ratę kredytu')).toBeVisible();
@@ -147,7 +158,7 @@ test('mortgage owner cost can be edited from expenses', async ({ page, request }
 
     const ownerCosts = await request.get(`/api/settings/owner-costs?period=${period}`);
     expect(ownerCosts.ok()).toBeTruthy();
-    const mortgage = (await ownerCosts.json()).mortgages.find(item => item.property_id === propertyId);
+    const mortgage = (await ownerCosts.json()).mortgages.find((item) => item.property_id === propertyId);
     expect(Number(mortgage.amount)).toBe(222.22);
   } finally {
     if (propertyId) await request.delete(`/api/properties/${propertyId}`).catch(() => {});
@@ -182,7 +193,10 @@ test('AI assistant confirms and marks a payment as paid', async ({ page, request
 });
 
 test('AI assistant shows SMS preview in test mode', async ({ page, request }) => {
-  const fixture = await createPaymentFixture(request, '__ai_sms', { phone: '+48 600 000 000', smsConsent: true });
+  const fixture = await createPaymentFixture(request, '__ai_sms', {
+    phone: '+48 600 000 000',
+    smsConsent: true,
+  });
   try {
     const settings = await request.put('/api/notifications/settings', {
       data: {
@@ -211,7 +225,10 @@ test('AI assistant shows SMS preview in test mode', async ({ page, request }) =>
 });
 
 test('tenant detail exposes manual SMS reminder button', async ({ page, request }) => {
-  const fixture = await createPaymentFixture(request, '__tenant_sms', { phone: '+48 600 000 000', smsConsent: true });
+  const fixture = await createPaymentFixture(request, '__tenant_sms', {
+    phone: '+48 600 000 000',
+    smsConsent: true,
+  });
   try {
     const settings = await request.put('/api/notifications/settings', {
       data: {
@@ -245,7 +262,10 @@ test('tenant detail exposes manual SMS reminder button', async ({ page, request 
 });
 
 test('topbar command bar shows tenant late fee report', async ({ page, request }) => {
-  const fixture = await createPaymentFixture(request, '__ai_late_fees', { lateFeeAmount: 50, lateFeePaid: 10 });
+  const fixture = await createPaymentFixture(request, '__ai_late_fees', {
+    lateFeeAmount: 50,
+    lateFeePaid: 10,
+  });
   try {
     await page.goto('/#dashboard');
     await page.locator('#global-search').fill('zrób zestawienie kar najemców');
@@ -261,7 +281,10 @@ test('topbar command bar shows tenant late fee report', async ({ page, request }
 });
 
 test('topbar command bar answers flexible overdue payment question', async ({ page, request }) => {
-  const fixture = await createPaymentFixture(request, '__ai_overdue_question', { period: '2025-09', status: 'overdue' });
+  const fixture = await createPaymentFixture(request, '__ai_overdue_question', {
+    period: '2025-09',
+    status: 'overdue',
+  });
   try {
     await page.goto('/#dashboard');
     await page.locator('#global-search').fill('kto zalega z płatnościami?');
@@ -282,7 +305,11 @@ test('topbar command bar answers flexible overdue payment question', async ({ pa
 });
 
 test('topbar command bar answers paid status question without action', async ({ page, request }) => {
-  const fixture = await createPaymentFixture(request, '__ai_paid_question', { period: '2026-04', status: 'paid', totalPaid: 1555 });
+  const fixture = await createPaymentFixture(request, '__ai_paid_question', {
+    period: '2026-04',
+    status: 'paid',
+    totalPaid: 1555,
+  });
   try {
     await page.goto('/#dashboard');
     await page.locator('#global-search').fill(`czy ${fixture.name} zapłacił za kwiecień?`);
@@ -298,7 +325,11 @@ test('topbar command bar answers paid status question without action', async ({ 
 });
 
 test('topbar command bar summarizes tenant payments for a year', async ({ page, request }) => {
-  const fixture = await createPaymentFixture(request, '__ai_year_summary', { period: '2026-04', status: 'paid', totalPaid: 1555 });
+  const fixture = await createPaymentFixture(request, '__ai_year_summary', {
+    period: '2026-04',
+    status: 'paid',
+    totalPaid: 1555,
+  });
   try {
     await page.goto('/#dashboard');
     await page.locator('#global-search').fill(`ile w tym roku zapłacił ${fixture.name}`);
@@ -313,7 +344,11 @@ test('topbar command bar summarizes tenant payments for a year', async ({ page, 
 });
 
 test('topbar command bar answers previous-year tenant count by property', async ({ page, request }) => {
-  const fixture = await createPaymentFixture(request, '__ai_Chrobrego', { period: '2025-06', status: 'paid', totalPaid: 1555 });
+  const fixture = await createPaymentFixture(request, '__ai_Chrobrego', {
+    period: '2025-06',
+    status: 'paid',
+    totalPaid: 1555,
+  });
   try {
     await page.goto('/#dashboard');
     await page.locator('#global-search').fill('ilu miałem najemców na Chrobrego w zeszłym roku?');
@@ -361,7 +396,11 @@ test('topbar command bar explains finance result drivers', async ({ page }) => {
 });
 
 test('topbar command bar explains margin in plain language', async ({ page, request }) => {
-  const fixture = await createPaymentFixture(request, '__ai_margin_plain', { period: '2026-05', status: 'paid', totalPaid: 1555 });
+  const fixture = await createPaymentFixture(request, '__ai_margin_plain', {
+    period: '2026-05',
+    status: 'paid',
+    totalPaid: 1555,
+  });
   try {
     await page.goto('/#dashboard');
     await page.locator('#global-search').fill(`jak liczysz marżę dla ${fixture.name} za maj 2026?`);
@@ -430,7 +469,7 @@ test('mobile topbar keeps AI command bar visible and usable', async ({ page }) =
     buttons.map((button) => {
       const rect = button.getBoundingClientRect();
       return { left: rect.left, right: rect.right };
-    })
+    }),
   );
   for (const actionBox of actionBoxes) {
     expect(actionBox.left).toBeGreaterThanOrEqual(0);
@@ -555,7 +594,7 @@ test('topbar command bar creates a task after confirmation', async ({ page, requ
   await expect(page.getByText(/Dodano zadanie/)).toBeVisible();
   const tasks = await request.get('/api/tasks?status=open');
   expect(tasks.ok()).toBeTruthy();
-  const task = (await tasks.json()).find(t => String(t.title || '').includes('sprawdzić test command bar'));
+  const task = (await tasks.json()).find((t) => String(t.title || '').includes('sprawdzić test command bar'));
   expect(task).toBeTruthy();
   await request.delete(`/api/tasks/${task.id}`).catch(() => {});
 });
@@ -625,11 +664,16 @@ test('payment checkbox keeps the current scroll position', async ({ page, reques
     await checkbox.click();
     await expect(page.getByText('Zatwierdzono wpłatę')).toBeVisible();
 
-    const after = await page.evaluate(() => new Promise(resolve => {
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        resolve(document.querySelector('.content')?.scrollTop || 0);
-      }));
-    }));
+    const after = await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              resolve(document.querySelector('.content')?.scrollTop || 0);
+            }),
+          );
+        }),
+    );
     expect(after).toBeGreaterThan(before - 40);
   } finally {
     for (const fixture of fixtures.reverse()) {
@@ -664,11 +708,15 @@ test('property deletion is safe for a name containing quotes and HTML', async ({
   expect(created.ok()).toBeTruthy();
   const property = await created.json();
   try {
-    await page.addInitScript(() => { window.__xssTriggered = false; });
+    await page.addInitScript(() => {
+      window.__xssTriggered = false;
+    });
     await page.goto('/#nieruchomosci');
     const card = page.locator('.gc').filter({ hasText: name }).first();
     await expect(card).toBeVisible();
-    expect(await card.locator('button.icon-btn.danger').evaluate(button => button.hasAttribute('onclick'))).toBe(false);
+    expect(
+      await card.locator('button.icon-btn.danger').evaluate((button) => button.hasAttribute('onclick')),
+    ).toBe(false);
     const injectedHandlers = await page.locator('[onmouseover]').count();
     expect(injectedHandlers).toBe(0);
     expect(await page.evaluate(() => window.__xssTriggered)).toBe(false);

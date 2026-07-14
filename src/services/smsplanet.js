@@ -21,7 +21,12 @@ function normalizeSmsPlanetResponse(data) {
 
 async function sendSms({ token, from, to, msg, testMode, clearPolish, transactional }) {
   const bearer = token || tokenFromEnv();
-  const sender = String(from || '').trim().toLowerCase() === 'test' ? 'TEST' : String(from || '').trim();
+  const sender =
+    String(from || '')
+      .trim()
+      .toLowerCase() === 'test'
+      ? 'TEST'
+      : String(from || '').trim();
   if (!bearer) {
     const err = new Error('smsplanet_token_required');
     err.code = 'not_configured';
@@ -110,7 +115,7 @@ function parseMessageInfo(report) {
   for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed.startsWith('"') || !trimmed.includes(';')) continue;
-    const cols = trimmed.split(';').map(part => part.replace(/^"|"$/g, '').trim());
+    const cols = trimmed.split(';').map((part) => part.replace(/^"|"$/g, '').trim());
     if (cols[0] === 'Numer telefonu') continue;
     rows.push({
       phone: cols[0] || '',

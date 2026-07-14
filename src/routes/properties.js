@@ -15,14 +15,18 @@ const PropertySchema = z.object({
 
 router.get('/', (req, res) => {
   const scope = propertyScope(req, 'p');
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT p.*,
       (SELECT COUNT(*) FROM units u WHERE u.property_id = p.id) AS units_count,
       (SELECT COUNT(*) FROM units u WHERE u.property_id = p.id AND u.status='rented') AS units_rented
     FROM properties p
     ${scope.sql ? 'WHERE ' + scope.sql : ''}
     ORDER BY p.name COLLATE NOCASE
-  `).all(...scope.params);
+  `,
+    )
+    .all(...scope.params);
   res.json(rows);
 });
 
@@ -36,17 +40,25 @@ router.get('/:id', (req, res) => {
 
 router.post('/', validate(PropertySchema), (req, res) => {
   const userId = ownerId(req);
-  const r = db.prepare(`INSERT INTO properties (owner_user_id,name,address,district,type,notes) VALUES (?,?,?,?,?,?)`)
-    .run(userId, req.body.name, req.body.address ?? null, req.body.district ?? null, req.body.type ?? 'mieszkanie', req.body.notes ?? null);
+  const r = db
+    .prepare(`INSERT INTO properties (owner_user_id,name,address,district,type,notes) VALUES (?,?,?,?,?,?)`)
+    .run(
+      userId,
+      req.body.name,
+      req.body.address ?? null,
+      req.body.district ?? null,
+      req.body.type ?? 'mieszkanie',
+      req.body.notes ?? null,
+    );
   res.status(201).json(db.prepare('SELECT * FROM properties WHERE id = ?').get(r.lastInsertRowid));
 });
 
 router.put('/:id', validate(PropertySchema.partial()), (req, res) => {
   if (!canAccessProperty(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
-  const fields = ['name','address','district','type','notes'].filter(f => req.body[f] !== undefined);
+  const fields = ['name', 'address', 'district', 'type', 'notes'].filter((f) => req.body[f] !== undefined);
   if (!fields.length) return res.status(400).json({ error: 'no_fields' });
-  const sql = `UPDATE properties SET ${fields.map(f => `${f}=?`).join(',')} WHERE id = ?`;
-  const r = db.prepare(sql).run(...fields.map(f => req.body[f]), req.params.id);
+  const sql = `UPDATE properties SET ${fields.map((f) => `${f}=?`).join(',')} WHERE id = ?`;
+  const r = db.prepare(sql).run(...fields.map((f) => req.body[f]), req.params.id);
   if (!r.changes) return res.status(404).json({ error: 'not_found' });
   res.json(db.prepare('SELECT * FROM properties WHERE id = ?').get(req.params.id));
 });

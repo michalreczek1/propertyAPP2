@@ -42,7 +42,9 @@ async function api(method, p, body, isFile) {
   let data = null;
   const ct = r.headers.get('content-type') || '';
   if (ct.includes('application/json')) {
-    try { data = await r.json(); } catch {}
+    try {
+      data = await r.json();
+    } catch {}
   } else {
     data = await r.text();
   }
@@ -60,7 +62,9 @@ async function check(name, fn) {
   }
 }
 
-function expect(cond, msg) { if (!cond) throw new Error(msg); }
+function expect(cond, msg) {
+  if (!cond) throw new Error(msg);
+}
 
 function prepareIsolatedDatabase() {
   if (!isolated) return;
@@ -79,31 +83,45 @@ async function startServer() {
   console.log('▶ Uruchamiam serwer w tle…');
   serverProc = spawn('node', ['src/server.js'], {
     cwd: path.join(__dirname, '..'),
-    env: { ...process.env, DB_FILE: dbFile, UPLOADS_DIR: path.join(tmpDir, 'uploads'), PORT: '8090', NODE_ENV: 'test' },
+    env: {
+      ...process.env,
+      DB_FILE: dbFile,
+      UPLOADS_DIR: path.join(tmpDir, 'uploads'),
+      PORT: '8090',
+      NODE_ENV: 'test',
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  serverProc.stdout.on('data', d => process.env.VERBOSE && process.stdout.write('[srv] ' + d));
-  serverProc.stderr.on('data', d => process.stderr.write('[srv-err] ' + d));
+  serverProc.stdout.on('data', (d) => process.env.VERBOSE && process.stdout.write('[srv] ' + d));
+  serverProc.stderr.on('data', (d) => process.stderr.write('[srv-err] ' + d));
 
   // poczekaj na health
   for (let i = 0; i < 30; i++) {
     try {
       const r = await fetch(BASE + '/health');
-      if (r.ok) { console.log('  ✓ serwer up'); return; }
+      if (r.ok) {
+        console.log('  ✓ serwer up');
+        return;
+      }
     } catch {}
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 200));
   }
   throw new Error('Serwer nie wstał w 6s');
 }
 
-function stopServer() { if (serverProc) serverProc.kill('SIGINT'); }
+function stopServer() {
+  if (serverProc) serverProc.kill('SIGINT');
+}
 
 async function stopServerAndCleanup() {
   if (serverProc && !serverProc.killed) {
     serverProc.kill('SIGINT');
-    await new Promise(resolve => {
+    await new Promise((resolve) => {
       const timer = setTimeout(resolve, 2000);
-      serverProc.once('exit', () => { clearTimeout(timer); resolve(); });
+      serverProc.once('exit', () => {
+        clearTimeout(timer);
+        resolve();
+      });
     });
   }
   if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
@@ -144,7 +162,7 @@ async function main() {
   ]) {
     await check(`GET  ${p}`, async () => {
       const r = await api('GET', p);
-      expect(r.ok, `${r.status} ${JSON.stringify(r.data).slice(0,140)}`);
+      expect(r.ok, `${r.status} ${JSON.stringify(r.data).slice(0, 140)}`);
       const len = Array.isArray(r.data) ? r.data.length : Object.keys(r.data || {}).length;
       return `${len} ${Array.isArray(r.data) ? 'wierszy' : 'pól'}`;
     });
@@ -153,13 +171,18 @@ async function main() {
   console.log('\n══ CRUD: tenant ══');
   let tenantId = null;
   await check('POST /api/tenants', async () => {
-    const r = await api('POST', '/api/tenants', { name:'__smoke_test_tenant', status:'active' });
+    const r = await api('POST', '/api/tenants', { name: '__smoke_test_tenant', status: 'active' });
     expect(r.ok && r.data.id, JSON.stringify(r));
     tenantId = r.data.id;
     return `id=${tenantId}`;
   });
   await check('PUT  /api/tenants/:id', async () => {
-    const r = await api('PUT', `/api/tenants/${tenantId}`, { phone: '+48 600 000 000', sms_consent: 1, sms_disabled: 0, notes: 'smoke' });
+    const r = await api('PUT', `/api/tenants/${tenantId}`, {
+      phone: '+48 600 000 000',
+      sms_consent: 1,
+      sms_disabled: 0,
+      notes: 'smoke',
+    });
     expect(r.ok && r.data.phone === '+48 600 000 000' && Number(r.data.sms_consent) === 1, JSON.stringify(r));
     return 'ok';
   });
@@ -172,7 +195,7 @@ async function main() {
   console.log('\n══ CRUD: task ══');
   let taskId = null;
   await check('POST /api/tasks', async () => {
-    const r = await api('POST', '/api/tasks', { title:'__smoke task', priority:'low' });
+    const r = await api('POST', '/api/tasks', { title: '__smoke task', priority: 'low' });
     expect(r.ok && r.data.id, JSON.stringify(r));
     taskId = r.data.id;
     return `id=${taskId}`;
@@ -189,9 +212,10 @@ async function main() {
   });
 
   console.log('\n══ LATE PAYMENT FEES ══');
-  let lateTenantId = null, latePaymentId = null;
+  let lateTenantId = null,
+    latePaymentId = null;
   await check('POST late paid payment adds 50 zł fee', async () => {
-    const tenant = await api('POST', '/api/tenants', { name:'__smoke_late_fee_tenant', status:'active' });
+    const tenant = await api('POST', '/api/tenants', { name: '__smoke_late_fee_tenant', status: 'active' });
     expect(tenant.ok && tenant.data.id, JSON.stringify(tenant));
     lateTenantId = tenant.data.id;
     const payment = await api('POST', '/api/payments', {
@@ -213,22 +237,41 @@ async function main() {
     return `fee=${payment.data.late_fee_amount} balance=${payment.data.late_fee_balance}`;
   });
   await check('PUT late fee settlement updates tenant balance', async () => {
-    const r = await api('PUT', `/api/payments/${latePaymentId}/late-fee`, { action: 'deposit', note: 'smoke' });
-    expect(r.ok && r.data.total_paid === 120 && r.data.late_fee_paid === 50 && r.data.late_fee_resolution === 'deposit' && r.data.late_fee_balance === 0, JSON.stringify(r));
+    const r = await api('PUT', `/api/payments/${latePaymentId}/late-fee`, {
+      action: 'deposit',
+      note: 'smoke',
+    });
+    expect(
+      r.ok &&
+        r.data.total_paid === 120 &&
+        r.data.late_fee_paid === 50 &&
+        r.data.late_fee_resolution === 'deposit' &&
+        r.data.late_fee_balance === 0,
+      JSON.stringify(r),
+    );
     const t = await api('GET', `/api/tenants/${lateTenantId}`);
-    expect(t.ok && t.data.late_fee_summary.total === 50 && t.data.late_fee_summary.balance === 0 && t.data.late_fees[0].resolution === 'deposit', JSON.stringify(t));
+    expect(
+      t.ok &&
+        t.data.late_fee_summary.total === 50 &&
+        t.data.late_fee_summary.balance === 0 &&
+        t.data.late_fees[0].resolution === 'deposit',
+      JSON.stringify(t),
+    );
     return 'ok';
   });
   await check('DEL  late payment fixture', async () => {
-    if (latePaymentId) expect((await api('DELETE', `/api/payments/${latePaymentId}`)).ok, 'payment delete failed');
-    if (lateTenantId) expect((await api('DELETE', `/api/tenants/${lateTenantId}`)).ok, 'tenant delete failed');
+    if (latePaymentId)
+      expect((await api('DELETE', `/api/payments/${latePaymentId}`)).ok, 'payment delete failed');
+    if (lateTenantId)
+      expect((await api('DELETE', `/api/tenants/${lateTenantId}`)).ok, 'tenant delete failed');
     return 'ok';
   });
 
   console.log('\n══ PAYMENT DUE DATES ══');
-  let dueTenantId = null, duePaymentId = null;
+  let dueTenantId = null,
+    duePaymentId = null;
   await check('PUT payment due_day recalculates due_date', async () => {
-    const tenant = await api('POST', '/api/tenants', { name:'__smoke_due_date_tenant', status:'active' });
+    const tenant = await api('POST', '/api/tenants', { name: '__smoke_due_date_tenant', status: 'active' });
     expect(tenant.ok && tenant.data.id, JSON.stringify(tenant));
     dueTenantId = tenant.data.id;
     const payment = await api('POST', '/api/payments', {
@@ -245,11 +288,15 @@ async function main() {
     expect(payment.ok && payment.data.due_date === '2026-04-10', JSON.stringify(payment));
     duePaymentId = payment.data.id;
     const updated = await api('PUT', `/api/payments/${duePaymentId}`, { due_day: 31 });
-    expect(updated.ok && updated.data.due_day === 31 && updated.data.due_date === '2026-04-30', JSON.stringify(updated));
+    expect(
+      updated.ok && updated.data.due_day === 31 && updated.data.due_date === '2026-04-30',
+      JSON.stringify(updated),
+    );
     return updated.data.due_date;
   });
   await check('DEL  due date fixture', async () => {
-    if (duePaymentId) expect((await api('DELETE', `/api/payments/${duePaymentId}`)).ok, 'payment delete failed');
+    if (duePaymentId)
+      expect((await api('DELETE', `/api/payments/${duePaymentId}`)).ok, 'payment delete failed');
     if (dueTenantId) expect((await api('DELETE', `/api/tenants/${dueTenantId}`)).ok, 'tenant delete failed');
     return 'ok';
   });
@@ -272,17 +319,32 @@ async function main() {
     return 'ok';
   });
   await check('POST /api/notifications/run dry-run', async () => {
-    const r = await api('POST', '/api/notifications/run', { type: 'all', dry_run: true, today: '2026-04-01' });
+    const r = await api('POST', '/api/notifications/run', {
+      type: 'all',
+      dry_run: true,
+      today: '2026-04-01',
+    });
     expect(r.ok && r.data.dry_run === true && Array.isArray(r.data.candidates), JSON.stringify(r));
     return `${r.data.candidates.length} kandydatów`;
   });
   let smsPropId, smsUnitId, smsTenantId, smsPaymentId;
   await check('POST /api/notifications/payments/:id/reminder', async () => {
     const suffix = `__smoke_sms_button_${Date.now()}`;
-    const prop = await api('POST', '/api/properties', { name: `${suffix}_property`, district: 'SMS', type: 'mieszkanie' });
+    const prop = await api('POST', '/api/properties', {
+      name: `${suffix}_property`,
+      district: 'SMS',
+      type: 'mieszkanie',
+    });
     expect(prop.ok && prop.data.id, JSON.stringify(prop));
     smsPropId = prop.data.id;
-    const unit = await api('POST', '/api/units', { property_id: smsPropId, name: `${suffix}_unit`, code: 'SMS', base_rent: 900, base_media: 100, status: 'vacant' });
+    const unit = await api('POST', '/api/units', {
+      property_id: smsPropId,
+      name: `${suffix}_unit`,
+      code: 'SMS',
+      base_rent: 900,
+      base_media: 100,
+      status: 'vacant',
+    });
     expect(unit.ok && unit.data.id, JSON.stringify(unit));
     smsUnitId = unit.data.id;
     const tenant = await api('POST', '/api/tenants', {
@@ -308,18 +370,25 @@ async function main() {
     expect(payment.ok && payment.data.id, JSON.stringify(payment));
     smsPaymentId = payment.data.id;
     const preview = await api('GET', `/api/notifications/payments/${smsPaymentId}/reminder`);
-    expect(preview.ok && preview.data.ok && preview.data.message && preview.data.payment_id === smsPaymentId, JSON.stringify(preview));
+    expect(
+      preview.ok && preview.data.ok && preview.data.message && preview.data.payment_id === smsPaymentId,
+      JSON.stringify(preview),
+    );
     const sent = await api('POST', `/api/notifications/payments/${smsPaymentId}/reminder`, {});
     expect(sent.ok && sent.data.id, JSON.stringify(sent));
     if (preview.data.token_configured) {
       expect(sent.data.status === 'simulated', JSON.stringify(sent));
     } else {
-      expect(sent.data.status === 'failed' && sent.data.error === 'smsplanet_token_required', JSON.stringify(sent));
+      expect(
+        sent.data.status === 'failed' && sent.data.error === 'smsplanet_token_required',
+        JSON.stringify(sent),
+      );
     }
     return `log=${sent.data.id} status=${sent.data.status}`;
   });
   await check('DEL  SMS reminder fixture', async () => {
-    if (smsPaymentId) expect((await api('DELETE', `/api/payments/${smsPaymentId}`)).ok, 'payment delete failed');
+    if (smsPaymentId)
+      expect((await api('DELETE', `/api/payments/${smsPaymentId}`)).ok, 'payment delete failed');
     if (smsTenantId) expect((await api('DELETE', `/api/tenants/${smsTenantId}`)).ok, 'tenant delete failed');
     if (smsUnitId) expect((await api('DELETE', `/api/units/${smsUnitId}`)).ok, 'unit delete failed');
     if (smsPropId) expect((await api('DELETE', `/api/properties/${smsPropId}`)).ok, 'property delete failed');
@@ -330,9 +399,20 @@ async function main() {
   const aiFixtures = [];
   const aiAliasIds = [];
   async function createAiPaymentFixture(name, opts = {}) {
-    const prop = await api('POST', '/api/properties', { name: `${name}_property`, district: 'AI', type: 'mieszkanie' });
+    const prop = await api('POST', '/api/properties', {
+      name: `${name}_property`,
+      district: 'AI',
+      type: 'mieszkanie',
+    });
     expect(prop.ok && prop.data.id, JSON.stringify(prop));
-    const unit = await api('POST', '/api/units', { property_id: prop.data.id, name: `${name}_unit`, code: opts.code || 'AI', base_rent: 1000, base_media: 200, status: 'vacant' });
+    const unit = await api('POST', '/api/units', {
+      property_id: prop.data.id,
+      name: `${name}_unit`,
+      code: opts.code || 'AI',
+      base_rent: 1000,
+      base_media: 200,
+      status: 'vacant',
+    });
     expect(unit.ok && unit.data.id, JSON.stringify(unit));
     const tenant = await api('POST', '/api/tenants', {
       name,
@@ -361,25 +441,44 @@ async function main() {
       source: 'smoke-ai',
     });
     expect(payment.ok && payment.data.id, JSON.stringify(payment));
-    const fixture = { propertyId: prop.data.id, unitId: unit.data.id, tenantId: tenant.data.id, paymentId: payment.data.id };
+    const fixture = {
+      propertyId: prop.data.id,
+      unitId: unit.data.id,
+      tenantId: tenant.data.id,
+      paymentId: payment.data.id,
+    };
     aiFixtures.push(fixture);
     return fixture;
   }
 
-  let aiPaidFixture = null, aiSmsFixture = null, aiBlockedFixture = null;
+  let aiPaidFixture = null,
+    aiSmsFixture = null,
+    aiBlockedFixture = null;
   await check('POST /api/assistant/parse mark payment', async () => {
     aiPaidFixture = await createAiPaymentFixture(`__smoke_ai_kowalski_${Date.now()}`);
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: `${Date.now()} kowalski zapłacił` });
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: `${Date.now()} kowalski zapłacił`,
+    });
     if (!r.ok || !r.data.action) {
-      const retry = await api('POST', '/api/assistant/parse', { period: '2026-05', message: `__smoke_ai_kowalski zapłacił` });
-      expect(retry.ok && retry.data.intent === 'mark_payment_paid' && retry.data.action && retry.data.action.token, JSON.stringify(retry));
+      const retry = await api('POST', '/api/assistant/parse', {
+        period: '2026-05',
+        message: `__smoke_ai_kowalski zapłacił`,
+      });
+      expect(
+        retry.ok && retry.data.intent === 'mark_payment_paid' && retry.data.action && retry.data.action.token,
+        JSON.stringify(retry),
+      );
       return retry.data.intent;
     }
     expect(r.data.intent === 'mark_payment_paid' && r.data.action.token, JSON.stringify(r));
     return r.data.intent;
   });
   await check('POST /api/assistant/execute marks paid', async () => {
-    const parsed = await api('POST', '/api/assistant/parse', { period: '2026-05', message: `__smoke_ai_kowalski zapłacił` });
+    const parsed = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: `__smoke_ai_kowalski zapłacił`,
+    });
     expect(parsed.ok && parsed.data.action && parsed.data.action.token, JSON.stringify(parsed));
     const r = await api('POST', '/api/assistant/execute', { token: parsed.data.action.token });
     expect(r.ok && r.data.payment.status === 'paid', JSON.stringify(r));
@@ -387,22 +486,50 @@ async function main() {
   });
   await check('POST /api/assistant/parse tax explain', async () => {
     const [assistant, dash] = await Promise.all([
-      api('POST', '/api/assistant/parse', { period: '2026-05', message: 'ile wynosi podatek za ten miesiąc' }),
+      api('POST', '/api/assistant/parse', {
+        period: '2026-05',
+        message: 'ile wynosi podatek za ten miesiąc',
+      }),
       api('GET', '/api/dashboard?period=2026-05'),
     ]);
-    expect(assistant.ok && assistant.data.intent === 'explain_tax' && assistant.data.tax, JSON.stringify(assistant));
-    expect(dash.ok && assistant.data.tax.podatek_suma === dash.data.tax.podatek_suma, JSON.stringify({ assistant, dash }));
+    expect(
+      assistant.ok && assistant.data.intent === 'explain_tax' && assistant.data.tax,
+      JSON.stringify(assistant),
+    );
+    expect(
+      dash.ok && assistant.data.tax.podatek_suma === dash.data.tax.podatek_suma,
+      JSON.stringify({ assistant, dash }),
+    );
     return `${assistant.data.tax.podatek_suma} zł`;
   });
   await check('POST /api/assistant/parse paid status question', async () => {
-    const fixture = await createAiPaymentFixture(`__smoke_ai_status_${Date.now()}`, { period: '2026-04', status: 'paid', totalPaid: 1200, code: 'STAT' });
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: `czy __smoke_ai_status zapłacił za kwiecień?` });
-    expect(r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && !r.data.action, JSON.stringify(r));
-    expect(/Tak/i.test(r.data.message) && r.data.payment && r.data.payment.status === 'paid', JSON.stringify(r.data));
+    const fixture = await createAiPaymentFixture(`__smoke_ai_status_${Date.now()}`, {
+      period: '2026-04',
+      status: 'paid',
+      totalPaid: 1200,
+      code: 'STAT',
+    });
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: `czy __smoke_ai_status zapłacił za kwiecień?`,
+    });
+    expect(
+      r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && !r.data.action,
+      JSON.stringify(r),
+    );
+    expect(
+      /Tak/i.test(r.data.message) && r.data.payment && r.data.payment.status === 'paid',
+      JSON.stringify(r.data),
+    );
     return r.data.message;
   });
   await check('POST /api/assistant/parse tenant payment yearly summary', async () => {
-    const fixture = await createAiPaymentFixture(`__smoke_ai_roczny_${Date.now()}`, { period: '2026-04', status: 'paid', totalPaid: 1200, code: 'YR' });
+    const fixture = await createAiPaymentFixture(`__smoke_ai_roczny_${Date.now()}`, {
+      period: '2026-04',
+      status: 'paid',
+      totalPaid: 1200,
+      code: 'YR',
+    });
     const extra = await api('POST', '/api/payments', {
       period: '2026-05',
       tenant_id: fixture.tenantId,
@@ -431,15 +558,32 @@ async function main() {
     });
     expect(future.ok && future.data.id, JSON.stringify(future));
     aiFixtures.push({ paymentId: future.data.id });
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: `ile w tym roku zapłacił __smoke_ai_roczny` });
-    expect(r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report, JSON.stringify(r));
-    expect(r.data.report.range && r.data.report.range.start === '2026-01' && r.data.report.range.end === '2026-05', JSON.stringify(r.data.report));
-    expect(r.data.report.paid >= 2100 && r.data.report.paid < 7000 && r.data.report.count === 2, JSON.stringify(r.data));
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: `ile w tym roku zapłacił __smoke_ai_roczny`,
+    });
+    expect(
+      r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report,
+      JSON.stringify(r),
+    );
+    expect(
+      r.data.report.range && r.data.report.range.start === '2026-01' && r.data.report.range.end === '2026-05',
+      JSON.stringify(r.data.report),
+    );
+    expect(
+      r.data.report.paid >= 2100 && r.data.report.paid < 7000 && r.data.report.count === 2,
+      JSON.stringify(r.data),
+    );
     return `${r.data.report.paid} zł`;
   });
   await check('POST /api/assistant/parse tenant payment summary by surname', async () => {
     const tenantName = `__smoke_ai_hryniuk_${Date.now()}`;
-    const fixture = await createAiPaymentFixture(tenantName, { period: '2026-04', status: 'paid', totalPaid: 1250, code: 'HR' });
+    const fixture = await createAiPaymentFixture(tenantName, {
+      period: '2026-04',
+      status: 'paid',
+      totalPaid: 1250,
+      code: 'HR',
+    });
     const extra = await api('POST', '/api/payments', {
       period: '2026-05',
       tenant_id: fixture.tenantId,
@@ -454,129 +598,364 @@ async function main() {
     });
     expect(extra.ok && extra.data.id, JSON.stringify(extra));
     aiFixtures.push({ paymentId: extra.data.id });
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: `podsumuj wpłaty ${tenantName}` });
-    expect(r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report, JSON.stringify(r));
-    expect(r.data.report.tenant && Number(r.data.report.tenant.id) === Number(fixture.tenantId), JSON.stringify(r.data));
-    expect(r.data.report.range && r.data.report.range.mode === 'all' && r.data.report.paid >= 2180, JSON.stringify(r.data));
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: `podsumuj wpłaty ${tenantName}`,
+    });
+    expect(
+      r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report,
+      JSON.stringify(r),
+    );
+    expect(
+      r.data.report.tenant && Number(r.data.report.tenant.id) === Number(fixture.tenantId),
+      JSON.stringify(r.data),
+    );
+    expect(
+      r.data.report.range && r.data.report.range.mode === 'all' && r.data.report.paid >= 2180,
+      JSON.stringify(r.data),
+    );
     return `${r.data.report.paid} zł`;
   });
   await check('POST /api/assistant/parse global current-year income summary', async () => {
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'ile zarobiłem w 2026 r.' });
-    expect(r.ok && r.data.intent === 'report_answer' && r.data.status === 'answer' && r.data.report, JSON.stringify(r));
-    expect(r.data.report.metric === 'net_income' && r.data.report.range && r.data.report.range.start === '2026-01' && r.data.report.range.end === '2026-05', JSON.stringify(r.data));
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'ile zarobiłem w 2026 r.',
+    });
+    expect(
+      r.ok && r.data.intent === 'report_answer' && r.data.status === 'answer' && r.data.report,
+      JSON.stringify(r),
+    );
+    expect(
+      r.data.report.metric === 'net_income' &&
+        r.data.report.range &&
+        r.data.report.range.start === '2026-01' &&
+        r.data.report.range.end === '2026-05',
+      JSON.stringify(r.data),
+    );
     expect(!String(r.data.title || '').startsWith('Wynik netto maj 2026'), JSON.stringify(r.data));
     return `${r.data.report.net} zł`;
   });
   await check('POST /api/assistant/aliases property and metric aliases', async () => {
-    const fixture = await createAiPaymentFixture(`__smoke_ai_alias_${Date.now()}`, { period: '2026-05', status: 'paid', totalPaid: 1200, code: 'AL' });
-    const propertyAlias = await api('POST', '/api/assistant/aliases', { alias: '__smoke tajna baza', resolves_to_type: 'property', resolves_to_id: fixture.propertyId });
+    const fixture = await createAiPaymentFixture(`__smoke_ai_alias_${Date.now()}`, {
+      period: '2026-05',
+      status: 'paid',
+      totalPaid: 1200,
+      code: 'AL',
+    });
+    const propertyAlias = await api('POST', '/api/assistant/aliases', {
+      alias: '__smoke tajna baza',
+      resolves_to_type: 'property',
+      resolves_to_id: fixture.propertyId,
+    });
     expect(propertyAlias.ok && propertyAlias.data.id, JSON.stringify(propertyAlias));
     aiAliasIds.push(propertyAlias.data.id);
-    const metricAlias = await api('POST', '/api/assistant/aliases', { alias: '__smoke test mamony', resolves_to_type: 'metric', resolves_to_value: 'revenue_paid' });
+    const metricAlias = await api('POST', '/api/assistant/aliases', {
+      alias: '__smoke test mamony',
+      resolves_to_type: 'metric',
+      resolves_to_value: 'revenue_paid',
+    });
     expect(metricAlias.ok && metricAlias.data.id, JSON.stringify(metricAlias));
     aiAliasIds.push(metricAlias.data.id);
-    const propertyAnswer = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'podaj dochód z __smoke tajna baza za 2026 r.' });
-    expect(propertyAnswer.ok && propertyAnswer.data.report && Number(propertyAnswer.data.report.property_id) === Number(fixture.propertyId), JSON.stringify(propertyAnswer));
-    const metricAnswer = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'ile __smoke test mamony w 2026 r.' });
-    expect(metricAnswer.ok && metricAnswer.data.report && metricAnswer.data.report.metric === 'revenue_paid', JSON.stringify(metricAnswer));
+    const propertyAnswer = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'podaj dochód z __smoke tajna baza za 2026 r.',
+    });
+    expect(
+      propertyAnswer.ok &&
+        propertyAnswer.data.report &&
+        Number(propertyAnswer.data.report.property_id) === Number(fixture.propertyId),
+      JSON.stringify(propertyAnswer),
+    );
+    const metricAnswer = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'ile __smoke test mamony w 2026 r.',
+    });
+    expect(
+      metricAnswer.ok && metricAnswer.data.report && metricAnswer.data.report.metric === 'revenue_paid',
+      JSON.stringify(metricAnswer),
+    );
     return `${propertyAlias.data.alias} / ${metricAlias.data.alias}`;
   });
   await check('POST /api/assistant/parse tax yearly summary', async () => {
     const [assistant, taxYear] = await Promise.all([
-      api('POST', '/api/assistant/parse', { period: '2026-05', message: 'podsumuj ile podatku zapłaciłem w tym roku' }),
+      api('POST', '/api/assistant/parse', {
+        period: '2026-05',
+        message: 'podsumuj ile podatku zapłaciłem w tym roku',
+      }),
       api('GET', '/api/reports/tax-yearly?year=2026'),
     ]);
-    expect(assistant.ok && assistant.data.intent === 'report_answer' && assistant.data.status === 'answer' && assistant.data.report, JSON.stringify(assistant));
+    expect(
+      assistant.ok &&
+        assistant.data.intent === 'report_answer' &&
+        assistant.data.status === 'answer' &&
+        assistant.data.report,
+      JSON.stringify(assistant),
+    );
     const includedMonths = assistant.data.report.range.periods || [];
     const expectedTax = includedMonths.reduce((sum, period) => {
       const monthIndex = Number(String(period).slice(5, 7)) - 1;
       return sum + Number(taxYear.data.tax_paid.values[monthIndex] || 0);
     }, 0);
-    expect(taxYear.ok && assistant.data.report.range.end === '2026-05' && Math.round(assistant.data.report.tax_total) === Math.round(expectedTax), JSON.stringify({ assistant, taxYear, expectedTax }));
+    expect(
+      taxYear.ok &&
+        assistant.data.report.range.end === '2026-05' &&
+        Math.round(assistant.data.report.tax_total) === Math.round(expectedTax),
+      JSON.stringify({ assistant, taxYear, expectedTax }),
+    );
     return `${assistant.data.report.tax_total} zł`;
   });
   await check('POST /api/assistant/parse tenant count previous year by property', async () => {
-    const prop = await api('POST', '/api/properties', { name: `__smoke_ai_Lawendowa_${Date.now()}`, district: 'AI', type: 'mieszkanie' });
+    const prop = await api('POST', '/api/properties', {
+      name: `__smoke_ai_Lawendowa_${Date.now()}`,
+      district: 'AI',
+      type: 'mieszkanie',
+    });
     expect(prop.ok && prop.data.id, JSON.stringify(prop));
-    const unit = await api('POST', '/api/units', { property_id: prop.data.id, name: '__smoke_ai_ch_unit', code: 'CH', base_rent: 1000, base_media: 100, status: 'vacant' });
+    const unit = await api('POST', '/api/units', {
+      property_id: prop.data.id,
+      name: '__smoke_ai_ch_unit',
+      code: 'CH',
+      base_rent: 1000,
+      base_media: 100,
+      status: 'vacant',
+    });
     expect(unit.ok && unit.data.id, JSON.stringify(unit));
-    const tenant = await api('POST', '/api/tenants', { name: `__smoke_ai_ch_tenant_${Date.now()}`, current_unit_id: unit.data.id, status: 'active' });
+    const tenant = await api('POST', '/api/tenants', {
+      name: `__smoke_ai_ch_tenant_${Date.now()}`,
+      current_unit_id: unit.data.id,
+      status: 'active',
+    });
     expect(tenant.ok && tenant.data.id, JSON.stringify(tenant));
-    const payment = await api('POST', '/api/payments', { period: '2025-06', tenant_id: tenant.data.id, unit_id: unit.data.id, due_day: 10, rent_amount: 1000, media_amount: 100, total_paid: 1100, status: 'paid', source: 'smoke-ai' });
+    const payment = await api('POST', '/api/payments', {
+      period: '2025-06',
+      tenant_id: tenant.data.id,
+      unit_id: unit.data.id,
+      due_day: 10,
+      rent_amount: 1000,
+      media_amount: 100,
+      total_paid: 1100,
+      status: 'paid',
+      source: 'smoke-ai',
+    });
     expect(payment.ok && payment.data.id, JSON.stringify(payment));
     aiFixtures.push({ propertyId: prop.data.id, tenantId: tenant.data.id, paymentId: payment.data.id });
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'ilu miałem najemców na Lawendowej w zeszłym roku?' });
-    expect(r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report && r.data.report.count >= 1, JSON.stringify(r));
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'ilu miałem najemców na Lawendowej w zeszłym roku?',
+    });
+    expect(
+      r.ok &&
+        r.data.intent === 'answer_from_data' &&
+        r.data.status === 'answer' &&
+        r.data.report &&
+        r.data.report.count >= 1,
+      JSON.stringify(r),
+    );
     return `${r.data.report.count} najemców`;
   });
   await check('POST /api/assistant/parse inflected property tenant count', async () => {
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'ilu miałem najemców na Kościelnej w zeszłym roku?' });
-    expect(r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report, JSON.stringify(r));
-    expect(String(r.data.title || '').toLowerCase().includes('kościelna') || String(r.data.title || '').toLowerCase().includes('koscielna'), JSON.stringify(r.data));
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'ilu miałem najemców na Kościelnej w zeszłym roku?',
+    });
+    expect(
+      r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report,
+      JSON.stringify(r),
+    );
+    expect(
+      String(r.data.title || '')
+        .toLowerCase()
+        .includes('kościelna') ||
+        String(r.data.title || '')
+          .toLowerCase()
+          .includes('koscielna'),
+      JSON.stringify(r.data),
+    );
     return r.data.title;
   });
   await check('POST /api/assistant/parse property income yearly summary', async () => {
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'podaj sumę dochodów z chrobrego za 2025 r.' });
-    expect(r.ok && r.data.intent === 'report_answer' && r.data.status === 'answer' && r.data.report, JSON.stringify(r));
-    expect(String(r.data.report.property_name || '').toLowerCase().includes('chrobrego'), JSON.stringify(r.data));
-    expect(r.data.report.range && r.data.report.range.start === '2025-01' && r.data.report.range.end === '2025-12', JSON.stringify(r.data.report));
-    expect(Number(r.data.report.revenue || 0) >= 0 && !String(r.data.title || '').includes('maj 2026'), JSON.stringify(r.data));
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'podaj sumę dochodów z chrobrego za 2025 r.',
+    });
+    expect(
+      r.ok && r.data.intent === 'report_answer' && r.data.status === 'answer' && r.data.report,
+      JSON.stringify(r),
+    );
+    expect(
+      String(r.data.report.property_name || '')
+        .toLowerCase()
+        .includes('chrobrego'),
+      JSON.stringify(r.data),
+    );
+    expect(
+      r.data.report.range && r.data.report.range.start === '2025-01' && r.data.report.range.end === '2025-12',
+      JSON.stringify(r.data.report),
+    );
+    expect(
+      Number(r.data.report.revenue || 0) >= 0 && !String(r.data.title || '').includes('maj 2026'),
+      JSON.stringify(r.data),
+    );
     return `${r.data.report.property_name}: ${r.data.report.revenue} zł`;
   });
   await check('POST /api/assistant/parse SMS preview', async () => {
-    aiSmsFixture = await createAiPaymentFixture(`__smoke_ai_sms_${Date.now()}`, { smsConsent: true, code: 'SMS' });
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: '__smoke_ai_sms wyślij SMS z przypomnieniem' });
-    expect(r.ok && r.data.intent === 'send_sms_reminder' && r.data.preview && r.data.preview.message && r.data.action, JSON.stringify(r));
+    aiSmsFixture = await createAiPaymentFixture(`__smoke_ai_sms_${Date.now()}`, {
+      smsConsent: true,
+      code: 'SMS',
+    });
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: '__smoke_ai_sms wyślij SMS z przypomnieniem',
+    });
+    expect(
+      r.ok &&
+        r.data.intent === 'send_sms_reminder' &&
+        r.data.preview &&
+        r.data.preview.message &&
+        r.data.action,
+      JSON.stringify(r),
+    );
     return r.data.preview.test_mode ? 'test-mode preview' : 'preview';
   });
   await check('POST /api/assistant/parse SMS blocks missing consent', async () => {
-    aiBlockedFixture = await createAiPaymentFixture(`__smoke_ai_bez_zgody_${Date.now()}`, { smsConsent: false, code: 'NO' });
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: '__smoke_ai_bez_zgody wyślij SMS z przypomnieniem' });
-    expect(r.ok && r.data.status === 'blocked' && r.data.reason === 'sms_consent_required', JSON.stringify(r));
+    aiBlockedFixture = await createAiPaymentFixture(`__smoke_ai_bez_zgody_${Date.now()}`, {
+      smsConsent: false,
+      code: 'NO',
+    });
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: '__smoke_ai_bez_zgody wyślij SMS z przypomnieniem',
+    });
+    expect(
+      r.ok && r.data.status === 'blocked' && r.data.reason === 'sms_consent_required',
+      JSON.stringify(r),
+    );
     return r.data.reason;
   });
   await check('POST /api/assistant/parse ambiguous tenant', async () => {
     await createAiPaymentFixture(`__smoke_ai_duplikat_A_${Date.now()}`, { code: 'D1' });
     await createAiPaymentFixture(`__smoke_ai_duplikat_B_${Date.now()}`, { code: 'D2' });
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: '__smoke_ai_duplikat zapłacił' });
-    expect(r.ok && r.data.status === 'clarify' && Array.isArray(r.data.candidates) && r.data.candidates.length >= 2, JSON.stringify(r));
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: '__smoke_ai_duplikat zapłacił',
+    });
+    expect(
+      r.ok &&
+        r.data.status === 'clarify' &&
+        Array.isArray(r.data.candidates) &&
+        r.data.candidates.length >= 2,
+      JSON.stringify(r),
+    );
     return `${r.data.candidates.length} kandydatów`;
   });
   await check('POST /api/assistant/parse global search results', async () => {
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'szukaj __smoke_ai_sms' });
-    expect(r.ok && ['search_global','navigate_to_entity'].includes(r.data.intent) && Array.isArray(r.data.items), JSON.stringify(r));
-    expect(r.data.items.some(item => String(item.title || '').includes('__smoke_ai_sms')), JSON.stringify(r.data));
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'szukaj __smoke_ai_sms',
+    });
+    expect(
+      r.ok && ['search_global', 'navigate_to_entity'].includes(r.data.intent) && Array.isArray(r.data.items),
+      JSON.stringify(r),
+    );
+    expect(
+      r.data.items.some((item) => String(item.title || '').includes('__smoke_ai_sms')),
+      JSON.stringify(r.data),
+    );
     return `${r.data.items.length} wyników`;
   });
   await check('POST /api/assistant/parse payment filter navigation', async () => {
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'pokaż tylko zaległości' });
-    expect(r.ok && r.data.status === 'navigate' && r.data.navigation.view === 'platnosci' && r.data.navigation.state.paymentsFilter === 'overdue', JSON.stringify(r));
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'pokaż tylko zaległości',
+    });
+    expect(
+      r.ok &&
+        r.data.status === 'navigate' &&
+        r.data.navigation.view === 'platnosci' &&
+        r.data.navigation.state.paymentsFilter === 'overdue',
+      JSON.stringify(r),
+    );
     return r.data.navigation.view;
   });
   await check('POST /api/assistant/parse finance answer', async () => {
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'ile zarobiłem netto w tym miesiącu?' });
-    expect(r.ok && r.data.intent === 'report_answer' && r.data.status === 'answer' && r.data.report, JSON.stringify(r));
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'ile zarobiłem netto w tym miesiącu?',
+    });
+    expect(
+      r.ok && r.data.intent === 'report_answer' && r.data.status === 'answer' && r.data.report,
+      JSON.stringify(r),
+    );
     return r.data.title;
   });
   await check('POST /api/assistant/parse late fee report', async () => {
-    await createAiPaymentFixture(`__smoke_ai_kary_${Date.now()}`, { code: 'KAR', lateFeeAmount: 50, lateFeePaid: 20 });
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'zrób zestawienie kar najemców' });
-    expect(r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report && r.data.report.total >= 50, JSON.stringify(r));
-    expect(Array.isArray(r.data.items) && r.data.items.some(item => String(item.title || '').includes('__smoke_ai_kary')), JSON.stringify(r.data));
+    await createAiPaymentFixture(`__smoke_ai_kary_${Date.now()}`, {
+      code: 'KAR',
+      lateFeeAmount: 50,
+      lateFeePaid: 20,
+    });
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'zrób zestawienie kar najemców',
+    });
+    expect(
+      r.ok &&
+        r.data.intent === 'answer_from_data' &&
+        r.data.status === 'answer' &&
+        r.data.report &&
+        r.data.report.total >= 50,
+      JSON.stringify(r),
+    );
+    expect(
+      Array.isArray(r.data.items) &&
+        r.data.items.some((item) => String(item.title || '').includes('__smoke_ai_kary')),
+      JSON.stringify(r.data),
+    );
     return `${r.data.report.total} zł`;
   });
   await check('POST /api/assistant/parse flexible unpaid penalties question', async () => {
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'którzy najemcy mają nierozliczone kary?' });
-    expect(r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report && r.data.report.balance >= 30, JSON.stringify(r));
-    expect(Array.isArray(r.data.items) && r.data.items.some(item => String(item.title || '').includes('__smoke_ai_kary')), JSON.stringify(r.data));
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'którzy najemcy mają nierozliczone kary?',
+    });
+    expect(
+      r.ok &&
+        r.data.intent === 'answer_from_data' &&
+        r.data.status === 'answer' &&
+        r.data.report &&
+        r.data.report.balance >= 30,
+      JSON.stringify(r),
+    );
+    expect(
+      Array.isArray(r.data.items) &&
+        r.data.items.some((item) => String(item.title || '').includes('__smoke_ai_kary')),
+      JSON.stringify(r.data),
+    );
     return `${r.data.report.balance} zł`;
   });
   await check('POST /api/assistant/parse flexible overdue payments question', async () => {
     await createAiPaymentFixture(`__smoke_ai_zalega_${Date.now()}`, { code: 'OVD', status: 'overdue' });
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'kto zalega z płatnościami?' });
-    expect(r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report && r.data.report.count >= 1, JSON.stringify(r));
-    expect(r.data.report.range && r.data.report.range.mode === 'all' && r.data.report.total_balance >= 1200, JSON.stringify(r.data.report));
-    expect(Array.isArray(r.data.items) && r.data.items.some(item => String(item.title || '').includes('__smoke_ai_zalega')), JSON.stringify(r.data));
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'kto zalega z płatnościami?',
+    });
+    expect(
+      r.ok &&
+        r.data.intent === 'answer_from_data' &&
+        r.data.status === 'answer' &&
+        r.data.report &&
+        r.data.report.count >= 1,
+      JSON.stringify(r),
+    );
+    expect(
+      r.data.report.range && r.data.report.range.mode === 'all' && r.data.report.total_balance >= 1200,
+      JSON.stringify(r.data.report),
+    );
+    expect(
+      Array.isArray(r.data.items) &&
+        r.data.items.some((item) => String(item.title || '').includes('__smoke_ai_zalega')),
+      JSON.stringify(r.data),
+    );
     return `${r.data.report.total_balance} zł`;
   });
   await check('POST /api/assistant/parse tenant lateness stats', async () => {
@@ -605,55 +984,137 @@ async function main() {
     });
     expect(extra.ok && extra.data.id, JSON.stringify(extra));
     aiFixtures.push({ paymentId: extra.data.id });
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: `jak płaci ${tenantName} w tym roku?` });
-    expect(r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report, JSON.stringify(r));
-    expect(r.data.report.late_count === 1 && r.data.report.max_delay_days === 5, JSON.stringify(r.data.report));
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: `jak płaci ${tenantName} w tym roku?`,
+    });
+    expect(
+      r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report,
+      JSON.stringify(r),
+    );
+    expect(
+      r.data.report.late_count === 1 && r.data.report.max_delay_days === 5,
+      JSON.stringify(r.data.report),
+    );
     return `${r.data.report.average_delay_days} dni`;
   });
   await check('POST /api/assistant/parse lateness ranking', async () => {
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'kto najczęściej się spóźnia z płatnościami w tym roku?' });
-    expect(r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report, JSON.stringify(r));
-    expect(Array.isArray(r.data.report.ranking) && r.data.report.ranking.some(row => String(row.tenant_name || '').includes('__smoke_ai_spozniony')), JSON.stringify(r.data.report));
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'kto najczęściej się spóźnia z płatnościami w tym roku?',
+    });
+    expect(
+      r.ok && r.data.intent === 'answer_from_data' && r.data.status === 'answer' && r.data.report,
+      JSON.stringify(r),
+    );
+    expect(
+      Array.isArray(r.data.report.ranking) &&
+        r.data.report.ranking.some((row) => String(row.tenant_name || '').includes('__smoke_ai_spozniony')),
+      JSON.stringify(r.data.report),
+    );
     return `${r.data.report.count} najemców`;
   });
   await check('POST /api/assistant/parse unit profitability ranking', async () => {
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'który pokój przynosi najwięcej w tym roku?' });
-    expect(r.ok && r.data.intent === 'report_answer' && r.data.status === 'answer' && r.data.report && r.data.report.metric === 'revenue', JSON.stringify(r));
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'który pokój przynosi najwięcej w tym roku?',
+    });
+    expect(
+      r.ok &&
+        r.data.intent === 'report_answer' &&
+        r.data.status === 'answer' &&
+        r.data.report &&
+        r.data.report.metric === 'revenue',
+      JSON.stringify(r),
+    );
     expect(Array.isArray(r.data.items), JSON.stringify(r.data));
     return r.data.title;
   });
   await check('POST /api/assistant/parse property profitability ranking', async () => {
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'która nieruchomość ma największą marżę w tym roku?' });
-    expect(r.ok && r.data.intent === 'report_answer' && r.data.status === 'answer' && r.data.report && r.data.report.metric === 'margin', JSON.stringify(r));
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'która nieruchomość ma największą marżę w tym roku?',
+    });
+    expect(
+      r.ok &&
+        r.data.intent === 'report_answer' &&
+        r.data.status === 'answer' &&
+        r.data.report &&
+        r.data.report.metric === 'margin',
+      JSON.stringify(r),
+    );
     expect(Array.isArray(r.data.items), JSON.stringify(r.data));
     return r.data.title;
   });
   await check('POST /api/assistant/parse margin explains per-zloty meaning', async () => {
     const name = '__smoke_ai_profit_plain';
     await createAiPaymentFixture(name, { period: '2026-05', status: 'paid', totalPaid: 1200, code: 'MAR' });
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: `jaka jest marża ${name}_property w maju 2026?` });
-    expect(r.ok && r.data.intent === 'report_answer' && r.data.status === 'answer' && r.data.report && r.data.report.metric === 'margin', JSON.stringify(r));
-    expect(String(r.data.message || '').includes('z każdej 1 zł') && String(r.data.message || '').includes('Rachunek:'), JSON.stringify(r.data));
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: `jaka jest marża ${name}_property w maju 2026?`,
+    });
+    expect(
+      r.ok &&
+        r.data.intent === 'report_answer' &&
+        r.data.status === 'answer' &&
+        r.data.report &&
+        r.data.report.metric === 'margin',
+      JSON.stringify(r),
+    );
+    expect(
+      String(r.data.message || '').includes('z każdej 1 zł') &&
+        String(r.data.message || '').includes('Rachunek:'),
+      JSON.stringify(r.data),
+    );
     return r.data.title;
   });
   await check('POST /api/assistant/parse data quality audit', async () => {
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'sprawdź błędy w danych' });
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'sprawdź błędy w danych',
+    });
     expect(r.ok && r.data.intent === 'data_quality_check' && Array.isArray(r.data.checks), JSON.stringify(r));
     return `${r.data.checks.length} kontroli`;
   });
   await check('POST /api/assistant/parse range data completeness audit', async () => {
     const auditName = `__smoke_ai_audyt_${Date.now()}`;
     await createAiPaymentFixture(auditName, { period: '2026-04', status: 'paid', code: 'AUD' });
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'sprawdź czy dane są kompletne za 2026 r.' });
-    expect(r.ok && r.data.intent === 'data_quality_check' && r.data.report && r.data.report.range.start === '2026-01', JSON.stringify(r));
-    const missing = (r.data.checks || []).find(c => c.key === 'property_missing_months');
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'sprawdź czy dane są kompletne za 2026 r.',
+    });
+    expect(
+      r.ok &&
+        r.data.intent === 'data_quality_check' &&
+        r.data.report &&
+        r.data.report.range.start === '2026-01',
+      JSON.stringify(r),
+    );
+    const missing = (r.data.checks || []).find((c) => c.key === 'property_missing_months');
     expect(missing && missing.count >= 1, JSON.stringify(r.data));
-    expect(Array.isArray(r.data.items) && r.data.items.some(item => String(item.title || '').includes(auditName) || String(item.subtitle || '').includes('2026-01')), JSON.stringify(r.data));
+    expect(
+      Array.isArray(r.data.items) &&
+        r.data.items.some(
+          (item) =>
+            String(item.title || '').includes(auditName) || String(item.subtitle || '').includes('2026-01'),
+        ),
+      JSON.stringify(r.data),
+    );
     return `${missing.count} braków`;
   });
   await check('POST /api/assistant/parse finance explanation', async () => {
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'dlaczego wynik w maju 2026?' });
-    expect(r.ok && r.data.intent === 'report_answer' && r.data.status === 'answer' && r.data.report && r.data.report.delta, JSON.stringify(r));
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'dlaczego wynik w maju 2026?',
+    });
+    expect(
+      r.ok &&
+        r.data.intent === 'report_answer' &&
+        r.data.status === 'answer' &&
+        r.data.report &&
+        r.data.report.delta,
+      JSON.stringify(r),
+    );
     expect(String(r.data.title || '').includes('Wyjaśnienie'), JSON.stringify(r.data));
     return r.data.title;
   });
@@ -663,14 +1124,31 @@ async function main() {
     return `${r.data.checks.length} sygnałów`;
   });
   await check('POST /api/assistant/parse annual AI summary', async () => {
-    const r = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'zrób podsumowanie 2026' });
-    expect(r.ok && r.data.intent === 'report_answer' && r.data.status === 'answer' && r.data.report && r.data.report.totals, JSON.stringify(r));
+    const r = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'zrób podsumowanie 2026',
+    });
+    expect(
+      r.ok &&
+        r.data.intent === 'report_answer' &&
+        r.data.status === 'answer' &&
+        r.data.report &&
+        r.data.report.totals,
+      JSON.stringify(r),
+    );
     expect(String(r.data.title || '').includes('Podsumowanie'), JSON.stringify(r.data));
     return r.data.title;
   });
-  let aiTaskId = null, aiTaskToken = null, aiExpenseId = null, aiAuditTaskIds = [], aiFilledPaymentIds = [];
+  let aiTaskId = null,
+    aiTaskToken = null,
+    aiExpenseId = null,
+    aiAuditTaskIds = [],
+    aiFilledPaymentIds = [];
   await check('POST /api/assistant/execute creates task', async () => {
-    const parsed = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'dodaj zadanie sprawdzić licznik prądu' });
+    const parsed = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'dodaj zadanie sprawdzić licznik prądu',
+    });
     expect(parsed.ok && parsed.data.action && parsed.data.action.token, JSON.stringify(parsed));
     aiTaskToken = parsed.data.action.token;
     const r = await api('POST', '/api/assistant/execute', { token: parsed.data.action.token });
@@ -684,7 +1162,10 @@ async function main() {
     return r.data.error;
   });
   await check('POST /api/assistant/execute adds expense', async () => {
-    const parsed = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'dodaj koszt prąd 123 zł' });
+    const parsed = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'dodaj koszt prąd 123 zł',
+    });
     expect(parsed.ok && parsed.data.action && parsed.data.action.token, JSON.stringify(parsed));
     const r = await api('POST', '/api/assistant/execute', { token: parsed.data.action.token });
     expect(r.ok && r.data.expense && Number(r.data.expense.amount) === 123, JSON.stringify(r));
@@ -692,29 +1173,44 @@ async function main() {
     return `expense=${aiExpenseId}`;
   });
   await check('POST /api/assistant/execute creates audit tasks', async () => {
-    const parsed = await api('POST', '/api/assistant/parse', { period: '2026-05', message: 'utwórz zadania z audytu 2026' });
+    const parsed = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'utwórz zadania z audytu 2026',
+    });
     expect(parsed.ok && parsed.data.action && parsed.data.action.token, JSON.stringify(parsed));
     const r = await api('POST', '/api/assistant/execute', { token: parsed.data.action.token });
     expect(r.ok && Array.isArray(r.data.tasks) && r.data.tasks.length > 0, JSON.stringify(r));
-    aiAuditTaskIds = r.data.tasks.map(t => t.id);
+    aiAuditTaskIds = r.data.tasks.map((t) => t.id);
     return `${aiAuditTaskIds.length} zadań`;
   });
   await check('POST /api/assistant/execute fills missing property payments', async () => {
     const name = `__smoke_ai_fill_${Date.now()}`;
-    const fixture = await createAiPaymentFixture(name, { period: '2026-04', status: 'paid', totalPaid: 1333, code: 'FIL' });
-    const parsed = await api('POST', '/api/assistant/parse', { period: '2026-05', message: `uzupełnij brakujące wpływy z ${name}_property za 2026 r.` });
-    expect(parsed.ok && parsed.data.action && parsed.data.action.token && parsed.data.items.length >= 1, JSON.stringify(parsed));
+    const fixture = await createAiPaymentFixture(name, {
+      period: '2026-04',
+      status: 'paid',
+      totalPaid: 1333,
+      code: 'FIL',
+    });
+    const parsed = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: `uzupełnij brakujące wpływy z ${name}_property za 2026 r.`,
+    });
+    expect(
+      parsed.ok && parsed.data.action && parsed.data.action.token && parsed.data.items.length >= 1,
+      JSON.stringify(parsed),
+    );
     const r = await api('POST', '/api/assistant/execute', { token: parsed.data.action.token });
     expect(r.ok && r.data.result && r.data.result.created.length >= 1, JSON.stringify(r));
-    aiFilledPaymentIds = r.data.result.created.map(row => row.id);
-    aiFilledPaymentIds.forEach(paymentId => aiFixtures.push({ paymentId }));
+    aiFilledPaymentIds = r.data.result.created.map((row) => row.id);
+    aiFilledPaymentIds.forEach((paymentId) => aiFixtures.push({ paymentId }));
     return `${r.data.result.created.length} płatności`;
   });
   await check('DEL  AI assistant fixtures', async () => {
     if (aiTaskId) await api('DELETE', `/api/tasks/${aiTaskId}`).catch(() => {});
     if (aiExpenseId) await api('DELETE', `/api/expenses/${aiExpenseId}`).catch(() => {});
     for (const id of aiAuditTaskIds.reverse()) await api('DELETE', `/api/tasks/${id}`).catch(() => {});
-    for (const id of aiAliasIds.reverse()) await api('DELETE', `/api/assistant/aliases/${id}`).catch(() => {});
+    for (const id of aiAliasIds.reverse())
+      await api('DELETE', `/api/assistant/aliases/${id}`).catch(() => {});
     for (const fixture of aiFixtures.reverse()) {
       if (fixture.paymentId) await api('DELETE', `/api/payments/${fixture.paymentId}`).catch(() => {});
       if (fixture.tenantId) await api('DELETE', `/api/tenants/${fixture.tenantId}`).catch(() => {});
@@ -726,7 +1222,11 @@ async function main() {
   console.log('\n══ CRUD: property ══');
   let propId = null;
   await check('POST /api/properties', async () => {
-    const r = await api('POST', '/api/properties', { name:'__smoke_property', district:'Test', type:'inne' });
+    const r = await api('POST', '/api/properties', {
+      name: '__smoke_property',
+      district: 'Test',
+      type: 'inne',
+    });
     expect(r.ok && r.data.id, JSON.stringify(r));
     propId = r.data.id;
     return `id=${propId}`;
@@ -743,8 +1243,15 @@ async function main() {
       amount: 4321.09,
     });
     expect(r.ok && Number(r.data.amount) === 4321.09, JSON.stringify(r));
-    const rows = await api('GET', `/api/expenses?period=2026-11&category=kredyt&property_id=${propId}&include_owner=1`);
-    expect(rows.ok && rows.data.some(row => row.system && row.category === 'kredyt' && Number(row.amount) === 4321.09), JSON.stringify(rows));
+    const rows = await api(
+      'GET',
+      `/api/expenses?period=2026-11&category=kredyt&property_id=${propId}&include_owner=1`,
+    );
+    expect(
+      rows.ok &&
+        rows.data.some((row) => row.system && row.category === 'kredyt' && Number(row.amount) === 4321.09),
+      JSON.stringify(rows),
+    );
     return 'ok';
   });
   await check('DEL  /api/properties/:id', async () => {
@@ -756,7 +1263,12 @@ async function main() {
   console.log('\n══ CRUD: expense ══');
   let expId = null;
   await check('POST /api/expenses', async () => {
-    const r = await api('POST', '/api/expenses', { category:'inne', amount: 12.34, date: '2025-01-15', description: '__smoke' });
+    const r = await api('POST', '/api/expenses', {
+      category: 'inne',
+      amount: 12.34,
+      date: '2025-01-15',
+      description: '__smoke',
+    });
     expect(r.ok && r.data.id, JSON.stringify(r));
     expId = r.data.id;
     return `id=${expId}`;
@@ -768,15 +1280,28 @@ async function main() {
   });
 
   console.log('\n══ CONTRACT DOCUMENTS ══');
-  let docPropId = null, docUnitId = null, docTenantId = null, docContractId = null, docId = null;
+  let docPropId = null,
+    docUnitId = null,
+    docTenantId = null,
+    docContractId = null,
+    docId = null;
   await check('POST contract fixture', async () => {
-    const prop = await api('POST', '/api/properties', { name:`__smoke_docs_${Date.now()}`, district:'Test', type:'mieszkanie' });
+    const prop = await api('POST', '/api/properties', {
+      name: `__smoke_docs_${Date.now()}`,
+      district: 'Test',
+      type: 'mieszkanie',
+    });
     expect(prop.ok && prop.data.id, JSON.stringify(prop));
     docPropId = prop.data.id;
-    const unit = await api('POST', '/api/units', { property_id: docPropId, name:'Lokal testowy', code:'D1', status:'vacant' });
+    const unit = await api('POST', '/api/units', {
+      property_id: docPropId,
+      name: 'Lokal testowy',
+      code: 'D1',
+      status: 'vacant',
+    });
     expect(unit.ok && unit.data.id, JSON.stringify(unit));
     docUnitId = unit.data.id;
-    const tenant = await api('POST', '/api/tenants', { name:'__smoke_doc_tenant', status:'active' });
+    const tenant = await api('POST', '/api/tenants', { name: '__smoke_doc_tenant', status: 'active' });
     expect(tenant.ok && tenant.data.id, JSON.stringify(tenant));
     docTenantId = tenant.data.id;
     const contract = await api('POST', '/api/contracts', {
@@ -806,18 +1331,22 @@ async function main() {
   });
   await check('GET  /api/contracts/:id/documents', async () => {
     const r = await api('GET', `/api/contracts/${docContractId}/documents`);
-    expect(r.ok && r.data.some(d => d.id === docId), JSON.stringify(r));
+    expect(r.ok && r.data.some((d) => d.id === docId), JSON.stringify(r));
     return `${r.data.length} dokumentów`;
   });
   await check('GET  /api/documents/:id/download', async () => {
     const r = await fetch(BASE + `/api/documents/${docId}/download`);
     expect(r.ok && (r.headers.get('content-type') || '').includes('application/pdf'), `status=${r.status}`);
-    expect((r.headers.get('content-disposition') || '').toLowerCase().includes('.pdf'), 'download filename missing .pdf extension');
+    expect(
+      (r.headers.get('content-disposition') || '').toLowerCase().includes('.pdf'),
+      'download filename missing .pdf extension',
+    );
     return `${(await r.arrayBuffer()).byteLength} bajtów`;
   });
   await check('DEL  contract document fixture', async () => {
     if (docId) expect((await api('DELETE', `/api/documents/${docId}`)).ok, 'doc delete failed');
-    if (docContractId) expect((await api('DELETE', `/api/contracts/${docContractId}`)).ok, 'contract delete failed');
+    if (docContractId)
+      expect((await api('DELETE', `/api/contracts/${docContractId}`)).ok, 'contract delete failed');
     if (docTenantId) expect((await api('DELETE', `/api/tenants/${docTenantId}`)).ok, 'tenant delete failed');
     if (docPropId) expect((await api('DELETE', `/api/properties/${docPropId}`)).ok, 'property delete failed');
     return 'ok';
@@ -828,7 +1357,7 @@ async function main() {
     const r = await fetch(BASE + '/api/export/payments.csv?period=2025-01');
     expect(r.ok && r.headers.get('content-type').includes('text/csv'), `status=${r.status}`);
     const txt = await r.text();
-    return `${txt.split('\n').length-1} linii CSV`;
+    return `${txt.split('\n').length - 1} linii CSV`;
   });
   await check('GET  /api/export/report.pdf?period=2025-01', async () => {
     const r = await fetch(BASE + '/api/export/report.pdf?period=2025-01');
@@ -862,29 +1391,32 @@ async function main() {
     return 'ok';
   });
   await check('POST /api/properties bez name → 400', async () => {
-    const r = await api('POST', '/api/properties', { type:'inne' });
+    const r = await api('POST', '/api/properties', { type: 'inne' });
     expect(r.status === 400 && r.data.error === 'validation_error', JSON.stringify(r));
     return 'walidacja działa';
   });
 
   // wynik
-  const ok = results.filter(r => r.ok).length;
+  const ok = results.filter((r) => r.ok).length;
   const failed = results.length - ok;
   console.log(`\n══════ ${ok}/${results.length} OK · ${failed} błędów ══════`);
   if (failed > 0) {
     console.log('\nBłędy:');
-    for (const r of results.filter(r => !r.ok)) console.log(`  ✗ ${r.name}: ${r.info}`);
+    for (const r of results.filter((r) => !r.ok)) console.log(`  ✗ ${r.name}: ${r.info}`);
   }
 
   await stopServerAndCleanup();
   process.exit(failed > 0 ? 1 : 0);
 }
 
-main().catch(e => {
+main().catch((e) => {
   console.error('FATAL:', e);
   stopServerAndCleanup()
-    .catch(cleanupErr => console.error('Cleanup failed:', cleanupErr.message))
+    .catch((cleanupErr) => console.error('Cleanup failed:', cleanupErr.message))
     .finally(() => process.exit(1));
 });
 
-process.on('SIGINT', () => { stopServer(); process.exit(130); });
+process.on('SIGINT', () => {
+  stopServer();
+  process.exit(130);
+});

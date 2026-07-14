@@ -33,7 +33,9 @@ async function api(method, url, body) {
   const res = await fetch(base + url, opts);
   const text = await res.text();
   let data = text;
-  try { data = text ? JSON.parse(text) : null; } catch {}
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {}
   return { status: res.status, ok: res.ok, data };
 }
 
@@ -53,15 +55,15 @@ async function startServer() {
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  serverProc.stdout.on('data', d => process.env.VERBOSE && process.stdout.write('[srv] ' + d));
-  serverProc.stderr.on('data', d => process.stderr.write('[srv-err] ' + d));
+  serverProc.stdout.on('data', (d) => process.env.VERBOSE && process.stdout.write('[srv] ' + d));
+  serverProc.stderr.on('data', (d) => process.stderr.write('[srv-err] ' + d));
 
   for (let i = 0; i < 40; i++) {
     try {
       const res = await fetch(base + '/health');
       if (res.ok) return;
     } catch {}
-    await new Promise(resolve => setTimeout(resolve, 150));
+    await new Promise((resolve) => setTimeout(resolve, 150));
   }
   throw new Error('server did not start');
 }
@@ -69,7 +71,7 @@ async function startServer() {
 async function stopServer() {
   if (serverProc && !serverProc.killed) {
     serverProc.kill('SIGINT');
-    await new Promise(resolve => {
+    await new Promise((resolve) => {
       const timer = setTimeout(resolve, 1000);
       serverProc.once('exit', () => {
         clearTimeout(timer);
@@ -80,7 +82,7 @@ async function stopServer() {
   try {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   } catch {
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 }
@@ -147,17 +149,26 @@ async function main() {
     pay_by_day: 10,
     status: 'active',
   });
-  expect(unitConflict.status === 409 && unitConflict.data.error === 'active_contract_exists_for_unit', 'missing unit contract conflict');
+  expect(
+    unitConflict.status === 409 && unitConflict.data.error === 'active_contract_exists_for_unit',
+    'missing unit contract conflict',
+  );
 
   const reassigned = await api('PUT', `/api/contracts/${contractA.data.id}`, {
     tenant_id: tenantB.data.id,
   });
-  expect(reassigned.ok && reassigned.data.tenant_id === tenantB.data.id, 'active contract reassignment failed');
+  expect(
+    reassigned.ok && reassigned.data.tenant_id === tenantB.data.id,
+    'active contract reassignment failed',
+  );
 
   tenantAfter = await api('GET', `/api/tenants/${tenantA.data.id}`);
   const reassignedTenant = await api('GET', `/api/tenants/${tenantB.data.id}`);
   expect(tenantAfter.data.current_unit_id == null, 'reassigned contract did not clear previous tenant');
-  expect(reassignedTenant.data.current_unit_id === unitA.data.id, 'reassigned contract did not set new tenant');
+  expect(
+    reassignedTenant.data.current_unit_id === unitA.data.id,
+    'reassigned contract did not set new tenant',
+  );
 
   const tenantConflict = await api('POST', '/api/contracts', {
     tenant_id: tenantB.data.id,
@@ -168,10 +179,16 @@ async function main() {
     pay_by_day: 10,
     status: 'active',
   });
-  expect(tenantConflict.status === 409 && tenantConflict.data.error === 'active_contract_exists_for_tenant', 'missing tenant contract conflict');
+  expect(
+    tenantConflict.status === 409 && tenantConflict.data.error === 'active_contract_exists_for_tenant',
+    'missing tenant contract conflict',
+  );
 
   const generatedFromContract = await api('POST', '/api/payments/generate-month', { period: '2026-08' });
-  expect(generatedFromContract.ok && generatedFromContract.data.created === 1, 'contract payment generation failed');
+  expect(
+    generatedFromContract.ok && generatedFromContract.data.created === 1,
+    'contract payment generation failed',
+  );
   expect(generatedFromContract.data.source_counts.contracts === 1, 'contract source count mismatch');
 
   const augustPayments = await api('GET', `/api/payments?period=2026-08&unit_id=${unitA.data.id}`);
@@ -214,7 +231,10 @@ async function main() {
   expect(manualAssign.ok, 'manual tenant assignment failed');
 
   const generatedFromTenant = await api('POST', '/api/payments/generate-month', { period: '2026-09' });
-  expect(generatedFromTenant.ok && generatedFromTenant.data.created === 1, 'tenant fallback generation failed');
+  expect(
+    generatedFromTenant.ok && generatedFromTenant.data.created === 1,
+    'tenant fallback generation failed',
+  );
   expect(generatedFromTenant.data.source_counts.tenants === 1, 'tenant fallback count mismatch');
   expect(generatedFromTenant.data.fallback_used === true, 'tenant fallback flag mismatch');
 
@@ -226,13 +246,16 @@ async function main() {
   expect(septemberPayments.data[0].source === 'tenant', 'tenant fallback payment source mismatch');
 
   const duplicate = await api('POST', '/api/payments/generate-month', { period: '2026-09' });
-  expect(duplicate.ok && duplicate.data.created === 0 && duplicate.data.skipped === 1, 'duplicate generation was not idempotent');
+  expect(
+    duplicate.ok && duplicate.data.created === 0 && duplicate.data.skipped === 1,
+    'duplicate generation was not idempotent',
+  );
 
   console.log('Rental model regression OK');
 }
 
 main()
-  .catch(err => {
+  .catch((err) => {
     console.error(err.message);
     process.exitCode = 1;
   })

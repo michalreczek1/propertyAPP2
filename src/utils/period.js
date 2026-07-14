@@ -2,8 +2,18 @@
 /** Pomocnicze funkcje do obsługi okresów (YYYY-MM) i polskich miesięcy. */
 
 const PL_MONTHS = [
-  'styczeń','luty','marzec','kwiecień','maj','czerwiec',
-  'lipiec','sierpień','wrzesień','październik','listopad','grudzień'
+  'styczeń',
+  'luty',
+  'marzec',
+  'kwiecień',
+  'maj',
+  'czerwiec',
+  'lipiec',
+  'sierpień',
+  'wrzesień',
+  'październik',
+  'listopad',
+  'grudzień',
 ];
 
 const PL_MONTHS_NORM = PL_MONTHS.map(normalize);
@@ -12,7 +22,7 @@ function normalize(s) {
   return String(s || '')
     .toLowerCase()
     .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')   // diakrytyki
+    .replace(/[̀-ͯ]/g, '') // diakrytyki
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -55,36 +65,43 @@ function isValidPeriod(period) {
 function dueDate(period, day) {
   const p = parsePeriod(period);
   if (!p || !day) return null;
-  const last = new Date(p.year, p.month, 0).getDate();   // ostatni dzień miesiąca
+  const last = new Date(p.year, p.month, 0).getDate(); // ostatni dzień miesiąca
   const d = Math.min(+day || last, last);
-  return `${p.year}-${String(p.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  return `${p.year}-${String(p.month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
 
 function currentPeriod() {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function todayLocalISO() {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function previousPeriod(period) {
-  const p = parsePeriod(period); if (!p) return null;
+  const p = parsePeriod(period);
+  if (!p) return null;
   const d = new Date(p.year, p.month - 2, 1);
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function periodLabel(period) {
-  const p = parsePeriod(period); if (!p) return period;
+  const p = parsePeriod(period);
+  if (!p) return period;
   return `${PL_MONTHS[p.month - 1]} ${p.year}`;
 }
 
 module.exports = {
-  PL_MONTHS, normalize,
-  parsePolishMonthYear, parsePeriod,
+  PL_MONTHS,
+  normalize,
+  parsePolishMonthYear,
+  parsePeriod,
   isValidPeriod,
-  dueDate, currentPeriod, previousPeriod, periodLabel,
+  dueDate,
+  currentPeriod,
+  previousPeriod,
+  periodLabel,
   todayLocalISO,
 };

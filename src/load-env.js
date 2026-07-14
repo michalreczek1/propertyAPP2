@@ -27,4 +27,3 @@ function loadEnvFile(file) {
 
 loadEnvFile(path.join(__dirname, '..', '.env'));
 loadEnvFile('/etc/propertyapp/auth.env');
-
