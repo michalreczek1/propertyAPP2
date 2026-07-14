@@ -25,7 +25,14 @@ try {
   runNode('scripts/migrate.js');
   runNode('scripts/seed.js');
 
-  const db = new Database(dbFile);
+  let db = new Database(dbFile);
+  assert.equal(db.prepare("SELECT status FROM units WHERE code = ?").get('KR').status, 'vacant', 'fresh seed must not mark an uncontracted unit as rented');
+  db.prepare("UPDATE units SET status = 'rented' WHERE code = ?").run('KR');
+  db.prepare('DELETE FROM schema_migrations WHERE id = ?').run('2026-07-14-007-normalize-unit-occupancy');
+  db.close();
+  runNode('scripts/migrate.js');
+  db = new Database(dbFile);
+  assert.equal(db.prepare("SELECT status FROM units WHERE code = ?").get('KR').status, 'vacant', 'occupancy migration must release an unassigned rented unit');
   db.prepare("UPDATE settings SET value = ? WHERE key = ?").run('12.5', 'tax.rate');
   db.prepare("UPDATE settings SET value = ? WHERE key = ?").run('999', 'cost.management.monthly');
   db.prepare("UPDATE properties SET district = ? WHERE name = ?").run('User district', 'Kościelna 30/21');

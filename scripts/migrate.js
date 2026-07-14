@@ -648,5 +648,20 @@ applyMigration('2026-07-14-006-assistant-action-idempotence', () => {
       ON assistant_action_executions(created_at);
   `);
 });
+applyMigration('2026-07-14-007-normalize-unit-occupancy', () => {
+  db.prepare(`
+    UPDATE units
+    SET status = 'vacant'
+    WHERE status = 'rented'
+      AND NOT EXISTS (
+        SELECT 1 FROM contracts c
+        WHERE c.unit_id = units.id AND c.status = 'active'
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM tenants t
+        WHERE t.current_unit_id = units.id AND t.status = 'active'
+      )
+  `).run();
+});
 console.log('✓ Schemat bazy gotowy:', db.name);
 console.log('  Tabele:', db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map(r => r.name).join(', '));

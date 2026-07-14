@@ -131,6 +131,7 @@ db.prepare(`
 payment.run('2026-09', tenantIds[0], krId, '2026-09-10', '2026-09-10', 1000, 100, 1200, 'paid');
 
 const expense = db.prepare('INSERT INTO expenses(property_id, category, amount, date, description) VALUES (?, ?, ?, ?, ?)');
+const unitExpense = db.prepare('INSERT INTO expenses(unit_id, category, amount, date, description) VALUES (?, ?, ?, ?, ?)');
 expense.run(chrobregoId, 'czynsz', 1710, '2026-04-01', 'Czynsz Chrobrego');
 expense.run(chrobregoId, 'internet', 64, '2026-04-01', 'Internet Chrobrego');
 expense.run(chrobregoId, 'prad', 150, '2026-04-01', 'Prąd Chrobrego');
@@ -138,6 +139,7 @@ expense.run(koscielnaId, 'czynsz', 695.54, '2026-04-01', 'Czynsz Kościelna');
 expense.run(koscielnaId, 'prad', 120, '2026-04-01', 'Prąd Kościelna');
 expense.run(chrobregoId, 'remonty', 30, '2026-04-01', 'Testowy remont');
 expense.run(chrobregoId, 'kredyt', 100, '2026-07-01', 'Manualny koszt kredytu');
+unitExpense.run(krId, 'remonty', 77, '2026-10-01', 'Koszt tylko dla lokalu KR');
 
 const recurring = db.prepare('INSERT INTO recurring_costs(category, property_id, amount, valid_from_period, active) VALUES (?, ?, ?, ?, 1)');
 recurring.run('zarzadzanie', null, 500, '2026-01');
@@ -197,5 +199,9 @@ const september = monthlyFinanceSummary(db, '2026-09');
 near(september.revenue.gross, 1200, 'Revenue uses actual total_paid for paid payments');
 near(september.revenue.rent_paid, 1000, 'Tax base still uses scheduled rent, not overpayment');
 near(september.tax.podatek_suma, 85, 'Overpayment does not inflate tax');
+
+const october = monthlyFinanceSummary(db, '2026-10');
+const octoberKr = october.properties.find(row => row.id === Number(koscielnaId));
+near(octoberKr.direct_expenses, 77, 'Property summary includes expenses assigned directly to its unit');
 
 console.log('✓ Finance regression tests passed');

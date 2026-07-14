@@ -175,7 +175,10 @@ function propertiesForPeriod(db, period, tax, ownerCosts, req = null) {
       COALESCE((
         SELECT SUM(e.amount)
         FROM expenses e
-        WHERE e.property_id = p.id AND strftime('%Y-%m', e.date) = ?
+        WHERE (e.property_id = p.id OR e.unit_id IN (
+          SELECT u3.id FROM units u3 WHERE u3.property_id = p.id
+        ))
+          AND strftime('%Y-%m', e.date) = ?
       ), 0) AS direct_expenses
     FROM properties p
     ${scope.sql ? 'WHERE ' + scope.sql : ''}

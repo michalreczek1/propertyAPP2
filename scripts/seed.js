@@ -52,7 +52,7 @@ const findProperty = db.prepare('SELECT id FROM properties WHERE name = ?');
 const findUnit = db.prepare('SELECT id FROM units WHERE property_id = ? AND code = ?');
 const insertUnit = db.prepare(`
   INSERT INTO units (property_id, name, code, base_rent, base_media, status)
-  VALUES (?, ?, ?, ?, ?, 'rented')
+  VALUES (?, ?, ?, ?, ?, 'vacant')
 `);
 
 const upsertSetting = db.prepare(`
