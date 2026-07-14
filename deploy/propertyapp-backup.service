@@ -1,0 +1,14 @@
+[Unit]
+Description=PropertyApp online SQLite backup and restore verification
+After=propertyapp.service
+
+[Service]
+Type=oneshot
+User=root
+Environment=DB_FILE=/opt/propertyapp/data/property.db
+Environment=UPLOADS_DIR=/opt/propertyapp/data/uploads
+Environment=BACKUP_INCLUDE_FILES=1
+Environment=BACKUP_CONFIG_FILE=/etc/propertyapp/auth.env
+Environment=BACKUP_KEEP=14
+WorkingDirectory=/opt/propertyapp/app
+ExecStart=/usr/bin/node /opt/propertyapp/app/scripts/backup.js /opt/propertyapp/data/backups

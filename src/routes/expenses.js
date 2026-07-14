@@ -5,6 +5,7 @@ const db = require('../db');
 const { validate } = require('../middleware/validate');
 const { ownerExpenseRows, getOwnerCosts, appendOwnerCostCategories } = require('../utils/owner-costs');
 const { assertRefs, canAccessExpense, ownerId } = require('../utils/scope');
+const { requireAdmin } = require('../middleware/auth');
 
 const ExpenseSchema = z.object({
   property_id: z.coerce.number().int().positive().nullable().optional(),
@@ -131,7 +132,7 @@ router.delete('/:id', (req, res) => {
 //   marek_total   → 'doplata' (prowizja zarządcy)
 // Przypisuje do nieruchomości "Os. B. Chrobrego 28/21" (chrobrego ma 6 pokoi, generuje większość kosztów).
 // Idempotentna — pomija miesiące dla których już istnieją wpisy z source='monthly_summary'.
-router.post('/migrate-from-summary', (_req, res) => {
+router.post('/migrate-from-summary', requireAdmin, (req, res) => {
   const chrobr = db.prepare("SELECT id FROM properties WHERE name LIKE '%Chrobrego%' LIMIT 1").get();
   if (!chrobr) return res.status(400).json({ error: 'no_chrobrego_property' });
 
@@ -159,13 +160,13 @@ router.post('/migrate-from-summary', (_req, res) => {
       const date = `${s.period}-01`;
       if (s.media_paid && s.media_paid > 0) {
         if (!exists.get(chrobr.id, 'inne', s.period)) {
-          ins.run(ownerId(_req), chrobr.id, 'inne', s.media_paid, date, 'Media (dostawcy) — z arkusza Excel');
+          ins.run(ownerId(req), chrobr.id, 'inne', s.media_paid, date, 'Media (dostawcy) — z arkusza Excel');
           inserted++;
         } else skipped++;
       }
       if (s.marek_total && s.marek_total > 0) {
         if (!exists.get(chrobr.id, 'doplata', s.period)) {
-          ins.run(ownerId(_req), chrobr.id, 'doplata', s.marek_total, date, 'Prowizja zarządcy (Marek) — z arkusza Excel');
+          ins.run(ownerId(req), chrobr.id, 'doplata', s.marek_total, date, 'Prowizja zarządcy (Marek) — z arkusza Excel');
           inserted++;
         } else skipped++;
       }

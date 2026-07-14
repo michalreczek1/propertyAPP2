@@ -144,6 +144,21 @@ function clearSessionCookie(req, res) {
   });
 }
 
+function safeNextPath(value) {
+  if (typeof value !== 'string') return '/';
+  let decoded;
+  try { decoded = decodeURIComponent(value); } catch { return '/'; }
+  if (!decoded.startsWith('/') || /^[/\\]{2}/.test(decoded)) return '/';
+  try {
+    const target = new URL(decoded, 'http://propertyapp.local');
+    return target.origin === 'http://propertyapp.local'
+      ? `${target.pathname}${target.search}${target.hash}`
+      : '/';
+  } catch {
+    return '/';
+  }
+}
+
 function clientKey(req, username) {
   return `${req.ip || req.socket.remoteAddress || 'local'}:${String(username || '').toLowerCase()}`;
 }
@@ -213,6 +228,7 @@ function loginPage(req, res) {
   const status = authStatus(req);
   if (status.user) return res.redirect('/');
   const configMissing = status.enabled && !status.configured;
+  const safeNext = safeNextPath(req.query.next);
   res.setHeader('Cache-Control', 'no-store, must-revalidate');
   res.setHeader('Content-Type', 'text/html; charset=UTF-8');
   res.send(`<!DOCTYPE html>
@@ -259,8 +275,7 @@ form.addEventListener('submit',async e=>{
     const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const data=await r.json().catch(()=>({}));
     if(!r.ok) throw new Error(data.error==='invalid_credentials'?'Nieprawidłowy login lub hasło.':data.error||'Błąd logowania');
-    const params=new URLSearchParams(location.search);
-    location.href=params.get('next')||'/';
+    location.href=${JSON.stringify(safeNext)};
   }catch(ex){err.textContent=ex.message;err.className='err on';btn.disabled=false;}
 });
 </script>
@@ -305,4 +320,5 @@ module.exports = {
   loginPage,
   requireAuth,
   requireAdmin,
+  safeNextPath,
 };

@@ -55,8 +55,11 @@ if ($RequireGroqKey -and [string]::IsNullOrWhiteSpace($GroqApiKey)) {
 
 if (-not $SkipTests) {
   Run "npm run smoke"
-  Run "npm run test:ui"
+  Run "npm run test:auth"
+  Run "npm run test:rental-model"
+  Run "npm run test:seed-safety"
   Run "npm run test:finance"
+  Run "npm run test:ui"
 }
 
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
@@ -115,7 +118,7 @@ pct exec "`$CT_ID" -- bash -lc "test -d '`$APP_DIR' && test -f '`$DB_FILE'"
 
 echo "== backups =="
 pct exec "`$CT_ID" -- bash -lc "mkdir -p /opt/propertyapp/data/backups /opt/propertyapp/backups '`$APP_BACKUP_DIR'"
-pct exec "`$CT_ID" -- bash -lc "cp '`$DB_FILE' '`$DB_BACKUP'"
+pct exec "`$CT_ID" -- bash -lc "cd '`$APP_DIR' && DB_FILE='`$DB_FILE' UPLOADS_DIR='`$UPLOADS_DIR' BACKUP_INCLUDE_FILES=1 BACKUP_CONFIG_FILE='`$ENV_FILE' node scripts/backup.js /opt/propertyapp/data/backups"
 pct exec "`$CT_ID" -- bash -lc "tar --exclude='./node_modules' --exclude='./data' -cf '`$APP_BACKUP_DIR/app.tar' -C '`$APP_DIR' ."
 
 echo "== snapshot =="
@@ -173,6 +176,12 @@ echo "== install and migrate =="
 pct exec "`$CT_ID" -- bash -lc "cd '`$APP_DIR' && npm ci --omit=dev"
 pct exec "`$CT_ID" -- bash -lc "cd '`$APP_DIR' && DB_FILE='`$DB_FILE' UPLOADS_DIR='`$UPLOADS_DIR' npm run migrate"
 pct exec "`$CT_ID" -- bash -lc "rm -rf '`$APP_DIR/data'"
+
+echo "== install daily backup timer =="
+pct exec "`$CT_ID" -- install -m 0644 "`$APP_DIR/deploy/propertyapp-backup.service" /etc/systemd/system/propertyapp-backup.service
+pct exec "`$CT_ID" -- install -m 0644 "`$APP_DIR/deploy/propertyapp-backup.timer" /etc/systemd/system/propertyapp-backup.timer
+pct exec "`$CT_ID" -- systemctl daemon-reload
+pct exec "`$CT_ID" -- systemctl enable --now propertyapp-backup.timer
 
 echo "== restart and verify =="
 pct exec "`$CT_ID" -- systemctl restart "`$SERVICE_NAME"

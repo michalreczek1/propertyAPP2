@@ -1443,6 +1443,14 @@ async function renderProperties(root) {
     ${props.map((p, i) => renderPropertyCard(p, allUnits.filter(u => u.property_id === p.id), contracts, payments, expenses.filter(e => e.property_id === p.id), i)).join('')}`;
 
   document.getElementById('btn-add-prop').onclick = () => editProperty(null);
+  // Nazwa nieruchomości pozostaje wyłącznie w stanie JavaScript, nigdy w HTML.
+  root.querySelectorAll('[data-delete-property-id]').forEach((button) => {
+    const id = Number(button.dataset.deletePropertyId);
+    button.addEventListener('click', () => {
+      const property = props.find((p) => p.id === id);
+      if (property) deleteProperty(id, property.name);
+    });
+  });
 }
 
 function renderPropertyCard(p, units, contracts, payments, expenses, idx) {
@@ -1471,7 +1479,7 @@ function renderPropertyCard(p, units, contracts, payments, expenses, idx) {
           <div style="display:flex;gap:6px;align-items:center">
             ${chip(occupied?'chip-e':'chip-n', occupied?'Zajęta':'Wolna', !!occupied)}
             <button class="icon-btn" onclick="editProperty(${p.id})" title="Edytuj"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-            <button class="icon-btn danger" onclick="deleteProperty(${p.id}, ${JSON.stringify(p.name)})" title="Usuń"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg></button>
+            <button class="icon-btn danger" type="button" data-delete-property-id="${p.id}" title="Usuń"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg></button>
           </div>
         </div>
         <div class="prop-detail">
@@ -1523,7 +1531,7 @@ function renderPropertyCard(p, units, contracts, payments, expenses, idx) {
         <div style="display:flex;gap:6px;align-items:center">
           ${chip('chip-c', `${occupied}/${units.length} zajętych`)}
           <button class="icon-btn" onclick="editProperty(${p.id})" title="Edytuj"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-          <button class="icon-btn danger" onclick="deleteProperty(${p.id}, ${JSON.stringify(p.name)})" title="Usuń"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg></button>
+          <button class="icon-btn danger" type="button" data-delete-property-id="${p.id}" title="Usuń"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg></button>
         </div>
       </div>
       <div class="prop-detail-col" style="border-bottom:1px solid var(--border)">

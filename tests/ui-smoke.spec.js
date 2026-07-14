@@ -655,3 +655,29 @@ test('tablet views keep large tables inside the app shell', async ({ page }) => 
   expect(overflow.documentWidth).toBeLessThanOrEqual(overflow.viewportWidth + 1);
   expect(overflow.contentWidth).toBeLessThanOrEqual(overflow.contentClient + 1);
 });
+
+test('property deletion is safe for a name containing quotes and HTML', async ({ page, request }) => {
+  const name = `__xss_property_${Date.now()} \" onmouseover=\"window.__xssTriggered=true\" <img>`;
+  const created = await request.post('/api/properties', {
+    data: { name, district: 'Security', type: 'mieszkanie' },
+  });
+  expect(created.ok()).toBeTruthy();
+  const property = await created.json();
+  try {
+    await page.addInitScript(() => { window.__xssTriggered = false; });
+    await page.goto('/#nieruchomosci');
+    const card = page.locator('.gc').filter({ hasText: name }).first();
+    await expect(card).toBeVisible();
+    expect(await card.locator('button.icon-btn.danger').evaluate(button => button.hasAttribute('onclick'))).toBe(false);
+    const injectedHandlers = await page.locator('[onmouseover]').count();
+    expect(injectedHandlers).toBe(0);
+    expect(await page.evaluate(() => window.__xssTriggered)).toBe(false);
+
+    await card.locator('button.icon-btn.danger').click();
+    await expect(page.getByText('Usuń nieruchomość')).toBeVisible();
+    await page.getByRole('button', { name: 'Tak, kontynuuj' }).click();
+    await expect.poll(async () => (await request.get(`/api/properties/${property.id}`)).status()).toBe(404);
+  } finally {
+    await request.delete(`/api/properties/${property.id}`).catch(() => {});
+  }
+});

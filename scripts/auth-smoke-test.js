@@ -99,6 +99,12 @@ async function main() {
   expect(root.status === 302, `expected redirect to login, got ${root.status}`);
   expect((root.headers.get('location') || '').startsWith('/login'), 'missing login redirect');
 
+  for (const unsafe of ['https://evil.example', '//evil.example', 'javascript:alert(1)', '/%5C%5Cevil.example']) {
+    const login = await fetch(base + `/login?next=${encodeURIComponent(unsafe)}`);
+    const html = await login.text();
+    expect(login.ok && html.includes('location.href="/"'), `login page retained unsafe next redirect: ${unsafe}`);
+  }
+
   const blocked = await fetch(base + '/api/dashboard');
   expect(blocked.status === 401, `expected unauthorized API, got ${blocked.status}`);
 

@@ -12,9 +12,14 @@
  *   BASE_URL=http://localhost:8090 node scripts/smoke-test.js   # przeciw istniejącemu
  */
 const path = require('path');
-const { spawn } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const { spawn, spawnSync } = require('child_process');
 
 const BASE = process.env.BASE_URL || 'http://127.0.0.1:8090';
+const isolated = !process.env.BASE_URL;
+const tmpDir = isolated ? fs.mkdtempSync(path.join(os.tmpdir(), 'propertyapp-smoke-')) : null;
+const dbFile = process.env.TEST_DB_FILE || (tmpDir && path.join(tmpDir, 'property.db'));
 let serverProc = null;
 
 const results = []; // { name, ok, ms, info }
@@ -57,12 +62,24 @@ async function check(name, fn) {
 
 function expect(cond, msg) { if (!cond) throw new Error(msg); }
 
+function prepareIsolatedDatabase() {
+  if (!isolated) return;
+  for (const script of ['scripts/migrate.js', 'scripts/seed.js']) {
+    const result = spawnSync(process.execPath, [script], {
+      cwd: path.join(__dirname, '..'),
+      env: { ...process.env, DB_FILE: dbFile, UPLOADS_DIR: path.join(tmpDir, 'uploads'), NODE_ENV: 'test' },
+      encoding: 'utf8',
+    });
+    if (result.status !== 0) throw new Error(`${script} failed\n${result.stdout}\n${result.stderr}`);
+  }
+}
+
 async function startServer() {
   if (process.env.BASE_URL) return; // serwer zewnętrzny
   console.log('▶ Uruchamiam serwer w tle…');
   serverProc = spawn('node', ['src/server.js'], {
     cwd: path.join(__dirname, '..'),
-    env: { ...process.env, PORT: '8090', NODE_ENV: 'test' },
+    env: { ...process.env, DB_FILE: dbFile, UPLOADS_DIR: path.join(tmpDir, 'uploads'), PORT: '8090', NODE_ENV: 'test' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   serverProc.stdout.on('data', d => process.env.VERBOSE && process.stdout.write('[srv] ' + d));
@@ -81,7 +98,19 @@ async function startServer() {
 
 function stopServer() { if (serverProc) serverProc.kill('SIGINT'); }
 
+async function stopServerAndCleanup() {
+  if (serverProc && !serverProc.killed) {
+    serverProc.kill('SIGINT');
+    await new Promise(resolve => {
+      const timer = setTimeout(resolve, 2000);
+      serverProc.once('exit', () => { clearTimeout(timer); resolve(); });
+    });
+  }
+  if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+}
+
 async function main() {
+  prepareIsolatedDatabase();
   await startServer();
 
   console.log('\n══ HEALTH ══');
@@ -841,14 +870,15 @@ async function main() {
     for (const r of results.filter(r => !r.ok)) console.log(`  ✗ ${r.name}: ${r.info}`);
   }
 
-  stopServer();
+  await stopServerAndCleanup();
   process.exit(failed > 0 ? 1 : 0);
 }
 
 main().catch(e => {
   console.error('FATAL:', e);
-  stopServer();
-  process.exit(1);
+  stopServerAndCleanup()
+    .catch(cleanupErr => console.error('Cleanup failed:', cleanupErr.message))
+    .finally(() => process.exit(1));
 });
 
 process.on('SIGINT', () => { stopServer(); process.exit(130); });

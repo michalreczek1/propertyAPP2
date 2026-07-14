@@ -13,6 +13,7 @@ const {
   canAccessUnit,
   ownerId,
 } = require('../utils/scope');
+const { isAllowedMime, hasExpectedSignature, removeUploadedFile } = require('../utils/document-upload');
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, '..', '..', 'data', 'uploads');
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -46,7 +47,16 @@ const storage = multer.diskStorage({
     cb(null, Date.now() + '-' + safe);
   },
 });
-const upload = multer({ storage, limits: { fileSize: 25 * 1024 * 1024 } });
+const upload = multer({
+  storage,
+  limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (isAllowedMime(file.mimetype)) return cb(null, true);
+    const err = new Error('unsupported_file_type');
+    err.status = 400;
+    cb(err);
+  },
+});
 
 function canAccessRelated(req, type, id) {
   if (!type || !id) return true;
@@ -96,7 +106,14 @@ router.post('/', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'no_file' });
   const entityType = req.body.entity_type || null;
   const entityId = req.body.entity_id ? +req.body.entity_id : null;
-  if (!canAccessRelated(req, entityType, entityId)) return res.status(404).json({ error: 'related_not_found' });
+  if (!hasExpectedSignature(req.file.path, req.file.mimetype)) {
+    removeUploadedFile(req.file);
+    return res.status(400).json({ error: 'invalid_file_signature' });
+  }
+  if (!canAccessRelated(req, entityType, entityId)) {
+    removeUploadedFile(req.file);
+    return res.status(404).json({ error: 'related_not_found' });
+  }
   const r = db.prepare(`
     INSERT INTO documents (owner_user_id, name, file_path, mime_type, size_bytes, related_entity_type, related_entity_id, category, notes)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)

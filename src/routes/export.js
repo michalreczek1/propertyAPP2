@@ -11,7 +11,10 @@ const { canSeeAll, ownerId } = require('../utils/scope');
 
 function csvEscape(v) {
   if (v == null) return '';
-  const s = String(v);
+  let s = String(v);
+  // Excel/LibreOffice interpretują te prefiksy jako formuły. Apostrof jest
+  // niewidoczny w komórce i wymusza traktowanie wartości jako tekstu.
+  if (/^[=+\-@]/.test(s)) s = `'${s}`;
   if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }

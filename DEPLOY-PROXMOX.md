@@ -21,16 +21,17 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy-proxmox.ps1
 Domyślnie skrypt:
 
 - sprawdza czystość repozytorium,
-- uruchamia `npm run smoke`, `npm run test:ui`, `npm run test:finance`,
+- uruchamia sekwencyjnie pełny zestaw: smoke, auth, model najmu, seed safety, finanse i Playwright,
 - tworzy `git archive` aktualnego commita,
 - kopiuje archiwum na host `proxmox`,
-- robi backup SQLite i backup katalogu aplikacji,
+- robi zweryfikowany online backup SQLite (bez ryzyka WAL), archiwum uploads/konfiguracji i backup katalogu aplikacji,
 - robi snapshot kontenera,
 - aktualizuje `/etc/propertyapp/auth.env`, jeśli podano `GROQ_API_KEY`,
 - wdraża pliki do `/opt/propertyapp/app`,
 - wykonuje `npm ci --omit=dev`,
 - uruchamia migrację na właściwej bazie `DB_FILE=/opt/propertyapp/data/property.db`,
 - restartuje `propertyapp.service`,
+- instaluje oraz aktywuje codzienny timer `propertyapp-backup.timer` (03:00, retencja 14 kopii),
 - sprawdza `/health` i publiczny endpoint.
 
 ## Przydatne warianty

@@ -42,7 +42,9 @@ function parsePeriod(period) {
   if (!period || typeof period !== 'string') return null;
   const m = period.match(/^(\d{4})-(\d{2})$/);
   if (!m) return null;
-  return { year: +m[1], month: +m[2] };
+  const month = +m[2];
+  if (month < 1 || month > 12) return null;
+  return { year: +m[1], month };
 }
 
 /** Formatuje period i dzień jako "YYYY-MM-DD" (ostrożnie z 31 lutego). */

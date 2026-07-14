@@ -1,4 +1,5 @@
 'use strict';
+require('./load-env');
 const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');

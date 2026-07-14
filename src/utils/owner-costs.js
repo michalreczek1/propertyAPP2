@@ -20,6 +20,7 @@ function tableExists(db, name) {
 
 function getRecurringRows(db, period, req = null) {
   if (!tableExists(db, 'recurring_costs')) return [];
+  const hasOwnerColumn = db.prepare('PRAGMA table_info(recurring_costs)').all().some(column => column.name === 'owner_user_id');
   const uid = ownerId(req);
   const scopeParams = canSeeAll(req) ? [] : [uid, uid];
   const scopeClause = canSeeAll(req) ? '' : `
@@ -42,6 +43,7 @@ function getRecurringRows(db, period, req = null) {
         WHERE rc2.active = 1
           AND rc2.category = rc.category
           AND COALESCE(rc2.property_id, 0) = COALESCE(rc.property_id, 0)
+          ${hasOwnerColumn ? 'AND COALESCE(rc2.owner_user_id, 0) = COALESCE(rc.owner_user_id, 0)' : ''}
           AND rc2.valid_from_period <= ?
           AND (rc2.valid_to_period IS NULL OR rc2.valid_to_period = '' OR rc2.valid_to_period >= ?)
       )

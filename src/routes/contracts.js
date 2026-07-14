@@ -8,6 +8,7 @@ const db = require('../db');
 const { validate } = require('../middleware/validate');
 const { assertRefs, canAccessContract, canAccessTenant, canAccessUnit, ownerId } = require('../utils/scope');
 const { dueDate } = require('../utils/period');
+const { isAllowedMime, hasExpectedSignature, removeUploadedFile } = require('../utils/document-upload');
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, '..', '..', 'data', 'uploads');
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -22,7 +23,7 @@ const signedDocumentUpload = multer({
   }),
   limits: { fileSize: 25 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    const ok = ['application/pdf', 'image/jpeg'].includes(file.mimetype);
+    const ok = isAllowedMime(file.mimetype);
     if (ok) return cb(null, true);
     const err = new Error('unsupported_file_type_pdf_jpg_only');
     err.status = 400;
@@ -206,6 +207,10 @@ router.get('/:id/documents', requireContractAccess, (req, res) => {
 
 router.post('/:id/documents', requireContractAccess, signedDocumentUpload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'no_file' });
+  if (!hasExpectedSignature(req.file.path, req.file.mimetype)) {
+    removeUploadedFile(req.file);
+    return res.status(400).json({ error: 'invalid_file_signature' });
+  }
   const contract = db.prepare(`
     SELECT c.id, t.name AS tenant_name, p.name AS property_name
     FROM contracts c

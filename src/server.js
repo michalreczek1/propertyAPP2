@@ -9,15 +9,6 @@ const db = require('./db');
 const { notFound, errorHandler } = require('./middleware/error');
 const { authStatus, installAuth, requireAuth } = require('./middleware/auth');
 
-// Lazy-load opcjonalnego pliku .env
-const envFile = path.join(__dirname, '..', '.env');
-if (fs.existsSync(envFile)) {
-  for (const line of fs.readFileSync(envFile, 'utf8').split('\n')) {
-    const m = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);
-    if (m && !process.env[m[1]]) process.env[m[1]] = m[2];
-  }
-}
-
 const { startNotificationScheduler } = require('./services/notifications');
 
 const PORT = +(process.env.PORT || 8090);
@@ -25,6 +16,7 @@ const HOST = process.env.HOST || '0.0.0.0';
 
 const app = express();
 app.disable('x-powered-by');
+if (process.env.TRUST_PROXY === '1') app.set('trust proxy', 1);
 app.use(morgan('tiny'));
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -32,8 +24,9 @@ installAuth(app);
 
 // API
 app.get('/health', (_req, res) => {
-  const tables = db.prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table'").get().c;
-  res.json({ ok: true, db: db.name, tables });
+  // Nie ujawniamy ścieżki ani struktury lokalnej bazy na publicznym endpointcie.
+  db.prepare('SELECT 1').get();
+  res.json({ ok: true });
 });
 
 app.use('/api', requireAuth);
