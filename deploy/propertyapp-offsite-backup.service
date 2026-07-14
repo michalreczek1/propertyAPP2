@@ -1,0 +1,10 @@
+[Unit]
+Description=PropertyApp encrypted NAS and B2 backup
+After=network-online.target propertyapp-backup.service
+Wants=network-online.target
+RequiresMountsFor=/mnt/propertyapp-nas
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/sbin/propertyapp-offsite-backup backup

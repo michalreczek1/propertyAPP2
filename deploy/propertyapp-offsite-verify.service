@@ -1,0 +1,10 @@
+[Unit]
+Description=Verify PropertyApp encrypted NAS and B2 backups
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/mnt/propertyapp-nas
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/sbin/propertyapp-offsite-backup verify

@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly PropertyApp offsite restore verification
+
+[Timer]
+OnCalendar=Sun *-*-* 05:30:00
+Persistent=true
+RandomizedDelaySec=20m
+
+[Install]
+WantedBy=timers.target

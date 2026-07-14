@@ -187,6 +187,20 @@ pct exec "`$CT_ID" -- install -m 0644 "`$APP_DIR/deploy/propertyapp-backup.timer
 pct exec "`$CT_ID" -- systemctl daemon-reload
 pct exec "`$CT_ID" -- systemctl enable --now propertyapp-backup.timer
 
+echo "== install offsite backup helpers (not enabled until configured) =="
+install -d -m 0700 /etc/propertyapp-offsite /var/lib/propertyapp-offsite/staging /mnt/propertyapp-nas
+install -m 0750 "`$STAGE/deploy/propertyapp-offsite-backup.sh" /usr/local/sbin/propertyapp-offsite-backup
+install -m 0644 "`$STAGE/deploy/propertyapp-offsite-backup.service" /etc/systemd/system/propertyapp-offsite-backup.service
+install -m 0644 "`$STAGE/deploy/propertyapp-offsite-backup.timer" /etc/systemd/system/propertyapp-offsite-backup.timer
+install -m 0644 "`$STAGE/deploy/propertyapp-offsite-verify.service" /etc/systemd/system/propertyapp-offsite-verify.service
+install -m 0644 "`$STAGE/deploy/propertyapp-offsite-verify.timer" /etc/systemd/system/propertyapp-offsite-verify.timer
+systemctl daemon-reload
+if command -v restic >/dev/null 2>&1 && [ -f /etc/propertyapp-offsite/nas.env ] && [ -f /etc/propertyapp-offsite/b2.env ] && mountpoint -q /mnt/propertyapp-nas; then
+  systemctl enable --now propertyapp-offsite-backup.timer propertyapp-offsite-verify.timer
+else
+  echo "Offsite backup awaits restic, NAS mount and /etc/propertyapp-offsite/{nas,b2}.env"
+fi
+
 echo "== restart and verify =="
 pct exec "`$CT_ID" -- systemctl restart "`$SERVICE_NAME"
 pct exec "`$CT_ID" -- systemctl is-active --quiet "`$SERVICE_NAME"
