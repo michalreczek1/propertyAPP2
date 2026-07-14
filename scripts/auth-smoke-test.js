@@ -115,6 +115,22 @@ async function main() {
   });
   expect(bad.status === 401, `expected bad login 401, got ${bad.status}`);
 
+  const limitedUsername = `__rate_limit_${Date.now()}`;
+  for (let attempt = 1; attempt <= 8; attempt++) {
+    const response = await fetch(base + '/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: limitedUsername, password: 'bad' }),
+    });
+    expect(response.status === 401, `expected failed rate-limit attempt ${attempt} to return 401, got ${response.status}`);
+  }
+  const limited = await fetch(base + '/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: limitedUsername, password: 'bad' }),
+  });
+  expect(limited.status === 429, `expected ninth failed login to be limited, got ${limited.status}`);
+
   const good = await fetch(base + '/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

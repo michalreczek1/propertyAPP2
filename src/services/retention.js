@@ -17,4 +17,9 @@ function purgeExpiredAssistantActions() {
   return db.prepare("DELETE FROM assistant_action_executions WHERE created_at < datetime('now', '-2 days')").run().changes;
 }
 
-module.exports = { purgeExpiredAiQueries, purgeExpiredAssistantActions };
+function purgeExpiredLoginAttempts() {
+  if (!tableExists('login_attempts')) return 0;
+  return db.prepare('DELETE FROM login_attempts WHERE reset_at < ?').run(Date.now()).changes;
+}
+
+module.exports = { purgeExpiredAiQueries, purgeExpiredAssistantActions, purgeExpiredLoginAttempts };

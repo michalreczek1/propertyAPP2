@@ -343,6 +343,15 @@ CREATE TABLE IF NOT EXISTS assistant_action_executions (
 CREATE INDEX IF NOT EXISTS idx_assistant_action_executions_created
   ON assistant_action_executions(created_at);
 
+-- Skróty kluczy limitowania logowania, bez przechowywania IP/loginu wprost
+CREATE TABLE IF NOT EXISTS login_attempts (
+  key_hash TEXT PRIMARY KEY,
+  failures INTEGER NOT NULL DEFAULT 0,
+  reset_at INTEGER NOT NULL,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_login_attempts_reset_at ON login_attempts(reset_at);
+
 CREATE TABLE IF NOT EXISTS user_aliases (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   owner_user_id INTEGER,
@@ -662,6 +671,17 @@ applyMigration('2026-07-14-007-normalize-unit-occupancy', () => {
         WHERE t.current_unit_id = units.id AND t.status = 'active'
       )
   `).run();
+});
+applyMigration('2026-07-14-008-persistent-login-rate-limit', () => {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS login_attempts (
+      key_hash TEXT PRIMARY KEY,
+      failures INTEGER NOT NULL DEFAULT 0,
+      reset_at INTEGER NOT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_login_attempts_reset_at ON login_attempts(reset_at);
+  `);
 });
 console.log('✓ Schemat bazy gotowy:', db.name);
 console.log('  Tabele:', db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map(r => r.name).join(', '));

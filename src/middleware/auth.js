@@ -8,7 +8,7 @@ const COOKIE_NAME = 'propertyapp_session';
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const LOGIN_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_LIMIT_MAX = 8;
-const attempts = new Map();
+const fallbackAttempts = new Map();
 
 function truthy(value) {
   return /^(1|true|yes|on)$/i.test(String(value || ''));
@@ -165,12 +165,34 @@ function clientKey(req, username) {
   return `${req.ip || req.socket.remoteAddress || 'local'}:${String(username || '').toLowerCase()}`;
 }
 
+function rateLimitKey(req, username) {
+  return crypto.createHash('sha256').update(clientKey(req, username)).digest('hex');
+}
+
 function checkRateLimit(req, username) {
   const key = clientKey(req, username);
   const now = Date.now();
-  const cur = attempts.get(key);
+  if (tableExists('login_attempts')) {
+    return db.transaction(() => {
+      const keyHash = rateLimitKey(req, username);
+      const cur = db.prepare('SELECT failures, reset_at FROM login_attempts WHERE key_hash = ?').get(keyHash);
+      if (!cur || now > Number(cur.reset_at)) {
+        db.prepare(`
+          INSERT INTO login_attempts(key_hash, failures, reset_at, updated_at)
+          VALUES (?, 1, ?, CURRENT_TIMESTAMP)
+          ON CONFLICT(key_hash) DO UPDATE SET
+            failures = 1, reset_at = excluded.reset_at, updated_at = CURRENT_TIMESTAMP
+        `).run(keyHash, now + LOGIN_LIMIT_WINDOW_MS);
+        return true;
+      }
+      const failures = Number(cur.failures) + 1;
+      db.prepare('UPDATE login_attempts SET failures = ?, updated_at = CURRENT_TIMESTAMP WHERE key_hash = ?').run(failures, keyHash);
+      return failures <= LOGIN_LIMIT_MAX;
+    })();
+  }
+  const cur = fallbackAttempts.get(key);
   if (!cur || now > cur.resetAt) {
-    attempts.set(key, { count: 1, resetAt: now + LOGIN_LIMIT_WINDOW_MS });
+    fallbackAttempts.set(key, { count: 1, resetAt: now + LOGIN_LIMIT_WINDOW_MS });
     return true;
   }
   cur.count += 1;
@@ -178,7 +200,11 @@ function checkRateLimit(req, username) {
 }
 
 function resetRateLimit(req, username) {
-  attempts.delete(clientKey(req, username));
+  if (tableExists('login_attempts')) {
+    db.prepare('DELETE FROM login_attempts WHERE key_hash = ?').run(rateLimitKey(req, username));
+    return;
+  }
+  fallbackAttempts.delete(clientKey(req, username));
 }
 
 function authStatus(req) {
