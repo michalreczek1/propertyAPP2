@@ -123,7 +123,7 @@ pct exec "`$CT_ID" -- bash -lc "tar --exclude='./node_modules' --exclude='./data
 echo "== snapshot =="
 $snapshotBlock
 if [ "$SnapshotKeep" -gt 0 ]; then
-  pct listsnapshot "`$CT_ID" | awk 'NR > 1 && `$1 ~ /^predeploy-propertyapp-/ {print `$1}' | sort -r | tail -n +`$(( $SnapshotKeep + 1 )) | while IFS= read -r old; do
+  pct listsnapshot "`$CT_ID" | awk '/predeploy-propertyapp-/ {for (i = 1; i <= NF; i++) if (`$i ~ /^predeploy-propertyapp-/) print `$i}' | sort -r | awk 'NR > $SnapshotKeep' | while IFS= read -r old; do
     [ -z "`$old" ] || pct delsnapshot "`$CT_ID" "`$old"
   done
 fi
