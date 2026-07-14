@@ -189,6 +189,7 @@ pct exec "`$CT_ID" -- systemctl enable --now propertyapp-backup.timer
 
 echo "== install offsite backup helpers (not enabled until configured) =="
 install -d -m 0700 /etc/propertyapp-offsite /var/lib/propertyapp-offsite/staging /mnt/propertyapp-nas
+sed -i 's/\r`$//' "`$STAGE/deploy/propertyapp-offsite-backup.sh" "`$STAGE/deploy/propertyapp-offsite-backup.service" "`$STAGE/deploy/propertyapp-offsite-backup.timer" "`$STAGE/deploy/propertyapp-offsite-verify.service" "`$STAGE/deploy/propertyapp-offsite-verify.timer"
 install -m 0750 "`$STAGE/deploy/propertyapp-offsite-backup.sh" /usr/local/sbin/propertyapp-offsite-backup
 install -m 0644 "`$STAGE/deploy/propertyapp-offsite-backup.service" /etc/systemd/system/propertyapp-offsite-backup.service
 install -m 0644 "`$STAGE/deploy/propertyapp-offsite-backup.timer" /etc/systemd/system/propertyapp-offsite-backup.timer
