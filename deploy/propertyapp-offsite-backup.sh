@@ -34,7 +34,9 @@ load_repository() {
   [ -f "$config" ] || fail "brak konfiguracji repozytorium: $config"
   # Pliki konfiguracji są własnością root i mają tryb 0600.
   # shellcheck disable=SC1090
+  set -a
   source "$config"
+  set +a
   : "${RESTIC_REPOSITORY:?brak RESTIC_REPOSITORY w $config}"
   : "${RESTIC_PASSWORD_FILE:?brak RESTIC_PASSWORD_FILE w $config}"
   [ -r "$RESTIC_PASSWORD_FILE" ] || fail "brak pliku hasła restic: $RESTIC_PASSWORD_FILE"
