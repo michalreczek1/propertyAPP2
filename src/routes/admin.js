@@ -55,7 +55,7 @@ router.post('/change-password', async (req, res) => {
   if (!user) return res.status(404).json({ error: 'not_found' });
   const ok = await bcrypt.compare(parsed.data.current_password, user.password_hash);
   if (!ok) return res.status(400).json({ error: 'invalid_current_password' });
-  db.prepare('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+  db.prepare('UPDATE users SET password_hash = ?, session_version = session_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
     .run(bcrypt.hashSync(parsed.data.new_password, 12), user.id);
   res.json({ ok: true });
 });
@@ -113,6 +113,7 @@ router.put('/users/:id', (req, res) => {
   if (b.password) {
     fields.push('password_hash = ?');
     params.push(bcrypt.hashSync(b.password, 12));
+    fields.push('session_version = session_version + 1');
   }
   if (!fields.length) return res.status(400).json({ error: 'no_fields' });
   fields.push('updated_at = CURRENT_TIMESTAMP');
