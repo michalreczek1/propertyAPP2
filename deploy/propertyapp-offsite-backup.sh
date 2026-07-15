@@ -38,7 +38,9 @@ load_repository() {
   source "$config"
   set +a
   : "${RESTIC_REPOSITORY:?brak RESTIC_REPOSITORY w $config}"
-  : "${RESTIC_PASSWORD_FILE:?brak RESTIC_PASSWORD_FILE w $config}"
+  if [ -z "${RESTIC_PASSWORD_FILE:-}" ]; then
+    fail "brak pliku hasła restic w konfiguracji: $config"
+  fi
   [ -r "$RESTIC_PASSWORD_FILE" ] || fail "brak pliku hasła restic: $RESTIC_PASSWORD_FILE"
 }
 
