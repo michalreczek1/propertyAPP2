@@ -3160,6 +3160,371 @@ select.slim {
   gap: 10px;
 }
 
+/* Contract and document workflow */
+.automation-guardrails {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.automation-guardrails span {
+  padding: 6px 9px;
+  border-radius: 999px;
+  color: var(--emerald);
+  background: rgba(16, 185, 129, 0.08);
+  font-size: 11px;
+  font-weight: 650;
+}
+.automation-list {
+  display: flex;
+  flex-direction: column;
+}
+.automation-proposal {
+  display: grid;
+  grid-template-columns: 170px minmax(220px, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.automation-proposal:last-child {
+  border-bottom: 0;
+}
+.automation-proposal.high-risk {
+  background: rgba(245, 158, 11, 0.035);
+}
+.automation-proposal > div:nth-child(2) {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.automation-proposal small {
+  color: var(--t3);
+}
+.automation-actions {
+  display: flex;
+  gap: 7px;
+}
+.automation-empty {
+  padding: 20px;
+}
+.owner-statement-summary {
+  list-style: none;
+  cursor: pointer;
+  min-height: 66px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid transparent;
+}
+.owner-statement-summary::-webkit-details-marker {
+  display: none;
+}
+.owner-statement[open] > .owner-statement-summary {
+  border-bottom-color: var(--border);
+}
+.owner-statement-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.owner-risk-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0 14px;
+}
+.owner-risk {
+  min-height: 94px;
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 3px 10px;
+}
+.owner-risk strong {
+  grid-row: 1 / 3;
+  color: var(--emerald);
+  font: 800 25px var(--display);
+}
+.owner-risk span {
+  color: var(--t2);
+  font-weight: 650;
+}
+.owner-risk small {
+  color: var(--t3);
+}
+.owner-risk.warn {
+  border-color: rgba(245, 158, 11, 0.32);
+  background: rgba(245, 158, 11, 0.06);
+}
+.owner-risk.warn strong {
+  color: var(--amber);
+}
+.owner-property-table {
+  margin-bottom: 8px;
+}
+.doc-workflow-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 9px;
+}
+.doc-expiry {
+  color: var(--t3);
+  font-size: 11px;
+}
+.doc-expiry.expired {
+  color: var(--rose);
+}
+.workflow-stage-track {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(90px, 1fr));
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+.workflow-stage {
+  min-height: 76px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--t3);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.workflow-stage span {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--surface-2);
+  font: 700 11px var(--mono);
+}
+.workflow-stage strong {
+  font-size: 12px;
+  line-height: 1.25;
+}
+.workflow-stage.complete {
+  border-color: rgba(16, 185, 129, 0.25);
+  color: var(--emerald);
+}
+.workflow-stage.current {
+  border-color: rgba(139, 92, 246, 0.5);
+  background: var(--violet-l);
+  color: var(--t1);
+}
+.workflow-checklist {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0;
+}
+.workflow-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(244, 63, 94, 0.25);
+  border-radius: 12px;
+  background: rgba(244, 63, 94, 0.06);
+}
+.workflow-check > span {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--rose);
+  background: rgba(244, 63, 94, 0.12);
+  font-weight: 800;
+}
+.workflow-check.complete {
+  border-color: rgba(16, 185, 129, 0.25);
+  background: rgba(16, 185, 129, 0.06);
+}
+.workflow-check.complete > span {
+  color: var(--emerald);
+  background: rgba(16, 185, 129, 0.12);
+}
+.workflow-check div,
+.workflow-document-list > div,
+.workflow-history > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.workflow-check small,
+.workflow-document-list small,
+.workflow-history span,
+.workflow-history small {
+  color: var(--t3);
+  font-size: 11px;
+}
+.workflow-document-list,
+.workflow-history {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.workflow-document-list > div,
+.workflow-history > div {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.workflow-document-list > div {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+}
+.workflow-history {
+  margin-top: 16px;
+}
+
+/* Bank reconciliation */
+.bank-list {
+  display: flex;
+  flex-direction: column;
+}
+.bank-row {
+  display: grid;
+  grid-template-columns: 120px minmax(260px, 1fr) 140px 120px minmax(210px, auto);
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.bank-row:last-child {
+  border-bottom: 0;
+}
+.bank-date,
+.bank-suggestion > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.bank-date strong,
+.bank-title {
+  color: var(--t1);
+  font-weight: 650;
+}
+.bank-date span,
+.bank-party,
+.bank-suggestion span,
+.bank-reason {
+  color: var(--t3);
+  font-size: 12px;
+}
+.bank-title {
+  font-size: 14px;
+  line-height: 1.35;
+}
+.bank-party {
+  margin-top: 3px;
+}
+.bank-suggestion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 9px;
+  padding: 9px 11px;
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  border-radius: 10px;
+  background: rgba(139, 92, 246, 0.08);
+}
+.bank-confidence {
+  color: var(--violet);
+  font-weight: 800;
+  font-family: var(--mono);
+}
+.bank-reason {
+  margin-top: 5px;
+}
+.bank-amount {
+  color: var(--emerald);
+  font: 700 15px var(--mono);
+  text-align: right;
+  white-space: nowrap;
+}
+.bank-amount.negative {
+  color: var(--rose);
+}
+.bank-amount span {
+  color: var(--t3);
+  font-size: 11px;
+}
+.bank-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.bank-actions .tb-btn {
+  min-height: 36px;
+}
+.bank-match-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 14px;
+  margin-bottom: 16px;
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.bank-match-summary strong {
+  color: var(--emerald);
+  font: 800 20px var(--mono);
+}
+.bank-match-summary span,
+.bank-match-summary p {
+  margin: 0;
+  color: var(--t3);
+}
+.mobile-more-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.mobile-more-item {
+  min-height: 86px;
+  padding: 14px 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-2);
+  color: var(--t2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font: inherit;
+}
+.mobile-more-item svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: var(--violet);
+  stroke-width: 1.8;
+}
+.mobile-more-account {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+.mobile-more-account .tb-btn {
+  flex: 1;
+  min-height: 44px;
+}
+
 /* Responsive */
 @media (max-width: 1280px) {
   .kpi-strip {
@@ -3201,6 +3566,12 @@ select.slim {
   .settle-cell:nth-child(1),
   .settle-cell:nth-child(2) {
     border-bottom: 1px solid var(--border);
+  }
+  .bank-row {
+    grid-template-columns: 100px minmax(230px, 1fr) 130px 110px;
+  }
+  .bank-actions {
+    grid-column: 2 / -1;
   }
 }
 @media (max-width: 900px) {
@@ -3295,16 +3666,19 @@ select.slim {
   .udc-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .owner-risk-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 @media (max-width: 720px) {
   .topbar {
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) auto;
     height: auto;
-    min-height: 96px;
-    padding: calc(8px + env(safe-area-inset-top)) 16px 10px;
+    min-height: 62px;
+    padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
     align-items: center;
-    gap: 8px;
+    gap: 7px;
   }
   .topbar-left {
     display: none;
@@ -3314,7 +3688,7 @@ select.slim {
     display: none;
   }
   .topbar-search {
-    grid-column: 1 / -1;
+    grid-column: 1;
     grid-row: 1;
     width: 100%;
     display: flex;
@@ -3326,24 +3700,29 @@ select.slim {
     display: none;
   }
   .topbar-right {
-    grid-column: 1;
-    grid-row: 2;
-    justify-self: stretch;
-    max-width: 100%;
-    overflow-x: auto;
-    gap: 6px;
-    padding-bottom: 2px;
-  }
-  .topbar-right .tb-btn {
-    padding: 7px 10px;
-  }
-  .topbar-right #account-btn {
-    width: 34px;
-    flex: 0 0 34px;
-    justify-content: center;
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    width: auto;
+    max-width: none;
+    overflow: visible;
     padding: 0;
+  }
+  .topbar-right > * {
+    display: none !important;
+  }
+  .topbar-right > .tb-primary {
+    display: inline-flex !important;
+    width: 42px;
+    min-width: 42px;
+    height: 42px;
+    padding: 0;
+    justify-content: center;
     font-size: 0;
-    gap: 0;
+  }
+  .topbar-right > .tb-primary svg {
+    width: 17px;
+    height: 17px;
   }
   .topbar-right #account-btn svg {
     width: 15px;
@@ -3353,8 +3732,8 @@ select.slim {
     display: none;
   }
   .content {
-    padding: 16px 16px calc(84px + env(safe-area-inset-bottom));
-    gap: 16px;
+    padding: 12px 12px calc(80px + env(safe-area-inset-bottom));
+    gap: 10px;
   }
   .assistant-input-row {
     grid-template-columns: 1fr;
@@ -3389,7 +3768,8 @@ select.slim {
     font-size: 12.5px;
   }
   .mobile-nav-item {
-    min-width: 76px;
+    min-width: 0;
+    flex: 1 1 20%;
     height: 56px;
   }
   .mobile-nav-item span {
@@ -3404,29 +3784,134 @@ select.slim {
   }
   .mobile-nav {
     display: flex;
+    overflow: hidden;
+  }
+  .bank-toolbar {
+    align-items: flex-start;
+  }
+  .bank-filter-tabs {
+    width: 100%;
+    overflow-x: auto;
+    display: flex;
+    padding-bottom: 3px;
+    scrollbar-width: none;
+  }
+  .kpi-strip::-webkit-scrollbar,
+  .kpi-strip-flat-5::-webkit-scrollbar,
+  .kpi-strip-flat-4::-webkit-scrollbar,
+  .bank-filter-tabs::-webkit-scrollbar,
+  .prop-selector::-webkit-scrollbar {
+    display: none;
+  }
+  .bank-row {
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    padding: 14px;
+  }
+  .bank-date,
+  .bank-main,
+  .bank-actions {
+    grid-column: 1 / -1;
+  }
+  .bank-date {
+    flex-direction: row;
+    justify-content: space-between;
+  }
+  .bank-amount {
+    grid-column: 1;
+    grid-row: 2;
+    text-align: left;
+  }
+  .bank-state {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  .bank-main {
+    grid-row: 3;
+  }
+  .bank-actions {
+    grid-row: 4;
+    justify-content: stretch;
+  }
+  .bank-actions .tb-btn {
+    flex: 1;
+    min-height: 44px;
+  }
+  .workflow-checklist {
+    grid-template-columns: 1fr;
+  }
+  .workflow-document-list > div {
+    grid-template-columns: auto 1fr;
+  }
+  .workflow-document-list small {
+    grid-column: 2;
+  }
+  .automation-proposal {
+    grid-template-columns: 1fr;
+    gap: 9px;
+    padding: 14px;
+  }
+  .automation-actions .tb-btn {
+    flex: 1;
+    min-height: 44px;
   }
 }
 @media (max-width: 560px) {
   .topbar {
-    grid-template-columns: 1fr;
-    min-height: 94px;
-    padding: calc(8px + env(safe-area-inset-top)) 12px 10px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    min-height: 62px;
+    padding: calc(8px + env(safe-area-inset-top)) 10px 8px;
   }
-  .topbar-search,
-  .topbar-right {
+  .topbar-search {
     width: 100%;
   }
   .topbar-right {
-    overflow-x: auto;
-    padding-bottom: 2px;
+    width: auto;
+    overflow: visible;
+    padding: 0;
   }
   .kpi-strip,
   .kpi-strip-flat-5,
-  .kpi-strip-flat-4,
+  .kpi-strip-flat-4 {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    gap: 10px;
+    padding-bottom: 3px;
+  }
+  .kpi-strip > *,
+  .kpi-strip-flat-5 > *,
+  .kpi-strip-flat-4 > * {
+    flex: 0 0 74vw;
+    max-width: 260px;
+    scroll-snap-align: start;
+  }
+  .kpi-hero,
+  .kpi-sm {
+    min-height: 126px;
+    padding: 16px;
+  }
+  .prop-selector {
+    display: flex;
+    grid-template-columns: none;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+    gap: 10px;
+    padding-bottom: 2px;
+  }
+  .prop-selector .prop-card {
+    flex: 0 0 82vw;
+    max-width: 310px;
+    scroll-snap-align: start;
+  }
+  .bank-filter-tabs {
+    scrollbar-width: none;
+  }
   .settle-grid,
   .sum-grid,
   .sum-grid-5 {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .kh-val {
     font-size: 36px;
@@ -3439,6 +3924,54 @@ select.slim {
   .rooms-row > .rr-col-status,
   .rooms-row > .rr-actions {
     display: none;
+  }
+  .t-responsive td[data-label='Termin'],
+  .t-responsive td[data-label='Czynsz'],
+  .t-responsive td[data-label='Media'],
+  .t-responsive td[data-label='Inne'],
+  .t-responsive td[data-label='Kara'],
+  .t-responsive td[data-label='Pozostało'] {
+    display: none;
+  }
+  .ou-room,
+  .oms-lbl {
+    font-size: 11.5px;
+  }
+  .gc {
+    border-radius: 13px;
+  }
+  .owner-statement-summary {
+    min-height: 58px;
+    padding: 12px 14px;
+  }
+  .owner-risk-grid {
+    grid-template-columns: 1fr 1fr;
+    padding: 0 10px;
+  }
+  .owner-risk {
+    min-height: 82px;
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+  .owner-risk strong {
+    grid-row: auto;
+    font-size: 21px;
+  }
+  .ch {
+    padding: 13px 14px;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .modal-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .mobile-more-modal {
+    width: 100%;
+    max-width: none;
+    max-height: 86vh;
+    border-radius: 22px 22px 0 0;
+    border-bottom: 0;
   }
 }
 @media (max-height: 920px) and (min-width: 900px) {

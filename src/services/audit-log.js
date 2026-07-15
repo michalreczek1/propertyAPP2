@@ -13,6 +13,8 @@ const AUDITED_RESOURCES = new Set([
   'tenants',
   'tasks',
   'documents',
+  'banking',
+  'automations',
   'settings',
   'admin',
   'notifications',

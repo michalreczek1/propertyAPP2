@@ -65,6 +65,7 @@ app.use('/api/units', require('./routes/units'));
 app.use('/api/tenants', require('./routes/tenants'));
 app.use('/api/contracts', require('./routes/contracts'));
 app.use('/api/payments', require('./routes/payments'));
+app.use('/api/banking', require('./routes/banking'));
 app.use('/api/expenses', require('./routes/expenses'));
 app.use('/api/tasks', require('./routes/tasks'));
 app.use('/api/documents', require('./routes/documents'));
@@ -72,6 +73,7 @@ app.use('/api/settings', require('./routes/settings'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/assistant', require('./routes/assistant'));
+app.use('/api/automations', require('./routes/automations'));
 app.use('/api/import', require('./routes/import'));
 app.use('/api/export', require('./routes/export'));
 

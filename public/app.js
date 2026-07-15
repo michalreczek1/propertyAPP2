@@ -70,6 +70,8 @@ const State = {
   expProp: '',
   reportProp: 'all',
   contractsStatus: 'all',
+  bankStatus: 'all',
+  documentStatus: 'all',
   tenantsStatus: 'active',
   tenantsQ: '',
   auth: null,
@@ -197,6 +199,7 @@ const LEGACY_CLICK_ACTIONS = new Set([
   'openSmsReminderPreview',
   'resolveLateFee',
   'openContractDocuments',
+  'openContractWorkflow',
   'deleteContract',
   'deleteContractDocument',
   'editOwnerMortgageCost',
@@ -979,6 +982,7 @@ const VIEWS = {
   najemcy: renderTenants,
   umowy: renderContracts,
   platnosci: renderPayments,
+  banking: renderBanking,
   raporty: renderReports,
   koszty: renderExpenses,
   zadania: renderTasks,
@@ -991,6 +995,7 @@ const VIEW_TITLES = {
   najemcy: 'Najemcy',
   umowy: 'Umowy',
   platnosci: 'Płatności',
+  banking: 'Bank',
   raporty: 'Raporty',
   koszty: 'Koszty',
   zadania: 'Zadania',
@@ -1047,32 +1052,81 @@ function syncNavState(view = currentView()) {
   document.querySelectorAll('#nav .nav-item, #mobile-nav .mobile-nav-item').forEach((it) => {
     it.classList.toggle('act', it.dataset.view === view);
   });
+  const more = document.querySelector('#mobile-nav [data-more]');
+  if (more) more.classList.toggle('act', !['dashboard', 'platnosci', 'banking', 'zadania'].includes(view));
 }
 
 function createMobileNav() {
   if (document.getElementById('mobile-nav')) return;
   const sourceItems = Array.from(document.querySelectorAll('#nav .nav-item'));
+  const primaryViews = ['dashboard', 'platnosci', 'banking', 'zadania'];
+  const primaryItems = primaryViews
+    .map((view) => sourceItems.find((item) => item.dataset.view === view))
+    .filter(Boolean);
   const mobile = document.createElement('nav');
   mobile.id = 'mobile-nav';
   mobile.className = 'mobile-nav';
   mobile.setAttribute('aria-label', 'Nawigacja mobilna');
-  mobile.innerHTML = sourceItems
-    .map((item) => {
-      const view = item.dataset.view;
-      const label = item.querySelector('.nav-label')?.textContent?.trim() || VIEW_TITLES[view] || view;
-      const icon = item.querySelector('svg')?.outerHTML || '';
-      return `
+  mobile.innerHTML =
+    primaryItems
+      .map((item) => {
+        const view = item.dataset.view;
+        const label = item.querySelector('.nav-label')?.textContent?.trim() || VIEW_TITLES[view] || view;
+        const icon = item.querySelector('svg')?.outerHTML || '';
+        return `
       <button class="mobile-nav-item" type="button" data-view="${escapeHtml(view)}" aria-label="${escapeHtml(label)}">
         ${icon}
         <span>${escapeHtml(label)}</span>
       </button>`;
-    })
-    .join('');
+      })
+      .join('') +
+    `<button class="mobile-nav-item" type="button" data-more="1" aria-label="Więcej funkcji">
+      <svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
+      <span>Więcej</span>
+    </button>`;
   document.body.appendChild(mobile);
-  mobile.querySelectorAll('.mobile-nav-item').forEach((item) => {
+  mobile.querySelectorAll('.mobile-nav-item[data-view]').forEach((item) => {
     item.onclick = () => navigate(item.dataset.view);
   });
+  mobile.querySelector('[data-more]').onclick = openMobileMoreMenu;
   syncNavState();
+}
+
+function openMobileMoreMenu() {
+  const items = [
+    ['nieruchomosci', 'Nieruchomości'],
+    ['najemcy', 'Najemcy'],
+    ['umowy', 'Umowy i obieg'],
+    ['raporty', 'Raport właścicielski'],
+    ['koszty', 'Koszty'],
+    ['dokumenty', 'Dokumenty'],
+    ['ustawienia', 'Ustawienia i AI'],
+  ];
+  const body = `<div class="mobile-more-grid">${items
+    .map(([view, label]) => {
+      const source = document.querySelector(`#nav .nav-item[data-view="${view}"]`);
+      return `<button type="button" class="mobile-more-item" data-more-view="${view}">
+        ${source?.querySelector('svg')?.outerHTML || ''}<span>${escapeHtml(label)}</span>
+      </button>`;
+    })
+    .join('')}</div>
+    <div class="mobile-more-account">
+      <button type="button" class="tb-btn tb-ghost" id="mobile-account">Konto</button>
+      <button type="button" class="tb-btn tb-ghost" id="mobile-logout">Wyloguj</button>
+    </div>`;
+  const dialog = modal({ title: 'Więcej funkcji', body });
+  dialog.root.classList.add('mobile-more-modal');
+  dialog.root.querySelectorAll('[data-more-view]').forEach((button) => {
+    button.onclick = () => {
+      dialog.close();
+      navigate(button.dataset.moreView);
+    };
+  });
+  dialog.root.querySelector('#mobile-account').onclick = () => {
+    dialog.close();
+    openAccountPanel();
+  };
+  dialog.root.querySelector('#mobile-logout').onclick = logout;
 }
 
 function responsiveHeaderLabel(text, index, total) {
@@ -1853,6 +1907,228 @@ window.deletePayment = function (id) {
     },
   });
 };
+
+// ═══════════════════════ BANK / UZGADNIANIE ═══════════════════════
+function bankTransactionStatus(status) {
+  return (
+    {
+      new: { cls: 'chip-n', label: 'Do dopasowania' },
+      suggested: { cls: 'chip-a', label: 'Propozycja' },
+      matched: { cls: 'chip-e', label: 'Uzgodniona' },
+      ignored: { cls: 'chip-n', label: 'Pominięta' },
+    }[status] || { cls: 'chip-n', label: status || '—' }
+  );
+}
+
+async function renderBanking(root) {
+  const status = State.bankStatus || 'all';
+  const data = await Api.get(`/banking?status=${encodeURIComponent(status)}`);
+  const transactions = data.transactions || [];
+  const stats = data.stats || {};
+  setTopbar(
+    VIEW_TITLES.banking,
+    `${Number(stats.matched || 0)} uzgodnionych · ${Number(stats.unmatched || 0) + Number(stats.suggested || 0)} oczekuje`,
+    `<button class="tb-btn tb-ghost" id="bank-confirm-high" ${Number(stats.high_confidence || 0) ? '' : 'disabled'}>Uzgodnij pewne (${Number(stats.high_confidence || 0)})</button>
+     <button class="tb-btn tb-primary" id="bank-import"><svg viewBox="0 0 24 24"><path d="M12 3v12"/><polyline points="7 10 12 15 17 10"/><path d="M4 21h16"/></svg>Import CSV</button>`,
+  );
+  root.innerHTML = `
+    <div class="kpi-strip kpi-strip-flat-4 bank-kpis">
+      <div class="kpi-sm"><div class="ks-label">Do dopasowania</div><div class="ks-val">${Number(stats.unmatched || 0)}</div><div class="ks-delta delta-n">wymagają decyzji</div></div>
+      <div class="kpi-sm"><div class="ks-label">Pewne propozycje</div><div class="ks-val">${Number(stats.high_confidence || 0)}</div><div class="ks-delta delta-up">gotowe do zatwierdzenia</div></div>
+      <div class="kpi-sm"><div class="ks-label">Uzgodnione</div><div class="ks-val">${Number(stats.matched || 0)}</div><div class="ks-delta delta-n">transakcji</div></div>
+      <div class="kpi-sm"><div class="ks-label">Kwota uzgodniona</div><div class="ks-val">${fmtPLN(stats.matched_amount || 0)}<span class="ks-unit">PLN</span></div><div class="ks-delta delta-n">łącznie</div></div>
+    </div>
+    <div class="gc">
+      <div class="ch bank-toolbar">
+        <div><div class="ch-title">Wyciąg bankowy</div><div class="ch-sub">dopasowanie kwoty, najemcy, lokalu i okresu</div></div>
+        <div class="filter-tabs bank-filter-tabs">
+          ${[
+            ['all', 'Wszystkie'],
+            ['suggested', 'Propozycje'],
+            ['new', 'Niedopasowane'],
+            ['matched', 'Uzgodnione'],
+            ['ignored', 'Pominięte'],
+          ]
+            .map(
+              ([value, label]) =>
+                `<button class="ftab ${status === value ? 'on' : ''}" data-bank-status="${value}">${label}</button>`,
+            )
+            .join('')}
+        </div>
+      </div>
+      <div class="bank-list">
+        ${
+          transactions.length
+            ? transactions
+                .map((transaction) => {
+                  const state = bankTransactionStatus(transaction.status);
+                  const suggestion = transaction.suggested_payment_id
+                    ? `<div class="bank-suggestion">
+                        <div><strong>${escapeHtml(transaction.suggested_tenant_name || 'Płatność')}</strong><span>${escapeHtml(transaction.suggested_property_name || '')} ${escapeHtml(transaction.suggested_unit_code || transaction.suggested_unit_name || '')} · ${escapeHtml(transaction.suggested_period || '')}</span></div>
+                        <div class="bank-confidence">${Number(transaction.confidence || 0)}%</div>
+                       </div>
+                       <div class="bank-reason">${escapeHtml(transaction.match_reason || '')}</div>`
+                    : `<div class="bank-reason">${escapeHtml(transaction.match_reason || 'Brak jednoznacznego dopasowania — wybierz płatność ręcznie.')}</div>`;
+                  let actions = '';
+                  if (transaction.status === 'suggested') {
+                    actions = `<button class="tb-btn tb-primary" data-bank-match="${transaction.id}">Zatwierdź</button>
+                               <button class="tb-btn tb-ghost" data-bank-manual="${transaction.id}">Zmień</button>
+                               <button class="tb-btn tb-ghost" data-bank-ignore="${transaction.id}">Pomiń</button>`;
+                  } else if (transaction.status === 'new') {
+                    actions = `<button class="tb-btn tb-primary" data-bank-manual="${transaction.id}">Dopasuj</button>
+                               <button class="tb-btn tb-ghost" data-bank-ignore="${transaction.id}">Pomiń</button>`;
+                  } else if (transaction.status === 'matched') {
+                    actions = `<button class="tb-btn tb-ghost" data-bank-undo="${transaction.id}">Cofnij uzgodnienie</button>`;
+                  } else if (transaction.status === 'ignored') {
+                    actions = `<button class="tb-btn tb-ghost" data-bank-reopen="${transaction.id}">Przywróć</button>`;
+                  }
+                  return `<article class="bank-row">
+                    <div class="bank-date"><strong>${fmtDate(transaction.booked_date)}</strong><span>${escapeHtml(transaction.bank_name || transaction.file_name || '')}</span></div>
+                    <div class="bank-main"><div class="bank-title">${escapeHtml(transaction.title || 'Bez tytułu')}</div><div class="bank-party">${escapeHtml(transaction.counterparty || 'Nieznany kontrahent')}</div>${suggestion}</div>
+                    <div class="bank-amount ${Number(transaction.amount) < 0 ? 'negative' : ''}">${fmtPLN2(transaction.amount)} <span>${escapeHtml(transaction.currency || 'PLN')}</span></div>
+                    <div class="bank-state">${chip(state.cls, state.label)}</div>
+                    <div class="bank-actions">${actions}</div>
+                  </article>`;
+                })
+                .join('')
+            : emptyState('Brak transakcji w tym widoku.', 'Zaimportuj wyciąg CSV albo zmień filtr.')
+        }
+      </div>
+    </div>`;
+
+  root.querySelectorAll('[data-bank-status]').forEach((button) => {
+    button.onclick = () => {
+      State.bankStatus = button.dataset.bankStatus;
+      render();
+    };
+  });
+  root.querySelectorAll('[data-bank-match]').forEach((button) => {
+    button.onclick = () => confirmBankTransaction(Number(button.dataset.bankMatch));
+  });
+  root.querySelectorAll('[data-bank-manual]').forEach((button) => {
+    const transaction = transactions.find((row) => String(row.id) === button.dataset.bankManual);
+    button.onclick = () => openManualBankMatch(transaction);
+  });
+  root.querySelectorAll('[data-bank-ignore]').forEach((button) => {
+    button.onclick = async () => {
+      await Api.post(`/banking/${button.dataset.bankIgnore}/ignore`, {});
+      toast('Transakcja pominięta', 'info');
+      render();
+    };
+  });
+  root.querySelectorAll('[data-bank-reopen]').forEach((button) => {
+    button.onclick = async () => {
+      await Api.post(`/banking/${button.dataset.bankReopen}/reopen`, {});
+      toast('Transakcja przywrócona');
+      render();
+    };
+  });
+  root.querySelectorAll('[data-bank-undo]').forEach((button) => {
+    button.onclick = () =>
+      confirmDialog({
+        title: 'Cofnij uzgodnienie',
+        message: 'Płatność odzyska stan sprzed powiązania z tą transakcją.',
+        danger: true,
+        onYes: async () => {
+          await Api.post(`/banking/${button.dataset.bankUndo}/undo`, {});
+          toast('Uzgodnienie cofnięte', 'info');
+          render();
+        },
+      });
+  });
+  document.getElementById('bank-import').onclick = openBankImportDialog;
+  document.getElementById('bank-confirm-high').onclick = () => {
+    if (!Number(stats.high_confidence || 0)) return;
+    confirmDialog({
+      title: 'Uzgodnij pewne propozycje',
+      message: `Zatwierdzić ${Number(stats.high_confidence || 0)} jednoznacznych dopasowań? Każde można później cofnąć.`,
+      onYes: async () => {
+        const result = await Api.post('/banking/confirm-high', { threshold: 85 });
+        toast(`Uzgodniono: ${result.confirmed}`);
+        render();
+      },
+    });
+  };
+}
+
+function confirmBankTransaction(transactionId) {
+  confirmDialog({
+    title: 'Zatwierdź uzgodnienie',
+    message: 'Kwota transakcji zostanie dopisana do wskazanej płatności. Operację można cofnąć.',
+    onYes: async () => {
+      await Api.post(`/banking/${transactionId}/match`, {});
+      toast('Wpłata uzgodniona');
+      render();
+    },
+  });
+}
+
+function openBankImportDialog() {
+  const dialog = modal({
+    title: 'Import wyciągu bankowego',
+    body: `<div class="form-grid">
+      <div class="form-row full"><label>Plik CSV</label><input type="file" id="bank-file" accept=".csv,.txt,text/csv"></div>
+      <div class="form-row full"><label>Bank / rachunek (opcjonalnie)</label><input id="bank-name" placeholder="np. ING — najem"></div>
+      <div class="form-hint full">Obsługiwane kolumny: data, kwota, tytuł/opis, kontrahent i rachunek. Duplikaty są pomijane automatycznie.</div>
+    </div>`,
+    footer: `<button class="tb-btn tb-ghost" id="bank-import-cancel">Anuluj</button><button class="tb-btn tb-primary" id="bank-import-save">Importuj i dopasuj</button>`,
+  });
+  dialog.root.querySelector('#bank-import-cancel').onclick = dialog.close;
+  dialog.root.querySelector('#bank-import-save').onclick = async () => {
+    const file = dialog.root.querySelector('#bank-file').files[0];
+    if (!file) return toast('Wybierz plik CSV', 'err');
+    const form = new FormData();
+    form.append('file', file);
+    form.append('bank_name', dialog.root.querySelector('#bank-name').value.trim());
+    try {
+      const result = await Api.upload('/banking/import', form);
+      toast(`Zaimportowano ${result.imported}, duplikaty ${result.duplicates}`);
+      dialog.close();
+      render();
+    } catch (error) {
+      toast(error.message, 'err');
+    }
+  };
+}
+
+async function openManualBankMatch(transaction) {
+  if (!transaction) return;
+  const batches = await Promise.all(
+    ['overdue', 'pending', 'partial'].map((status) => Api.get(`/payments?status=${status}`).catch(() => [])),
+  );
+  const payments = Array.from(new Map(batches.flat().map((payment) => [payment.id, payment])).values()).sort(
+    (a, b) => String(b.period).localeCompare(String(a.period)),
+  );
+  if (!payments.length) return toast('Brak otwartych płatności do uzgodnienia', 'err');
+  const dialog = modal({
+    title: 'Ręczne dopasowanie wpłaty',
+    body: `<div class="bank-match-summary"><strong>${fmtPLN2(transaction.amount)} ${escapeHtml(transaction.currency || 'PLN')}</strong><span>${fmtDate(transaction.booked_date)} · ${escapeHtml(transaction.counterparty || '')}</span><p>${escapeHtml(transaction.title || '')}</p></div>
+      <div class="form-grid">
+        <div class="form-row full"><label>Płatność</label><select id="bank-payment">${payments
+          .map(
+            (payment) =>
+              `<option value="${payment.id}" ${String(payment.id) === String(transaction.suggested_payment_id) ? 'selected' : ''}>${escapeHtml(payment.tenant_name || '—')} · ${escapeHtml(payment.property_name || '')} ${escapeHtml(payment.unit_code || payment.unit_name || '')} · ${escapeHtml(payment.period)} · pozostało ${fmtPLN(Math.max(0, Number(payment.expected_total || 0) - Number(payment.total_paid || 0)))} zł</option>`,
+          )
+          .join('')}</select></div>
+        <div class="form-row full"><label>Kwota do przypisania</label><input id="bank-match-amount" type="number" step="0.01" min="0.01" max="${Number(transaction.amount)}" value="${Number(transaction.amount)}"></div>
+      </div>`,
+    footer: `<button class="tb-btn tb-ghost" id="bank-match-cancel">Anuluj</button><button class="tb-btn tb-primary" id="bank-match-save">Zatwierdź dopasowanie</button>`,
+  });
+  dialog.root.querySelector('#bank-match-cancel').onclick = dialog.close;
+  dialog.root.querySelector('#bank-match-save').onclick = async () => {
+    try {
+      await Api.post(`/banking/${transaction.id}/match`, {
+        payment_id: Number(dialog.root.querySelector('#bank-payment').value),
+        amount: Number(dialog.root.querySelector('#bank-match-amount').value),
+      });
+      toast('Wpłata uzgodniona');
+      dialog.close();
+      render();
+    } catch (error) {
+      toast(error.message, 'err');
+    }
+  };
+}
 
 // ═══════════════════════ NIERUCHOMOŚCI ═══════════════════════
 async function renderProperties(root) {
@@ -2986,6 +3262,9 @@ async function renderContracts(root) {
                       stChip = chip('chip-e', 'Aktywna', true);
                       leftChip = chip('chip-v', 'bezterminowo');
                     }
+                    stChip = contractWorkflowChip(
+                      c.workflow_stage || (c.status === 'ended' ? 'ended' : 'active'),
+                    );
                     return `<tr>
               <td><div class="t-tenant">${avatar(c.tenant_name)}<span class="t-name">${escapeHtml(c.tenant_name || '—')}</span></div></td>
               <td style="font-size:12px;color:var(--t2)">${escapeHtml(c.property_name || '—')} / ${escapeHtml(c.unit_code || c.unit_name || '')}</td>
@@ -2996,6 +3275,7 @@ async function renderContracts(root) {
               <td class="mono">${fmtPLN(c.media_advance)} zł</td>
               <td class="mono-e">${fmtPLN(total)} zł</td>
               <td><div style="display:flex;gap:4px">
+                <button class="tb-btn tb-ghost" onclick="openContractWorkflow(${c.id})" title="Obieg umowy" style="font-size:11px;height:30px;padding:0 8px">Obieg</button>
                 ${c.status === 'active' ? `<button class="tb-btn tb-ghost" onclick="endContractFlow(${c.id})" title="Zakończ umowę" style="font-size:11px;height:30px;padding:0 8px">Zakończ</button>` : ''}
                 <button class="icon-btn" onclick="openContractDocuments(${c.id})" title="Dokumenty umowy"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
                 <button class="icon-btn" onclick="editContract(${c.id})" title="Edytuj"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
@@ -3020,9 +3300,115 @@ async function renderContracts(root) {
   );
 }
 
+function contractWorkflowChip(stage) {
+  const value = {
+    draft: ['chip-n', 'Szkic'],
+    awaiting_documents: ['chip-a', 'Dokumenty'],
+    awaiting_signature: ['chip-c', 'Do podpisu'],
+    active: ['chip-e', 'Aktywna'],
+    ending: ['chip-a', 'Wygaszanie'],
+    ended: ['chip-n', 'Zakończona'],
+    archived: ['chip-n', 'Archiwum'],
+  }[stage] || ['chip-n', stage || '—'];
+  return chip(value[0], value[1], stage === 'active');
+}
+
+window.openContractWorkflow = async function (id) {
+  const snapshot = await Api.get(`/contracts/${id}/workflow`);
+  const labels = {
+    draft: 'Szkic',
+    awaiting_documents: 'Kompletowanie dokumentów',
+    awaiting_signature: 'Oczekuje na podpis',
+    active: 'Aktywna',
+    ending: 'Wygaszanie',
+    ended: 'Zakończona',
+    archived: 'Archiwum',
+  };
+  const ordered = [
+    'draft',
+    'awaiting_documents',
+    'awaiting_signature',
+    'active',
+    'ending',
+    'ended',
+    'archived',
+  ];
+  const currentIndex = ordered.indexOf(snapshot.stage);
+  const body = `<div class="contract-workflow">
+    <div class="workflow-stage-track">${ordered
+      .map(
+        (stage, index) =>
+          `<div class="workflow-stage ${index < currentIndex ? 'complete' : ''} ${stage === snapshot.stage ? 'current' : ''}"><span>${index + 1}</span><strong>${labels[stage]}</strong></div>`,
+      )
+      .join('')}</div>
+    <div class="workflow-checklist">
+      ${(snapshot.checklist || [])
+        .map(
+          (item) =>
+            `<div class="workflow-check ${item.complete ? 'complete' : ''}"><span>${item.complete ? '✓' : '!'}</span><div><strong>${escapeHtml(item.label)}</strong><small>${item.required_for === 'active' ? 'wymagane do aktywacji' : 'zalecane przy przekazaniu'}</small></div></div>`,
+        )
+        .join('')}
+    </div>
+    <div class="ch inline"><div><div class="ch-title">Dokumenty umowy</div><div class="ch-sub">${(snapshot.documents || []).length} plików</div></div><button class="tb-btn tb-ghost" id="workflow-documents">Otwórz dokumenty</button></div>
+    <div class="workflow-document-list">${
+      (snapshot.documents || []).length
+        ? snapshot.documents
+            .map(
+              (document) =>
+                `<div><span>${documentWorkflowChip(document.workflow_status)}</span><strong>${escapeHtml(document.name)}</strong><small>v${Number(document.version || 1)} · ${fmtDate(document.uploaded_at)}</small></div>`,
+            )
+            .join('')
+        : emptyState('Brak dokumentów.', 'Dodaj podpisaną umowę przed aktywacją.')
+    }</div>
+    <div class="workflow-history"><div class="ch-title">Historia</div>${
+      (snapshot.events || []).length
+        ? snapshot.events
+            .slice(0, 8)
+            .map(
+              (event) =>
+                `<div><span>${fmtDateTimeLocal(event.created_at)}</span><strong>${escapeHtml(labels[event.from_stage] || event.from_stage || 'Start')} → ${escapeHtml(labels[event.to_stage] || event.to_stage)}</strong>${event.note ? `<small>${escapeHtml(event.note)}</small>` : ''}</div>`,
+            )
+            .join('')
+        : '<div class="ch-sub">Brak zmian etapu.</div>'
+    }</div>
+  </div>`;
+  const transitions = (snapshot.allowed_transitions || [])
+    .map(
+      (stage) =>
+        `<button class="tb-btn ${stage === 'active' ? 'tb-primary' : 'tb-ghost'}" data-contract-stage="${stage}">${escapeHtml(labels[stage] || stage)}</button>`,
+    )
+    .join('');
+  const dialog = modal({
+    title: `Obieg umowy · ${labels[snapshot.stage] || snapshot.stage}`,
+    body,
+    footer: `<button class="tb-btn tb-ghost" id="workflow-close">Zamknij</button>${transitions}`,
+    wide: true,
+  });
+  dialog.root.querySelector('#workflow-close').onclick = dialog.close;
+  dialog.root.querySelector('#workflow-documents').onclick = () => {
+    dialog.close();
+    openContractDocuments(id);
+  };
+  dialog.root.querySelectorAll('[data-contract-stage]').forEach((button) => {
+    button.onclick = async () => {
+      try {
+        await Api.post(`/contracts/${id}/workflow`, { stage: button.dataset.contractStage });
+        toast(`Etap umowy: ${labels[button.dataset.contractStage]}`);
+        dialog.close();
+        render();
+      } catch (error) {
+        toast(
+          error.message === 'signed_contract_required' ? 'Najpierw dodaj podpisaną umowę' : error.message,
+          'err',
+        );
+      }
+    };
+  });
+};
+
 window.editContract = async function (id) {
   const [tenants, units] = await Promise.all([Api.get('/tenants'), Api.get('/units')]);
-  let initial = { status: 'active', pay_by_day: 31, rent: 0, media_advance: 0, deposit: 0 };
+  let initial = { status: 'planned', pay_by_day: 31, rent: 0, media_advance: 0, deposit: 0 };
   if (id) initial = await Api.get(`/contracts/${id}`);
   formModal({
     title: id ? 'Edytuj umowę' : 'Nowa umowa',
@@ -3053,6 +3439,7 @@ window.editContract = async function (id) {
         label: 'Status',
         type: 'select',
         options: [
+          { value: 'planned', label: 'Szkic / planowana' },
           { value: 'active', label: 'Aktywna' },
           { value: 'ended', label: 'Zakończona' },
         ],
@@ -3280,9 +3667,11 @@ window.deleteContractDocument = function (docId, contractId) {
 // ═══════════════════════ RAPORTY ═══════════════════════
 async function renderReports(root) {
   const reportYear = String(State.period || currentPeriodISO()).slice(0, 4);
-  const [r, taxReport] = await Promise.all([
+  const ownerFrom = shiftPeriod(State.period, -11);
+  const [r, taxReport, ownerReport] = await Promise.all([
     Api.get(`/reports?period=${State.period}`),
     Api.get(`/reports/tax-yearly?year=${reportYear}`).catch(() => null),
+    Api.get(`/reports/owner-statement?from=${ownerFrom}&to=${State.period}`).catch(() => null),
   ]);
   const totals = r.totals;
   const margin = totals.margin || 0;
@@ -3327,6 +3716,8 @@ async function renderReports(root) {
         )
         .join('')}
     </div>
+
+    ${renderOwnerStatement(ownerReport)}
 
     <div class="gc">
       <div class="sum-grid sum-grid-5">
@@ -3487,6 +3878,48 @@ async function renderReports(root) {
       options: chartBaseOpts(),
     });
   }
+}
+
+function renderOwnerStatement(report) {
+  if (!report) return '';
+  const totals = report.totals || {};
+  const risks = report.risks || {};
+  const riskCount =
+    Number(risks.arrears_count || 0) +
+    Number(risks.contracts_ending_60d || 0) +
+    Number(risks.documents_expiring_60d || 0) +
+    Number(risks.bank_unresolved || 0);
+  return `<details class="gc owner-statement" open>
+    <summary class="owner-statement-summary">
+      <div><div class="ch-title">Raport właścicielski · ${escapeHtml(report.range.from)} — ${escapeHtml(report.range.to)}</div><div class="ch-sub">wynik portfela, ściągalność, ryzyka i uzgodnienie bankowe</div></div>
+      ${chip(riskCount ? 'chip-a' : 'chip-e', riskCount ? `${riskCount} sygnałów` : 'bez pilnych sygnałów', !riskCount)}
+    </summary>
+    <div class="owner-statement-body">
+      <div class="sum-grid sum-grid-5">
+        <div class="sum-cell"><div class="sc-lbl">Ściągalność</div><div class="sc-val">${fmtPLN2(totals.collection_rate)}<span class="sc-unit">%</span></div><div class="sc-delta ${totals.collection_rate >= 95 ? 'delta-up' : 'delta-dn'}">${fmtPLN(totals.revenue)} / ${fmtPLN(totals.expected)} zł</div></div>
+        <div class="sum-cell"><div class="sc-lbl">Przychód 12 mies.</div><div class="sc-val">${fmtPLN(totals.revenue)}<span class="sc-unit"> PLN</span></div><div class="sc-delta delta-n">wpłaty zatwierdzone</div></div>
+        <div class="sum-cell"><div class="sc-lbl">Koszty</div><div class="sc-val">${fmtPLN(totals.expenses)}<span class="sc-unit"> PLN</span></div><div class="sc-delta delta-n">${fmtPLN2(totals.cost_ratio)}% przychodu</div></div>
+        <div class="sum-cell"><div class="sc-lbl">Netto właściciela</div><div class="sc-val">${fmtPLN(totals.net)}<span class="sc-unit"> PLN</span></div><div class="sc-delta ${totals.net >= 0 ? 'delta-up' : 'delta-dn'}">po kosztach i podatku</div></div>
+        <div class="sum-cell"><div class="sc-lbl">Marża netto</div><div class="sc-val">${fmtPLN2(totals.net_margin)}<span class="sc-unit">%</span></div><div class="sc-delta delta-n">wynik / przychód</div></div>
+      </div>
+      <div class="owner-risk-grid">
+        <div class="owner-risk ${risks.arrears_count ? 'warn' : ''}"><strong>${Number(risks.arrears_count || 0)}</strong><span>Zaległe płatności</span><small>${fmtPLN(risks.arrears_amount || 0)} PLN</small></div>
+        <div class="owner-risk ${risks.bank_unresolved ? 'warn' : ''}"><strong>${Number(risks.bank_unresolved || 0)}</strong><span>Nieuzgodnione wpłaty</span><small>${fmtPLN(report.reconciliation?.matched_amount || 0)} PLN uzgodnione</small></div>
+        <div class="owner-risk ${risks.contracts_ending_60d ? 'warn' : ''}"><strong>${Number(risks.contracts_ending_60d || 0)}</strong><span>Umowy do 60 dni</span><small>do decyzji</small></div>
+        <div class="owner-risk ${risks.documents_expiring_60d ? 'warn' : ''}"><strong>${Number(risks.documents_expiring_60d || 0)}</strong><span>Dokumenty do 60 dni</span><small>do odnowienia</small></div>
+      </div>
+      <div class="ch inline"><div><div class="ch-title">Wynik nieruchomości</div><div class="ch-sub">ranking za cały zakres raportu</div></div></div>
+      <div class="table-wrap"><table class="t owner-property-table">
+        <thead><tr><th>Nieruchomość</th><th>Przychód</th><th>Ściągalność</th><th>Koszty</th><th>Podatek</th><th>Netto</th><th>Marża</th></tr></thead>
+        <tbody>${(report.properties || [])
+          .map(
+            (property) =>
+              `<tr><td><strong>${escapeHtml(property.name)}</strong></td><td class="mono-e">${fmtPLN(property.revenue)} zł</td><td class="mono">${fmtPLN2(property.collection_rate)}%</td><td class="mono-r">${fmtPLN(property.expenses)} zł</td><td class="mono">${fmtPLN(property.tax)} zł</td><td class="mono${property.net >= 0 ? '-e' : '-r'}">${fmtPLN(property.net)} zł</td><td>${chip(property.net_margin >= 0 ? 'chip-e' : 'chip-r', `${fmtPLN2(property.net_margin)}%`)}</td></tr>`,
+          )
+          .join('')}</tbody>
+      </table></div>
+    </div>
+  </details>`;
 }
 
 function renderTaxReportCard(report) {
@@ -4024,7 +4457,10 @@ window.toggleTask = function (id) {
 
 // ═══════════════════════ DOKUMENTY ═══════════════════════
 async function renderDocuments(root) {
-  const docs = await Api.get('/documents');
+  const documentStatus = State.documentStatus || 'all';
+  const docs = await Api.get(
+    `/documents${documentStatus === 'all' ? '' : `?workflow_status=${encodeURIComponent(documentStatus)}`}`,
+  );
 
   setTopbar(
     VIEW_TITLES.dokumenty,
@@ -4034,6 +4470,24 @@ async function renderDocuments(root) {
 
   root.innerHTML = `
     <div class="gc">
+      <div class="ch document-toolbar">
+        <div><div class="ch-title">Obieg dokumentów</div><div class="ch-sub">wersje, akceptacja, podpis i terminy ważności</div></div>
+        <div class="filter-tabs document-filter-tabs">
+          ${[
+            ['all', 'Wszystkie'],
+            ['uploaded', 'Nowe'],
+            ['review', 'Weryfikacja'],
+            ['approved', 'Zaakceptowane'],
+            ['signed', 'Podpisane'],
+            ['archived', 'Archiwum'],
+          ]
+            .map(
+              ([value, label]) =>
+                `<button class="ftab ${documentStatus === value ? 'on' : ''}" data-document-status="${value}">${label}</button>`,
+            )
+            .join('')}
+        </div>
+      </div>
       ${
         docs.length === 0
           ? `<div style="padding:36px">${emptyState('Brak dokumentów.', 'Wgraj pierwszy plik.')}</div>`
@@ -4044,9 +4498,11 @@ async function renderDocuments(root) {
             <div class="doc-card">
               <div class="doc-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
               <div class="doc-name" title="${escapeHtml(d.name)}">${escapeHtml(d.name)}</div>
-              <div class="doc-meta">${escapeHtml(d.category || 'inne')} · ${(d.size_bytes / 1024).toFixed(0)} kB · ${fmtDate(d.uploaded_at)}</div>
+              <div class="doc-meta">${escapeHtml(d.category || 'inne')} · v${Number(d.version || 1)} · ${(d.size_bytes / 1024).toFixed(0)} kB · ${fmtDate(d.uploaded_at)}</div>
+              <div class="doc-workflow-line">${documentWorkflowChip(d.workflow_status)}${d.expires_on ? `<span class="doc-expiry ${d.expires_on < todayISO() ? 'expired' : ''}">ważny do ${fmtDate(d.expires_on)}</span>` : ''}</div>
               <div class="doc-actions">
                 <a href="/api/documents/${d.id}/download" download>Pobierz</a>
+                <button data-edit-document="${d.id}">Obieg</button>
                 <button onclick="deleteDoc(${d.id})">Usuń</button>
               </div>
             </div>`,
@@ -4057,6 +4513,74 @@ async function renderDocuments(root) {
     </div>`;
 
   document.getElementById('btn-up').onclick = () => uploadDocDialog();
+  root.querySelectorAll('[data-document-status]').forEach((button) => {
+    button.onclick = () => {
+      State.documentStatus = button.dataset.documentStatus;
+      render();
+    };
+  });
+  root.querySelectorAll('[data-edit-document]').forEach((button) => {
+    const document = docs.find((item) => String(item.id) === button.dataset.editDocument);
+    button.onclick = () => editDocumentWorkflow(document);
+  });
+}
+
+function documentWorkflowChip(status) {
+  const value = {
+    uploaded: ['chip-n', 'Nowy'],
+    review: ['chip-a', 'Weryfikacja'],
+    approved: ['chip-c', 'Zaakceptowany'],
+    signed: ['chip-e', 'Podpisany'],
+    rejected: ['chip-r', 'Odrzucony'],
+    archived: ['chip-n', 'Archiwum'],
+  }[status || 'uploaded'] || ['chip-n', status || 'Nowy'];
+  return chip(value[0], value[1]);
+}
+
+function editDocumentWorkflow(document) {
+  const transitions = {
+    uploaded: ['review', 'approved', 'archived'],
+    review: ['uploaded', 'approved', 'rejected'],
+    approved: ['review', 'signed', 'archived'],
+    signed: ['archived'],
+    rejected: ['uploaded', 'archived'],
+    archived: ['uploaded'],
+  };
+  const labels = {
+    uploaded: 'Nowy / wgrany',
+    review: 'W weryfikacji',
+    approved: 'Zaakceptowany',
+    signed: 'Podpisany',
+    rejected: 'Odrzucony',
+    archived: 'Archiwum',
+  };
+  formModal({
+    title: `Obieg: ${document.name}`,
+    fields: [
+      { name: 'name', label: 'Nazwa', required: true, default: document.name, full: true },
+      { name: 'document_number', label: 'Numer dokumentu', default: document.document_number || '' },
+      { name: 'version', label: 'Wersja', type: 'number', default: Number(document.version || 1) },
+      { name: 'expires_on', label: 'Ważny do', type: 'date', default: document.expires_on || '' },
+      {
+        name: 'workflow_status',
+        label: 'Następny etap',
+        type: 'select',
+        default: document.workflow_status || 'uploaded',
+        options: [
+          document.workflow_status || 'uploaded',
+          ...(transitions[document.workflow_status || 'uploaded'] || []),
+        ].map((value) => ({ value, label: labels[value] || value })),
+      },
+      { name: 'transition_note', label: 'Notatka do zmiany', type: 'textarea', full: true },
+    ],
+    submitLabel: 'Zapisz etap',
+    onSubmit: async (payload) => {
+      if (!payload.expires_on) payload.expires_on = null;
+      await Api.put(`/documents/${document.id}`, payload);
+      toast('Obieg dokumentu zaktualizowany');
+      render();
+    },
+  });
 }
 
 window.deleteDoc = function (id) {
@@ -4084,6 +4608,8 @@ async function uploadDocDialog() {
       <div class="form-row"><label>Kategoria</label>
         <select id="doc-cat"><option value="umowa">Umowa</option><option value="faktura">Faktura</option><option value="protokol">Protokół</option><option value="inne" selected>Inne</option></select>
       </div>
+      <div class="form-row"><label>Numer dokumentu</label><input id="doc-number"></div>
+      <div class="form-row"><label>Ważny do</label><input id="doc-expiry" type="date"></div>
       <div class="form-row"><label>Powiązane z</label>
         <select id="doc-ent"><option value="">— brak —</option><option value="tenant">Najemcą</option><option value="contract">Umową</option><option value="property">Nieruchomością</option></select>
       </div>
@@ -4124,6 +4650,8 @@ async function uploadDocDialog() {
     const fd = new FormData();
     fd.append('file', f);
     fd.append('category', m.root.querySelector('#doc-cat').value);
+    fd.append('document_number', m.root.querySelector('#doc-number').value.trim());
+    fd.append('expires_on', m.root.querySelector('#doc-expiry').value);
     const ent = entSel.value;
     if (ent) {
       fd.append('entity_type', ent);
@@ -4142,33 +4670,35 @@ async function uploadDocDialog() {
 
 // ═══════════════════════ USTAWIENIA ═══════════════════════
 async function renderSettings(root) {
-  const [s, importStatus, ownerCosts, notificationSettings, notificationLogs, aiAliases] = await Promise.all([
-    Api.get('/settings'),
-    Api.get('/import/status').catch(() => ({ excel_import_enabled: false, dry_run_enabled: true })),
-    Api.get('/settings/owner-costs').catch(() => ({
-      valid_from_period: '2026-01',
-      management_monthly: 0,
-      mortgages: [],
-    })),
-    Api.get('/notifications/settings').catch(() => ({
-      enabled: false,
-      sender: 'TEST',
-      send_time: '09:30',
-      overdue_days: 1,
-      reminder_enabled: true,
-      reminder_days_before_due: 3,
-      test_mode: true,
-      test_phone: '',
-      clear_polish: false,
-      transactional: false,
-      token_configured: false,
-    })),
-    Api.get('/notifications/logs?limit=12').catch(() => []),
-    Api.get('/assistant/aliases').catch(() => ({
-      aliases: [],
-      candidates: { properties: [], tenants: [], metrics: [] },
-    })),
-  ]);
+  const [s, importStatus, ownerCosts, notificationSettings, notificationLogs, aiAliases, automationData] =
+    await Promise.all([
+      Api.get('/settings'),
+      Api.get('/import/status').catch(() => ({ excel_import_enabled: false, dry_run_enabled: true })),
+      Api.get('/settings/owner-costs').catch(() => ({
+        valid_from_period: '2026-01',
+        management_monthly: 0,
+        mortgages: [],
+      })),
+      Api.get('/notifications/settings').catch(() => ({
+        enabled: false,
+        sender: 'TEST',
+        send_time: '09:30',
+        overdue_days: 1,
+        reminder_enabled: true,
+        reminder_days_before_due: 3,
+        test_mode: true,
+        test_phone: '',
+        clear_polish: false,
+        transactional: false,
+        token_configured: false,
+      })),
+      Api.get('/notifications/logs?limit=12').catch(() => []),
+      Api.get('/assistant/aliases').catch(() => ({
+        aliases: [],
+        candidates: { properties: [], tenants: [], metrics: [] },
+      })),
+      Api.get('/automations?status=pending').catch(() => ({ proposals: [], stats: {} })),
+    ]);
   setTopbar(
     VIEW_TITLES.ustawienia,
     'Dane firmy, podatki, preferencje',
@@ -4269,6 +4799,32 @@ async function renderSettings(root) {
       </div>
     </div>
 
+    <div class="gc automation-center">
+      <div class="ch">
+        <div><div class="ch-title">Bezpieczne automatyzacje AI</div><div class="ch-sub">AI i reguły tworzą propozycje — żadna wpłata ani wiadomość nie jest zatwierdzana bez Twojej decyzji</div></div>
+        <button class="tb-btn tb-primary" id="automation-scan">Skanuj i zaproponuj</button>
+      </div>
+      <div class="automation-guardrails">
+        <span>✓ biała lista akcji</span><span>✓ limit 50 akcji</span><span>✓ idempotencja</span><span>✓ jawna zgoda dla finansów</span>
+      </div>
+      <div class="automation-list">
+        ${
+          (automationData.proposals || [])
+            .map(
+              (
+                proposal,
+              ) => `<article class="automation-proposal ${proposal.risk_level === 'high' ? 'high-risk' : ''}">
+              <div class="automation-risk">${chip(proposal.risk_level === 'high' ? 'chip-a' : 'chip-c', proposal.risk_level === 'high' ? 'Wymaga potwierdzenia' : 'Niskie ryzyko')}</div>
+              <div><strong>${escapeHtml(proposal.summary)}</strong><small>${proposal.action_type === 'reconcile_bank' ? 'Uzgodnienie bankowe' : 'Utworzenie zadania'} · ${fmtDateTimeLocal(proposal.created_at)}</small></div>
+              <div class="automation-actions"><button class="tb-btn tb-primary" data-automation-approve="${proposal.id}" data-automation-risk="${proposal.risk_level}">Zatwierdź</button><button class="tb-btn tb-ghost" data-automation-reject="${proposal.id}">Odrzuć</button></div>
+            </article>`,
+            )
+            .join('') ||
+          `<div class="automation-empty">${emptyState('Brak oczekujących propozycji.', 'Uruchom skan, aby znaleźć kończące się umowy, dokumenty i pewne dopasowania bankowe.')}</div>`
+        }
+      </div>
+    </div>
+
     <div class="gc">
       <div class="ch">
         <div><div class="ch-title">AI aliasy</div><div class="ch-sub">własne nazwy dla nieruchomości, najemców i metryk</div></div>
@@ -4360,6 +4916,35 @@ async function renderSettings(root) {
   document.getElementById('ai-alias-seed').onclick = () => seedAiAliases();
   document.querySelectorAll('[data-ai-alias-delete]').forEach((btn) => {
     btn.onclick = () => deleteAiAlias(btn.dataset.aiAliasDelete);
+  });
+  document.getElementById('automation-scan').onclick = async () => {
+    const result = await Api.post('/automations/scan', {});
+    toast(`Nowe propozycje: ${result.created}`);
+    render();
+  };
+  document.querySelectorAll('[data-automation-approve]').forEach((button) => {
+    button.onclick = () => {
+      const highRisk = button.dataset.automationRisk === 'high';
+      const approve = async () => {
+        await Api.post(`/automations/${button.dataset.automationApprove}/approve`, { confirmed: highRisk });
+        toast('Automatyzacja wykonana');
+        render();
+      };
+      if (highRisk) {
+        confirmDialog({
+          title: 'Potwierdź operację finansową',
+          message: 'Ta propozycja zmieni stan płatności. Operacja zostanie zapisana w historii audytowej.',
+          onYes: approve,
+        });
+      } else approve();
+    };
+  });
+  document.querySelectorAll('[data-automation-reject]').forEach((button) => {
+    button.onclick = async () => {
+      await Api.post(`/automations/${button.dataset.automationReject}/reject`, {});
+      toast('Propozycja odrzucona', 'info');
+      render();
+    };
   });
   fetch('/health')
     .then((r) => r.json())

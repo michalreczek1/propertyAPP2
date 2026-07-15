@@ -49,7 +49,7 @@ const ContractSchema = z.object({
   deposit: z.coerce.number().min(0).default(0),
   pay_by_day: z.coerce.number().int().min(1).max(31).default(31),
   document_path: z.string().nullable().optional(),
-  status: z.enum(['active', 'ended']).default('active'),
+  status: z.enum(['planned', 'active', 'ended']).default('planned'),
   notes: z.string().nullable().optional(),
 });
 
@@ -57,6 +57,31 @@ const EndContractSchema = z.object({
   end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   set_tenant_inactive: z.boolean().optional().default(true),
 });
+
+const CONTRACT_STAGES = [
+  'draft',
+  'awaiting_documents',
+  'awaiting_signature',
+  'active',
+  'ending',
+  'ended',
+  'archived',
+];
+const CONTRACT_TRANSITIONS = {
+  draft: ['awaiting_documents', 'archived'],
+  awaiting_documents: ['draft', 'awaiting_signature'],
+  awaiting_signature: ['awaiting_documents', 'active'],
+  active: ['ending', 'ended'],
+  ending: ['active', 'ended'],
+  ended: ['archived'],
+  archived: [],
+};
+const ContractWorkflowSchema = z
+  .object({
+    stage: z.enum(CONTRACT_STAGES),
+    note: z.string().trim().max(500).nullable().optional(),
+  })
+  .strict();
 
 const TurnoverSchema = z.object({
   unit_id: z.coerce.number().int().positive(),
@@ -258,6 +283,110 @@ router.get('/:id', (req, res) => {
   res.json(c);
 });
 
+function contractWorkflowSnapshot(contractId) {
+  const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(contractId);
+  if (!contract) return null;
+  const documents = db
+    .prepare(
+      `SELECT id, name, category, workflow_status, expires_on, version, uploaded_at
+       FROM documents
+       WHERE related_entity_type = 'contract' AND related_entity_id = ?
+       ORDER BY uploaded_at DESC`,
+    )
+    .all(contractId);
+  const signedContract = documents.some(
+    (document) => document.category === 'umowa' && document.workflow_status === 'signed',
+  );
+  const protocol = documents.some(
+    (document) =>
+      document.category === 'protokol' && ['approved', 'signed'].includes(document.workflow_status),
+  );
+  const stage = contract.workflow_stage || (contract.status === 'ended' ? 'ended' : 'active');
+  return {
+    contract,
+    stage,
+    allowed_transitions: CONTRACT_TRANSITIONS[stage] || [],
+    checklist: [
+      { key: 'signed_contract', label: 'Podpisana umowa', required_for: 'active', complete: signedContract },
+      {
+        key: 'handover_protocol',
+        label: 'Protokół przekazania',
+        required_for: 'handover',
+        complete: protocol,
+      },
+    ],
+    documents,
+    events: db
+      .prepare(
+        `SELECT e.*, u.display_name AS actor_name
+         FROM contract_workflow_events e
+         LEFT JOIN users u ON u.id = e.actor_user_id
+         WHERE e.contract_id = ? ORDER BY e.created_at DESC, e.id DESC`,
+      )
+      .all(contractId),
+  };
+}
+
+router.get('/:id/workflow', requireContractAccess, (req, res) => {
+  const snapshot = contractWorkflowSnapshot(Number(req.params.id));
+  if (!snapshot) return res.status(404).json({ error: 'not_found' });
+  res.json(snapshot);
+});
+
+router.post('/:id/workflow', requireContractAccess, validate(ContractWorkflowSchema), (req, res) => {
+  const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(req.params.id);
+  if (!contract) return res.status(404).json({ error: 'not_found' });
+  const currentStage = contract.workflow_stage || (contract.status === 'ended' ? 'ended' : 'active');
+  const targetStage = req.body.stage;
+  if (!(CONTRACT_TRANSITIONS[currentStage] || []).includes(targetStage)) {
+    return res.status(409).json({
+      error: 'invalid_contract_transition',
+      from: currentStage,
+      to: targetStage,
+      allowed: CONTRACT_TRANSITIONS[currentStage] || [],
+    });
+  }
+  const snapshot = contractWorkflowSnapshot(contract.id);
+  if (
+    targetStage === 'active' &&
+    !snapshot.checklist.find((item) => item.key === 'signed_contract').complete
+  ) {
+    return res.status(409).json({ error: 'signed_contract_required' });
+  }
+  const targetStatus = ['active', 'ending'].includes(targetStage)
+    ? 'active'
+    : targetStage === 'ended' || targetStage === 'archived'
+      ? 'ended'
+      : 'planned';
+  try {
+    const updated = db.transaction(() => {
+      if (targetStatus === 'active' && contract.status !== 'active') {
+        assertNoActiveConflict({ ...contract, status: 'active' }, contract.id, contract.tenant_id);
+        applyActiveContract(contract);
+      } else if (targetStatus !== 'active' && contract.status === 'active') {
+        detachTenantFromUnit(contract.tenant_id, contract.unit_id);
+        syncUnitOccupancy(contract.unit_id);
+      }
+      db.prepare(
+        `UPDATE contracts
+         SET workflow_stage = ?, status = ?,
+             activated_at = CASE WHEN ? = 'active' THEN COALESCE(activated_at, CURRENT_TIMESTAMP) ELSE activated_at END,
+             archived_at = CASE WHEN ? = 'archived' THEN CURRENT_TIMESTAMP ELSE archived_at END
+         WHERE id = ?`,
+      ).run(targetStage, targetStatus, targetStage, targetStage, contract.id);
+      db.prepare(
+        `INSERT INTO contract_workflow_events
+          (contract_id, actor_user_id, from_stage, to_stage, note)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).run(contract.id, ownerId(req), currentStage, targetStage, req.body.note || null);
+      return contractWorkflowSnapshot(contract.id);
+    })();
+    res.json(updated);
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || 'contract_workflow_error' });
+  }
+});
+
 router.get('/:id/documents', requireContractAccess, (req, res) => {
   const rows = db
     .prepare(
@@ -296,8 +425,10 @@ router.post('/:id/documents', requireContractAccess, signedDocumentUpload.single
   const r = db
     .prepare(
       `
-    INSERT INTO documents (owner_user_id, name, file_path, mime_type, size_bytes, related_entity_type, related_entity_id, category, notes)
-    VALUES (?, ?, ?, ?, ?, 'contract', ?, 'umowa', ?)
+    INSERT INTO documents
+      (owner_user_id, name, file_path, mime_type, size_bytes, related_entity_type, related_entity_id,
+       category, notes, workflow_status)
+    VALUES (?, ?, ?, ?, ?, 'contract', ?, 'umowa', ?, 'signed')
   `,
     )
     .run(
@@ -309,6 +440,10 @@ router.post('/:id/documents', requireContractAccess, signedDocumentUpload.single
       req.params.id,
       req.body.notes || null,
     );
+  db.prepare(
+    `INSERT INTO document_workflow_events(document_id, actor_user_id, from_status, to_status, note)
+     VALUES (?, ?, NULL, 'signed', 'Dodano podpisany dokument do umowy')`,
+  ).run(r.lastInsertRowid, ownerId(req));
   res.status(201).json(db.prepare('SELECT * FROM documents WHERE id = ?').get(r.lastInsertRowid));
 });
 
@@ -318,11 +453,17 @@ router.post('/:id/end', validate(EndContractSchema), (req, res) => {
   const tx = db.transaction(() => {
     const before = db.prepare('SELECT * FROM contracts WHERE id = ?').get(id);
     if (!before) return null;
-    db.prepare('UPDATE contracts SET status = ?, end_date = ? WHERE id = ?').run(
+    db.prepare("UPDATE contracts SET status = ?, workflow_stage = 'ended', end_date = ? WHERE id = ?").run(
       'ended',
       req.body.end_date,
       id,
     );
+    if ((before.workflow_stage || 'active') !== 'ended') {
+      db.prepare(
+        `INSERT INTO contract_workflow_events(contract_id, actor_user_id, from_stage, to_stage, note)
+         VALUES (?, ?, ?, 'ended', 'Zakończenie umowy')`,
+      ).run(id, ownerId(req), before.workflow_stage || 'active');
+    }
     detachTenantFromUnit(before.tenant_id, before.unit_id);
     if (req.body.set_tenant_inactive && !hasOtherActiveContract(before.tenant_id, id)) {
       db.prepare('UPDATE tenants SET status = ?, current_unit_id = NULL WHERE id = ?').run(
@@ -474,6 +615,10 @@ router.post('/', validate(ContractSchema), (req, res) => {
         document_path: b.document_path || null,
         notes: b.notes || null,
       });
+    db.prepare('UPDATE contracts SET workflow_stage = ? WHERE id = ?').run(
+      b.status === 'planned' ? 'draft' : b.status === 'ended' ? 'ended' : 'active',
+      r.lastInsertRowid,
+    );
     if (b.status === 'active') {
       applyActiveContract(b);
       if (tenantBefore && tenantBefore.current_unit_id !== b.unit_id) {
@@ -543,6 +688,11 @@ router.put('/:id', validate(ContractSchema.partial()), (req, res) => {
     } else {
       detachTenantFromUnit(next.tenant_id, next.unit_id);
       syncUnitOccupancy(next.unit_id);
+    }
+    if (fields.includes('status')) {
+      const workflowStage =
+        next.status === 'planned' ? 'draft' : next.status === 'ended' ? 'ended' : 'active';
+      db.prepare('UPDATE contracts SET workflow_stage = ? WHERE id = ?').run(workflowStage, id);
     }
 
     return db.prepare('SELECT * FROM contracts WHERE id = ?').get(id);

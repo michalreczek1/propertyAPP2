@@ -308,7 +308,7 @@ function chartForPeriod(db, period, taxRate, taxKoscielna, req = null) {
   });
 }
 
-function monthlyFinanceSummary(db, period, req = null) {
+function monthlyFinanceSummary(db, period, req = null, options = {}) {
   const taxRate = getNum(db, 'tax.rate', 8.5, req);
   const taxKoscielna = getNum(db, 'tax.koscielna', 0, req);
   const current = baseForPeriod(db, period, req);
@@ -320,7 +320,7 @@ function monthlyFinanceSummary(db, period, req = null) {
   const properties = propertiesForPeriod(db, period, tax, costs.ownerCosts, req);
   const perUnit = perUnitForPeriod(db, period, costs.ownerCosts, req);
   const net = round2((current.paid || 0) - costs.total - tax.podatek_suma);
-  const chart = chartForPeriod(db, period, taxRate, taxKoscielna, req);
+  const chart = options.includeChart === false ? [] : chartForPeriod(db, period, taxRate, taxKoscielna, req);
 
   return {
     period,

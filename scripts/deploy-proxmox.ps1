@@ -65,6 +65,7 @@ if (-not $SkipTests) {
   Run "npm run test:rental-model" { & npm run test:rental-model }
   Run "npm run test:seed-safety" { & npm run test:seed-safety }
   Run "npm run test:finance" { & npm run test:finance }
+  Run "npm run test:development" { & npm run test:development }
   Run "npm run test:ui" { & npm run test:ui }
 }
 

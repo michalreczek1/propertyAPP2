@@ -746,6 +746,157 @@ applyMigration('2026-07-14-009-audit-log', () => {
     CREATE INDEX IF NOT EXISTS idx_audit_log_resource_target ON audit_log(resource, target_id);
   `);
 });
+applyMigration('2026-07-15-010-banking-documents-automations', () => {
+  if (!columnExists('contracts', 'workflow_stage')) {
+    db.prepare("ALTER TABLE contracts ADD COLUMN workflow_stage TEXT NOT NULL DEFAULT 'active'").run();
+  }
+  if (!columnExists('contracts', 'activated_at')) {
+    db.prepare('ALTER TABLE contracts ADD COLUMN activated_at TIMESTAMP').run();
+  }
+  if (!columnExists('contracts', 'archived_at')) {
+    db.prepare('ALTER TABLE contracts ADD COLUMN archived_at TIMESTAMP').run();
+  }
+  if (!columnExists('documents', 'workflow_status')) {
+    db.prepare("ALTER TABLE documents ADD COLUMN workflow_status TEXT NOT NULL DEFAULT 'uploaded'").run();
+  }
+  if (!columnExists('documents', 'expires_on')) {
+    db.prepare('ALTER TABLE documents ADD COLUMN expires_on DATE').run();
+  }
+  if (!columnExists('documents', 'document_number')) {
+    db.prepare('ALTER TABLE documents ADD COLUMN document_number TEXT').run();
+  }
+  if (!columnExists('documents', 'version')) {
+    db.prepare('ALTER TABLE documents ADD COLUMN version INTEGER NOT NULL DEFAULT 1').run();
+  }
+
+  db.prepare(
+    `
+    UPDATE contracts
+    SET workflow_stage = CASE
+      WHEN status = 'ended' THEN 'ended'
+      WHEN status = 'planned' THEN 'draft'
+      ELSE 'active'
+    END
+    WHERE workflow_stage IS NULL OR workflow_stage = ''
+  `,
+  ).run();
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS document_workflow_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      document_id INTEGER NOT NULL,
+      actor_user_id INTEGER,
+      from_status TEXT,
+      to_status TEXT NOT NULL,
+      note TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+      FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_document_workflow_events_document
+      ON document_workflow_events(document_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS contract_workflow_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      contract_id INTEGER NOT NULL,
+      actor_user_id INTEGER,
+      from_stage TEXT,
+      to_stage TEXT NOT NULL,
+      note TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE CASCADE,
+      FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_contract_workflow_events_contract
+      ON contract_workflow_events(contract_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS bank_imports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      owner_user_id INTEGER,
+      file_name TEXT NOT NULL,
+      bank_name TEXT,
+      imported_count INTEGER NOT NULL DEFAULT 0,
+      duplicate_count INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_bank_imports_owner_created
+      ON bank_imports(owner_user_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS bank_transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      owner_user_id INTEGER,
+      import_id INTEGER,
+      fingerprint TEXT NOT NULL,
+      booked_date DATE NOT NULL,
+      amount REAL NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'PLN',
+      counterparty TEXT,
+      counterparty_account TEXT,
+      title TEXT,
+      status TEXT NOT NULL DEFAULT 'new',
+      suggested_payment_id INTEGER,
+      confidence INTEGER,
+      match_reason TEXT,
+      matched_at TIMESTAMP,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (import_id) REFERENCES bank_imports(id) ON DELETE SET NULL,
+      FOREIGN KEY (suggested_payment_id) REFERENCES payments(id) ON DELETE SET NULL,
+      UNIQUE(owner_user_id, fingerprint)
+    );
+    CREATE INDEX IF NOT EXISTS idx_bank_transactions_owner_status
+      ON bank_transactions(owner_user_id, status, booked_date);
+    CREATE INDEX IF NOT EXISTS idx_bank_transactions_suggestion
+      ON bank_transactions(suggested_payment_id, status);
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_bank_transactions_owner_fingerprint
+      ON bank_transactions(COALESCE(owner_user_id, 0), fingerprint);
+
+    CREATE TABLE IF NOT EXISTS bank_matches (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      owner_user_id INTEGER,
+      transaction_id INTEGER NOT NULL UNIQUE,
+      payment_id INTEGER NOT NULL,
+      applied_amount REAL NOT NULL,
+      previous_total_paid REAL NOT NULL DEFAULT 0,
+      previous_status TEXT,
+      previous_paid_date DATE,
+      confidence INTEGER,
+      match_reason TEXT,
+      confirmed_by INTEGER,
+      confirmed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (transaction_id) REFERENCES bank_transactions(id) ON DELETE CASCADE,
+      FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE RESTRICT,
+      FOREIGN KEY (confirmed_by) REFERENCES users(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_bank_matches_payment ON bank_matches(payment_id);
+
+    CREATE TABLE IF NOT EXISTS automation_proposals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      owner_user_id INTEGER,
+      source TEXT NOT NULL DEFAULT 'rules',
+      action_type TEXT NOT NULL,
+      risk_level TEXT NOT NULL DEFAULT 'low',
+      summary TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      decision_by INTEGER,
+      decision_at TIMESTAMP,
+      executed_at TIMESTAMP,
+      error_message TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (decision_by) REFERENCES users(id) ON DELETE SET NULL,
+      UNIQUE(owner_user_id, idempotency_key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_automation_proposals_owner_status
+      ON automation_proposals(owner_user_id, status, created_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_automation_proposals_owner_key
+      ON automation_proposals(COALESCE(owner_user_id, 0), idempotency_key);
+  `);
+});
 console.log('✓ Schemat bazy gotowy:', db.name);
 console.log(
   '  Tabele:',

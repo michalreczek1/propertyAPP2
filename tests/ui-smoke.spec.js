@@ -125,6 +125,96 @@ test('reports page exposes consistent finance cards', async ({ page }) => {
   await expect(page.getByText('Łączne koszty')).toBeVisible();
   await expect(page.getByText('Podatek (ryczałt)')).toBeVisible();
   await expect(page.getByText('Raport podatkowy')).toBeVisible();
+  await expect(page.getByText(/Raport właścicielski/)).toBeVisible();
+  await expect(page.locator('.sc-lbl').filter({ hasText: /^Ściągalność$/ })).toBeVisible();
+});
+
+test('bank statement import proposes and confirms a safe payment match', async ({ page, request }) => {
+  const fixture = await createPaymentFixture(request, '__bank_match');
+  try {
+    const period = currentPeriodISO();
+    const csv = [
+      'Data operacji;Kwota;Waluta;Tytuł;Kontrahent;Rachunek',
+      `${period}-12;1555,00;PLN;Czynsz ${period} M1;${fixture.name};PL001234`,
+    ].join('\n');
+    const imported = await request.post('/api/banking/import', {
+      multipart: {
+        bank_name: 'Bank Playwright',
+        file: { name: 'statement.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) },
+      },
+    });
+    expect(imported.ok()).toBeTruthy();
+    expect((await imported.json()).imported).toBe(1);
+
+    await page.goto('/#banking');
+    const row = page.locator('.bank-row').filter({ hasText: fixture.name }).first();
+    await expect(row).toBeVisible();
+    await expect(row).toContainText('100%');
+    await row.getByRole('button', { name: 'Zatwierdź' }).click();
+    await page.getByRole('button', { name: 'Tak, kontynuuj' }).click();
+    await expect(page.getByText('Wpłata uzgodniona')).toBeVisible();
+    const payment = await request.get(`/api/payments/${fixture.paymentId}`);
+    expect((await payment.json()).status).toBe('paid');
+    const banking = await request.get('/api/banking?status=matched');
+    const transaction = (await banking.json()).transactions.find((item) => item.title.includes('Czynsz'));
+    await request.post(`/api/banking/${transaction.id}/undo`, { data: {} });
+  } finally {
+    await cleanupPaymentFixture(request, fixture);
+  }
+});
+
+test('contract workflow moves a draft through controlled stages', async ({ page, request }) => {
+  const fixture = await createPaymentFixture(request, '__contract_flow');
+  let contractId = null;
+  let documentId = null;
+  try {
+    const created = await request.post('/api/contracts', {
+      data: {
+        tenant_id: fixture.tenantId,
+        unit_id: fixture.unitId,
+        start_date: `${currentPeriodISO()}-01`,
+        end_date: null,
+        rent: 1234,
+        media_advance: 321,
+        deposit: 1500,
+        pay_by_day: 10,
+        status: 'planned',
+      },
+    });
+    expect(created.ok()).toBeTruthy();
+    contractId = (await created.json()).id;
+    await page.goto('/#umowy');
+    const row = page.locator('tbody tr').filter({ hasText: fixture.name }).first();
+    await expect(row).toContainText('Szkic');
+    await row.getByRole('button', { name: 'Obieg' }).click();
+    await expect(page.getByText('Obieg umowy · Szkic')).toBeVisible();
+    await page.getByRole('button', { name: 'Kompletowanie dokumentów' }).click();
+    await expect(page.getByText('Etap umowy: Kompletowanie dokumentów')).toBeVisible();
+    const workflow = await request.get(`/api/contracts/${contractId}/workflow`);
+    expect((await workflow.json()).stage).toBe('awaiting_documents');
+
+    const uploaded = await request.post(`/api/contracts/${contractId}/documents`, {
+      multipart: {
+        name: 'Podpisana umowa workflow',
+        file: { name: 'signed.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n%%EOF') },
+      },
+    });
+    expect(uploaded.ok()).toBeTruthy();
+    documentId = (await uploaded.json()).id;
+    const toSignature = await request.post(`/api/contracts/${contractId}/workflow`, {
+      data: { stage: 'awaiting_signature' },
+    });
+    expect(toSignature.ok()).toBeTruthy();
+    const activated = await request.post(`/api/contracts/${contractId}/workflow`, {
+      data: { stage: 'active' },
+    });
+    expect(activated.ok()).toBeTruthy();
+    expect((await activated.json()).stage).toBe('active');
+  } finally {
+    if (documentId) await request.delete(`/api/documents/${documentId}`).catch(() => {});
+    if (contractId) await request.delete(`/api/contracts/${contractId}`).catch(() => {});
+    await cleanupPaymentFixture(request, fixture);
+  }
 });
 
 test('mortgage owner cost can be edited from expenses', async ({ page, request }) => {
@@ -453,8 +543,8 @@ test('mobile topbar keeps AI command bar visible and usable', async ({ page }) =
   const box = await topbar.boundingBox();
   expect(box).not.toBeNull();
   expect(box.y).toBeGreaterThanOrEqual(0);
-  expect(box.height).toBeGreaterThan(80);
-  expect(box.height).toBeLessThanOrEqual(120);
+  expect(box.height).toBeGreaterThan(50);
+  expect(box.height).toBeLessThanOrEqual(78);
   const searchWrap = page.locator('.topbar-search');
   const searchBox = await searchWrap.boundingBox();
   expect(searchBox).not.toBeNull();
@@ -464,7 +554,7 @@ test('mobile topbar keeps AI command bar visible and usable', async ({ page }) =
   const rightBox = await page.locator('#topbar-actions').boundingBox();
   expect(titleBox).toBeNull();
   expect(rightBox).not.toBeNull();
-  expect(rightBox.y).toBeGreaterThan(searchBox.y + searchBox.height - 1);
+  expect(Math.abs(rightBox.y - searchBox.y)).toBeLessThanOrEqual(8);
   const actionBoxes = await page.locator('#topbar-actions .tb-btn:visible').evaluateAll((buttons) =>
     buttons.map((button) => {
       const rect = button.getBoundingClientRect();
@@ -616,9 +706,11 @@ test('payments table becomes readable cards on phone width', async ({ page, requ
     await expect(page.locator('#mobile-nav')).toBeVisible();
     await expect(page.locator('#mobile-nav .mobile-nav-item.act')).toContainText('Płatności');
 
-    await page.locator('#mobile-nav .mobile-nav-item[data-view="raporty"]').click();
+    await expect(page.locator('#mobile-nav .mobile-nav-item')).toHaveCount(5);
+    await page.locator('#mobile-nav [data-more]').click();
+    await page.getByRole('button', { name: /Raport właścicielski/ }).click();
     await expect(page).toHaveURL(/#raporty$/);
-    await expect(page.locator('#mobile-nav .mobile-nav-item.act')).toContainText('Raporty');
+    await expect(page.locator('#mobile-nav [data-more]')).toHaveClass(/act/);
 
     await page.locator('#mobile-nav .mobile-nav-item[data-view="platnosci"]').click();
     await expect(page.getByText(fixture.name).first()).toBeVisible();
@@ -643,6 +735,32 @@ test('payments table becomes readable cards on phone width', async ({ page, requ
   } finally {
     await cleanupPaymentFixture(request, fixture);
   }
+});
+
+test('mobile navigation and automation center prioritize frequent actions', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/#dashboard');
+  const items = page.locator('#mobile-nav .mobile-nav-item');
+  await expect(items).toHaveCount(5);
+  await expect(items.nth(0)).toContainText('Dashboard');
+  await expect(items.nth(1)).toContainText('Płatności');
+  await expect(items.nth(2)).toContainText('Bank');
+  await expect(items.nth(4)).toContainText('Więcej');
+
+  await items.nth(4).click();
+  await expect(page.locator('.mobile-more-modal')).toBeVisible();
+  await page.getByRole('button', { name: /Ustawienia i AI/ }).click();
+  await expect(page).toHaveURL(/#ustawienia$/);
+  await expect(page.getByText('Bezpieczne automatyzacje AI')).toBeVisible();
+  await expect(page.getByText('biała lista akcji')).toBeVisible();
+
+  const metrics = await page.evaluate(() => ({
+    documentWidth: document.documentElement.scrollWidth,
+    viewportWidth: window.innerWidth,
+    topbarHeight: document.querySelector('#topbar')?.getBoundingClientRect().height || 0,
+  }));
+  expect(metrics.documentWidth).toBeLessThanOrEqual(metrics.viewportWidth + 1);
+  expect(metrics.topbarHeight).toBeLessThanOrEqual(78);
 });
 
 test('payment checkbox keeps the current scroll position', async ({ page, request }) => {
