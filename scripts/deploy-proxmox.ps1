@@ -6,7 +6,8 @@ param(
   [string]$UploadsDir = "/opt/propertyapp/data/uploads",
   [string]$ServiceName = "propertyapp.service",
   [string]$EnvFile = "/etc/propertyapp/auth.env",
-  [int]$SnapshotKeep = 14,
+  [int]$SnapshotKeep = 3,
+  [int]$AppBackupKeep = 5,
   [string]$GroqApiKey = $env:GROQ_API_KEY,
   [switch]$SkipTests,
   [switch]$SkipSnapshot,
@@ -138,6 +139,14 @@ if [ "$SnapshotKeep" -gt 0 ]; then
   pct listsnapshot "`$CT_ID" | awk '/predeploy-propertyapp-/ {for (i = 1; i <= NF; i++) if (`$i ~ /^predeploy-propertyapp-/) print `$i}' | sort -r | awk 'NR > $SnapshotKeep' | while IFS= read -r old; do
     [ -z "`$old" ] || pct delsnapshot "`$CT_ID" "`$old"
   done
+fi
+if [ "$AppBackupKeep" -gt 0 ]; then
+  pct exec "`$CT_ID" -- bash -lc "find /opt/propertyapp/backups -mindepth 1 -maxdepth 1 -type d -name 'app-predeploy-*' -printf '%f\\n' | sort -r | awk 'NR > $AppBackupKeep' | while IFS= read -r old; do
+    case \"\`$old\" in
+      app-predeploy-*) rm -rf -- \"/opt/propertyapp/backups/\`$old\" ;;
+      *) echo \"Refusing to remove unexpected backup path: \`$old\" >&2; exit 1 ;;
+    esac
+  done"
 fi
 
 echo "== stage archive =="
