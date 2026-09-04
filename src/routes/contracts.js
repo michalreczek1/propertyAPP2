@@ -650,6 +650,10 @@ router.post(
       removeUploadedFile(req.file);
       return res.status(404).json({ error: 'not_found' });
     }
+    if (contract.status !== 'active') {
+      removeUploadedFile(req.file);
+      return res.status(409).json({ error: 'amendment_requires_active_contract' });
+    }
     const b = req.body;
     const existingDocument = b.document_id
       ? db.prepare('SELECT * FROM documents WHERE id = ?').get(b.document_id)

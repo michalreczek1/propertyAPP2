@@ -279,9 +279,14 @@ test('tenant documents group a base contract and amendments on desktop and mobil
     await expect(page.getByText('Umowa najmu').first()).toBeVisible();
     await expect(page.getByText(`Aneks nr 1/A/${year}`, { exact: true })).toBeVisible();
     await expect(page.getByText('Obowiązuje').first()).toBeVisible();
-    await page.getByRole('button', { name: 'Dodawanie aneksu' }).click();
+    await expect(page.getByRole('button', { name: 'Dodawanie aneksu' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Dodaj aneks' })).toHaveCount(1);
+    await expect(page.getByRole('link', { name: 'Pobierz' }).first()).toHaveClass(/rental-document-action/);
+    await expect(page.getByRole('button', { name: 'Obieg' }).first()).toHaveClass(/rental-document-action/);
+    await page.getByRole('button', { name: 'Dodaj aneks' }).click();
     await expect(page.getByText('Nowy aneks do umowy')).toBeVisible();
     await expect(page.locator('#amendment-contract')).toBeVisible();
+    await expect(page.locator('#amendment-contract')).not.toHaveJSProperty('tagName', 'SELECT');
     await expect(page.getByRole('button', { name: 'Zapisz szkic' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Dodaj podpisany aneks' })).toBeVisible();
 

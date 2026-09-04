@@ -1689,7 +1689,7 @@ async function main() {
       rent: 900,
       media_advance: 100,
       pay_by_day: 10,
-      status: 'planned',
+      status: 'active',
     });
     expect(contract.ok && contract.data.id, JSON.stringify(contract));
     secondAmendmentContractId = contract.data.id;
@@ -1710,6 +1710,21 @@ async function main() {
     const signedBase = workflow.data.checklist.find((item) => item.key === 'signed_contract');
     expect(workflow.ok && signedBase && !signedBase.complete, JSON.stringify(workflow));
     return `contract=${secondAmendmentContractId}`;
+  });
+  await check('POST amendment for inactive contract → 409', async () => {
+    const ended = await api('PUT', `/api/contracts/${secondAmendmentContractId}`, { status: 'ended' });
+    expect(ended.ok && ended.data.status === 'ended', JSON.stringify(ended));
+    const response = await postAmendment(secondAmendmentContractId, {
+      amendment_number: '3/A/2098',
+      effective_date: '2098-03-01',
+      notes: 'Nie powinien powstać',
+      status: 'draft',
+    });
+    expect(
+      response.status === 409 && response.data.error === 'amendment_requires_active_contract',
+      JSON.stringify(response),
+    );
+    return 'nieaktywna umowa zablokowana';
   });
   await check('GET tenant rental documents groups contract and annexes', async () => {
     const tenant = await api('GET', `/api/tenants/${amendmentTenantId}`);

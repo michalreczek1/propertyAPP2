@@ -353,6 +353,7 @@ function amendmentErrorLabel(error) {
         'Podpisanego aneksu nie można zmienić w zakresie warunków. Użyj korekty.',
       amendment_document_archived: 'Najpierw przywróć plik aneksu z archiwum.',
       amendment_document_not_for_contract: 'Plik nie należy do wskazanej umowy.',
+      amendment_requires_active_contract: 'Aneks można dodać wyłącznie do aktywnej umowy najemcy.',
     }[code] ||
     code ||
     'Nie udało się zapisać aneksu.'
@@ -3060,11 +3061,12 @@ window.openSmsReminderPreview = async function (paymentId, tenantId) {
 function rentalDocumentsHtml(tenant) {
   const groups = tenant.rental_documents || [];
   if (!groups.length) return emptyState('Brak dokumentów najmu.', 'Dodaj umowę bazową albo pierwszy aneks.');
+  const activeContract = (tenant.contracts || []).find((contract) => contract.status === 'active');
   return `
     <section class="rental-documents-section">
       <div class="rental-documents-heading">
         <div><div class="ch-title">Umowa i aneksy</div><div class="ch-sub">Dokumenty są grupowane przy właściwej umowie, nie jako osobne umowy.</div></div>
-        <button class="tb-btn tb-primary" type="button" data-add-tenant-amendment="">＋ Dodaj aneks</button>
+        ${activeContract ? `<button class="tb-btn tb-primary" type="button" data-add-tenant-amendment="${activeContract.id}">＋ Dodaj aneks</button>` : ''}
       </div>
       <div class="rental-contract-groups">
         ${groups
@@ -3090,7 +3092,7 @@ function rentalDocumentsHtml(tenant) {
                       <div class="rental-timeline-card">
                         <div class="rental-timeline-main"><div><strong>Umowa najmu ${escapeHtml(document.document_number || '')}</strong><small>${document.workflow_status === 'signed' ? 'Podpisana' : 'Wgrana'} ${fmtDate(document.uploaded_at)} · dokument bazowy</small></div>${documentWorkflowChip(document.workflow_status)}</div>
                         <div class="rental-timeline-change"><b>Warunki początkowe</b><span>${fmtDate(contract.start_date)}–${fmtDate(contract.end_date)} · ${fmtPLN(contract.rent)} zł + ${fmtPLN(contract.media_advance)} zł media</span></div>
-                        <div class="rental-timeline-actions"><a href="/api/documents/${document.id}/download" download>Pobierz</a><button type="button" data-edit-rental-document="${document.id}">Obieg</button></div>
+                        <div class="rental-timeline-actions"><a class="rental-document-action" href="/api/documents/${document.id}/download" download>Pobierz</a><button class="rental-document-action" type="button" data-edit-rental-document="${document.id}">Obieg</button></div>
                       </div>
                     </div>`,
                   )
@@ -3108,7 +3110,7 @@ function rentalDocumentsHtml(tenant) {
                   <div class="rental-timeline-card">
                     <div class="rental-timeline-main"><div><strong>Aneks nr ${escapeHtml(amendment.amendment_number)}</strong><small>${amendment.signed_date ? `Podpisany ${fmtDate(amendment.signed_date)} · ` : 'Szkic · '}${amendment.status === 'signed' ? `obowiązuje od ${fmtDate(amendment.effective_date)}` : `planowany od ${fmtDate(amendment.effective_date)}`}</small></div>${amendmentStatusChip(amendment)}</div>
                     <div class="rental-timeline-change"><b>${escapeHtml(amendmentChangesLabel(amendment))}</b><span>${amendment.notes ? escapeHtml(amendment.notes) : amendment.document_name ? escapeHtml(amendment.document_name) : 'Brak dołączonego pliku'}</span></div>
-                    <div class="rental-timeline-actions">${amendment.document_id ? `<a href="/api/documents/${amendment.document_id}/download" download>Pobierz</a>` : ''}${amendment.document_id ? `<button type="button" data-edit-rental-document="${amendment.document_id}">Obieg</button>` : ''}${amendment.status === 'draft' ? `<button type="button" data-sign-tenant-amendment="${contract.id}:${amendment.id}">${amendment.document_id ? 'Podpisz szkic' : 'Dołącz i podpisz'}</button>` : ''}</div>
+                    <div class="rental-timeline-actions">${amendment.document_id ? `<a class="rental-document-action" href="/api/documents/${amendment.document_id}/download" download>Pobierz</a>` : ''}${amendment.document_id ? `<button class="rental-document-action" type="button" data-edit-rental-document="${amendment.document_id}">Obieg</button>` : ''}${amendment.status === 'draft' ? `<button class="rental-document-action" type="button" data-sign-tenant-amendment="${contract.id}:${amendment.id}">${amendment.document_id ? 'Podpisz szkic' : 'Dołącz i podpisz'}</button>` : ''}</div>
                   </div>
                 </div>`,
               )
@@ -3118,7 +3120,7 @@ function rentalDocumentsHtml(tenant) {
                 (document) => `
                 <div class="rental-timeline-row secondary">
                   <div class="rental-timeline-dot"></div>
-                  <div class="rental-timeline-card"><div class="rental-timeline-main"><div><strong>${escapeHtml(document.name)}</strong><small>${escapeHtml(document.category || 'dokument')} · ${fmtDate(document.uploaded_at)}</small></div>${documentWorkflowChip(document.workflow_status)}</div><div class="rental-timeline-actions"><a href="/api/documents/${document.id}/download" download>Pobierz</a><button type="button" data-edit-rental-document="${document.id}">Obieg</button></div></div>
+                  <div class="rental-timeline-card"><div class="rental-timeline-main"><div><strong>${escapeHtml(document.name)}</strong><small>${escapeHtml(document.category || 'dokument')} · ${fmtDate(document.uploaded_at)}</small></div>${documentWorkflowChip(document.workflow_status)}</div><div class="rental-timeline-actions"><a class="rental-document-action" href="/api/documents/${document.id}/download" download>Pobierz</a><button class="rental-document-action" type="button" data-edit-rental-document="${document.id}">Obieg</button></div></div>
                 </div>`,
               )
               .join('');
@@ -3126,7 +3128,7 @@ function rentalDocumentsHtml(tenant) {
               <article class="rental-contract-group">
                 <div class="rental-contract-summary">
                   <div><strong>Najem: ${escapeHtml(contract.property_name || tenant.property_name || '—')} ${escapeHtml(contract.unit_code || contract.unit_name || '')}</strong><span>${fmtDate(contract.start_date)}–${fmtDate(terms.end_date)} · aktualnie ${fmtPLN(terms.rent)} zł + ${fmtPLN(terms.media_advance)} zł media</span></div>
-                  <div class="rental-contract-actions"><button class="tb-btn tb-ghost" type="button" data-open-contract-documents="${contract.id}">Inny dokument</button><button class="tb-btn tb-primary" type="button" data-add-tenant-amendment="${contract.id}">＋ Dodaj aneks</button></div>
+                  <div class="rental-contract-actions"><button class="tb-btn tb-ghost" type="button" data-open-contract-documents="${contract.id}">Inny dokument</button></div>
                 </div>
                 <div class="rental-timeline">${baseTimeline}${amendmentTimeline}${otherTimeline}</div>
               </article>`;
@@ -3136,11 +3138,11 @@ function rentalDocumentsHtml(tenant) {
     </section>`;
 }
 
-window.openTenantAmendmentForm = async function (tenantId, preferredContractId = null) {
+window.openTenantAmendmentForm = async function (tenantId) {
   const tenant = await Api.get(`/tenants/${tenantId}`);
-  const contracts = (tenant.contracts || []).filter((contract) => contract.status !== 'ended');
-  if (!contracts.length) return toast('Ten najemca nie ma umowy, do której można dodać aneks.', 'err');
-  const selectedId = String(preferredContractId || contracts[0].id);
+  const activeContract = (tenant.contracts || []).find((contract) => contract.status === 'active');
+  if (!activeContract) return toast('Ten najemca nie ma aktywnej umowy, do której można dodać aneks.', 'err');
+  const selectedId = String(activeContract.id);
   const selectedGroup = (tenant.rental_documents || []).find(
     (group) => String(group.contract.id) === selectedId,
   );
@@ -3152,7 +3154,7 @@ window.openTenantAmendmentForm = async function (tenantId, preferredContractId =
       <div class="amendment-form-panel">
         <div class="amendment-form-intro"><div><div class="ch-title">Nowy aneks do umowy</div><div class="ch-sub">Zmiany warunków są zapisane razem z dokumentem i datą obowiązywania.</div></div><button type="button" class="tb-btn tb-ghost" id="amendment-back">← Dokumenty najmu</button></div>
         <form id="amendment-form" class="form-grid compact">
-          <div class="form-row full"><label>Umowa bazowa</label><select id="amendment-contract">${contracts.map((contract) => `<option value="${contract.id}" ${String(contract.id) === selectedId ? 'selected' : ''}>${escapeHtml(`${contract.property_name || tenant.property_name || '—'} ${contract.unit_code || contract.unit_name || ''} · ${fmtDate(contract.start_date)}–${fmtDate(contractTerms(contract).end_date)}`)}</option>`).join('')}</select></div>
+          <div class="form-row full"><label>Aktywna umowa bazowa</label><div class="amendment-contract-readonly" id="amendment-contract">${escapeHtml(`${activeContract.property_name || tenant.property_name || '—'} ${activeContract.unit_code || activeContract.unit_name || ''} · ${fmtDate(activeContract.start_date)}–${fmtDate(contractTerms(activeContract).end_date)}`)}</div></div>
           <div class="form-row"><label>Numer aneksu</label><input id="amendment-number" required value="${escapeHtml(suggestedNumber)}"></div>
           <div class="form-row"><label>Nazwa dokumentu</label><input id="amendment-name" placeholder="Aneks do umowy najmu"></div>
           <div class="form-row"><label>Data podpisania</label><input id="amendment-signed-date" type="date" value="${todayISO()}"><div class="hint">Wymagana przy dodaniu podpisanego aneksu.</div></div>
@@ -3216,8 +3218,7 @@ window.openTenantAmendmentForm = async function (tenantId, preferredContractId =
       formData.append('pay_by_day', root.querySelector('#amendment-pay-day').value);
     if (notes) formData.append('notes', notes);
     if (file) formData.append('file', file);
-    const contractId = root.querySelector('#amendment-contract').value;
-    await Api.upload(`/contracts/${contractId}/amendments`, formData);
+    await Api.upload(`/contracts/${activeContract.id}/amendments`, formData);
     toast(status === 'signed' ? 'Dodano podpisany aneks' : 'Zapisano szkic aneksu');
     dialog.close();
     openTenantDetails(tenantId);
@@ -3371,7 +3372,7 @@ window.openTenantDetails = async function (id) {
         <div><span style="color:var(--t4)">Umowa do:</span> <span style="color:var(--t1)">${fmtDate(t.contract_end)}</span></div>
         ${t.notes ? `<div style="grid-column:span 2"><span style="color:var(--t4)">Notatka:</span> <span style="color:var(--t1)">${escapeHtml(t.notes)}</span></div>` : ''}
       </div>
-      <div class="tenant-detail-tabs" role="tablist"><button type="button" class="tenant-detail-tab active" id="td-documents-tab">Dokumenty najmu</button><button type="button" class="tenant-detail-tab" id="td-add-amendment-tab">Dodawanie aneksu</button></div>
+      <div class="tenant-detail-tabs" role="tablist"><button type="button" class="tenant-detail-tab active" id="td-documents-tab">Dokumenty najmu</button></div>
       <div id="td-rental-documents">${rentalDocumentsHtml(t)}</div>
       <div class="ch-title" style="margin-top:18px;margin-bottom:6px">Historia umów (${(t.contracts || []).length})</div>
       <div style="overflow-x:auto">${contractsHtml}</div>
@@ -3400,14 +3401,10 @@ window.openTenantDetails = async function (id) {
   };
   detailRoot.querySelector('#td-documents-tab').onclick = () =>
     detailRoot.querySelector('#td-rental-documents')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  detailRoot.querySelector('#td-add-amendment-tab').onclick = () => {
-    detailDialog.close();
-    openTenantAmendmentForm(t.id, t.contract_id || null);
-  };
   detailRoot.querySelectorAll('[data-add-tenant-amendment]').forEach((button) => {
     button.onclick = () => {
       detailDialog.close();
-      openTenantAmendmentForm(t.id, button.dataset.addTenantAmendment || null);
+      openTenantAmendmentForm(t.id);
     };
   });
   detailRoot.querySelectorAll('[data-open-contract-documents]').forEach((button) => {
