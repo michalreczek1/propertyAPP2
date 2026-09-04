@@ -3081,6 +3081,9 @@ select.slim {
   min-height: 40px;
   padding: 9px 12px;
 }
+.amendment-conditional.is-hidden {
+  display: none;
+}
 .amendment-form-intro {
   border-bottom: 1px solid var(--border);
   margin: -18px -18px 17px;

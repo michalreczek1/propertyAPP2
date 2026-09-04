@@ -3178,7 +3178,7 @@ window.openTenantAmendmentForm = async function (tenantId) {
     root.querySelectorAll('[data-amendment-section]').forEach((section) => {
       const key = section.dataset.amendmentSection;
       const input = root.querySelector(`#amendment-change-${key}`);
-      section.style.display = input?.checked ? '' : 'none';
+      section.classList.toggle('is-hidden', !input?.checked);
     });
   };
   root.querySelectorAll('[id^="amendment-change-"]').forEach((input) => (input.onchange = syncSections));
@@ -3195,8 +3195,16 @@ window.openTenantAmendmentForm = async function (tenantId) {
     const endChanged = root.querySelector('#amendment-change-end').checked;
     const financeChanged = root.querySelector('#amendment-change-finance').checked;
     const paymentDayChanged = root.querySelector('#amendment-change-payment-day').checked;
+    const endDate = root.querySelector('#amendment-end-date').value;
+    const rent = root.querySelector('#amendment-rent').value;
+    const media = root.querySelector('#amendment-media').value;
+    const payDay = root.querySelector('#amendment-pay-day').value;
     if (!number || !effectiveDate) return toast('Uzupełnij numer aneksu i datę obowiązywania.', 'err');
-    if (!endChanged && !financeChanged && !paymentDayChanged && !notes) {
+    if (endChanged && !endDate) return toast('Podaj nową datę końca umowy.', 'err');
+    if (financeChanged && rent === '' && media === '')
+      return toast('Podaj nowy czynsz lub nową zaliczkę na media.', 'err');
+    if (paymentDayChanged && payDay === '') return toast('Podaj nowy dzień płatności.', 'err');
+    if (!endDate && rent === '' && media === '' && payDay === '' && !notes) {
       return toast('Wskaż zmianę warunków albo dodaj notatkę wyjaśniającą aneks.', 'err');
     }
     if (status === 'signed' && !file) return toast('Podpisany aneks wymaga pliku PDF, JPG albo PNG.', 'err');
@@ -3208,14 +3216,10 @@ window.openTenantAmendmentForm = async function (tenantId) {
       formData.append('name', root.querySelector('#amendment-name').value.trim());
     if (root.querySelector('#amendment-signed-date').value)
       formData.append('signed_date', root.querySelector('#amendment-signed-date').value);
-    if (endChanged && root.querySelector('#amendment-end-date').value)
-      formData.append('new_end_date', root.querySelector('#amendment-end-date').value);
-    if (financeChanged && root.querySelector('#amendment-rent').value !== '')
-      formData.append('rent', root.querySelector('#amendment-rent').value);
-    if (financeChanged && root.querySelector('#amendment-media').value !== '')
-      formData.append('media_advance', root.querySelector('#amendment-media').value);
-    if (paymentDayChanged && root.querySelector('#amendment-pay-day').value !== '')
-      formData.append('pay_by_day', root.querySelector('#amendment-pay-day').value);
+    if (endChanged) formData.append('new_end_date', endDate);
+    if (financeChanged && rent !== '') formData.append('rent', rent);
+    if (financeChanged && media !== '') formData.append('media_advance', media);
+    if (paymentDayChanged) formData.append('pay_by_day', payDay);
     if (notes) formData.append('notes', notes);
     if (file) formData.append('file', file);
     await Api.upload(`/contracts/${activeContract.id}/amendments`, formData);

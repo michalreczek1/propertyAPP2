@@ -303,11 +303,13 @@ function requireContractAccess(req, res, next) {
 function validateAmendmentValues(values) {
   if (values.new_end_date && values.effective_date && values.new_end_date < values.effective_date) {
     const error = new Error('amendment_end_before_effective_date');
+    error.code = 'amendment_end_before_effective_date';
     error.status = 400;
     throw error;
   }
   if (values.status === 'signed' && !values.signed_date) {
     const error = new Error('amendment_signed_date_required');
+    error.code = 'amendment_signed_date_required';
     error.status = 400;
     throw error;
   }
@@ -316,6 +318,7 @@ function validateAmendmentValues(values) {
   );
   if (!hasTermsChange && !String(values.notes || '').trim()) {
     const error = new Error('amendment_change_or_note_required');
+    error.code = 'amendment_change_or_note_required';
     error.status = 400;
     throw error;
   }

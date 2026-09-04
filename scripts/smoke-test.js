@@ -1456,6 +1456,23 @@ async function main() {
     );
     return 'warunki bazowe';
   });
+  await check('POST amendment without change returns readable validation', async () => {
+    const response = await postAmendment(
+      amendmentContractId,
+      {
+        amendment_number: 'empty/A/2098',
+        signed_date: '2098-01-10',
+        effective_date: '2098-01-10',
+        status: 'signed',
+      },
+      { name: 'empty-amendment.pdf', type: 'application/pdf', body: '%PDF-1.4\n%%EOF' },
+    );
+    expect(
+      response.status === 400 && response.data.error === 'amendment_change_or_note_required',
+      JSON.stringify(response),
+    );
+    return 'czytelny błąd walidacji';
+  });
   await check('POST invalid amendment file signature → 400', async () => {
     const response = await postAmendment(
       amendmentContractId,

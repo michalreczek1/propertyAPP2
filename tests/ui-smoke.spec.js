@@ -290,6 +290,20 @@ test('tenant documents group a base contract and amendments on desktop and mobil
     await expect(page.getByRole('button', { name: 'Zapisz szkic' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Dodaj podpisany aneks' })).toBeVisible();
 
+    await expect(page.locator('#amendment-end-date')).toBeHidden();
+    await page.locator('#amendment-change-end').check();
+    await expect(page.locator('#amendment-end-date')).toBeVisible();
+    await page.locator('#amendment-end-date').fill(`${year + 2}-12-31`);
+    await page.locator('#amendment-change-finance').check();
+    await page.locator('#amendment-file').setInputFiles({
+      name: 'validation-annex.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('%PDF-1.4\n%%EOF'),
+    });
+    await page.getByRole('button', { name: 'Dodaj podpisany aneks' }).click();
+    await expect(page.getByText('Podaj nowy czynsz lub nową zaliczkę na media.')).toBeVisible();
+    await page.locator('#amendment-change-finance').uncheck();
+    await page.locator('#amendment-file').setInputFiles([]);
     await page.locator('#amendment-number').fill(`2/A/${year}`);
     await page.locator('#amendment-notes').fill('Szkic aneksu dodany przez Playwright');
     await page.getByRole('button', { name: 'Dodaj podpisany aneks' }).click();
