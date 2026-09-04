@@ -282,6 +282,18 @@ test('tenant documents group a base contract and amendments on desktop and mobil
     await expect(page.getByText('Umowa najmu').first()).toBeVisible();
     await expect(page.getByText(`Aneks nr 1/A/${year}`, { exact: true })).toBeVisible();
     await expect(page.getByText('Zaplanowany').first()).toBeVisible();
+    const signedAmendmentCard = page
+      .locator('.rental-timeline-card')
+      .filter({ hasText: `Aneks nr 1/A/${year}` })
+      .first();
+    await signedAmendmentCard.getByRole('button', { name: 'Edytuj dane' }).click();
+    await expect(page.getByText('Popraw dane podpisanego aneksu')).toBeVisible();
+    await page.locator('#signed-amendment-date').fill(`${year}-08-28`);
+    await page.locator('#signed-amendment-end-date').fill(`${year + 3}-11-30`);
+    await page.getByRole('button', { name: 'Zapisz dane' }).click();
+    await expect(page.getByText('Zaktualizowano dane aneksu')).toBeVisible();
+    await expect(page.getByText(`Podpisany 28.08.${year}`)).toBeVisible();
+    await expect(page.getByText(`termin do 30.11.${year + 3}`)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Dodawanie aneksu' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Dodaj aneks' })).toHaveCount(1);
     await expect(page.getByRole('link', { name: 'Pobierz' }).first()).toHaveClass(/rental-document-action/);

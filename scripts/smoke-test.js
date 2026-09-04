@@ -1603,6 +1603,32 @@ async function main() {
     );
     return 'status używa podpisanego przedłużenia';
   });
+  await check('PUT signed amendment allows metadata correction', async () => {
+    const response = await api(
+      'PUT',
+      `/api/contracts/${amendmentContractId}/amendments/${amendmentSignedId}`,
+      {
+        signed_date: '2098-01-21',
+        new_end_date: '2098-04-29',
+        notes: 'Poprawiona data podpisania',
+      },
+    );
+    expect(
+      response.ok &&
+        response.data.status === 'signed' &&
+        response.data.signed_date === '2098-01-21' &&
+        response.data.notes === 'Poprawiona data podpisania' &&
+        response.data.new_end_date === '2098-04-29',
+      JSON.stringify(response),
+    );
+    const restored = await api(
+      'PUT',
+      `/api/contracts/${amendmentContractId}/amendments/${amendmentSignedId}`,
+      { new_end_date: '2098-04-30' },
+    );
+    expect(restored.ok && restored.data.new_end_date === '2098-04-30', JSON.stringify(restored));
+    return 'metadane poprawione, warunki zachowane';
+  });
   await check('POST second signed amendment uses effective-date order', async () => {
     const response = await postAmendment(
       amendmentContractId,

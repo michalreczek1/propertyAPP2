@@ -3114,7 +3114,7 @@ function rentalDocumentsHtml(tenant) {
                   <div class="rental-timeline-card">
                     <div class="rental-timeline-main"><div><strong>Aneks nr ${escapeHtml(amendment.amendment_number)}</strong><small>${amendment.signed_date ? `Podpisany ${fmtDate(amendment.signed_date)} · ` : 'Szkic · '}${amendment.status === 'signed' ? `obowiązuje od ${fmtDate(amendment.effective_date)}` : `planowany od ${fmtDate(amendment.effective_date)}`}</small></div>${amendmentStatusChip(amendment)}</div>
                     <div class="rental-timeline-change"><b>${escapeHtml(amendmentChangesLabel(amendment))}</b><span>${amendment.notes ? escapeHtml(amendment.notes) : amendment.document_name ? escapeHtml(amendment.document_name) : 'Brak dołączonego pliku'}</span></div>
-                    <div class="rental-timeline-actions">${amendment.document_id ? `<a class="rental-document-action" href="/api/documents/${amendment.document_id}/download" download>Pobierz</a>` : ''}${amendment.document_id ? `<button class="rental-document-action" type="button" data-edit-rental-document="${amendment.document_id}">Obieg</button>` : ''}${amendment.status === 'draft' ? `<button class="rental-document-action" type="button" data-edit-tenant-amendment="${contract.id}:${amendment.id}">Edytuj</button><button class="rental-document-action" type="button" data-sign-tenant-amendment="${contract.id}:${amendment.id}">${amendment.document_id ? 'Podpisz szkic' : 'Dołącz i podpisz'}</button>` : ''}</div>
+                    <div class="rental-timeline-actions">${amendment.document_id ? `<a class="rental-document-action" href="/api/documents/${amendment.document_id}/download" download>Pobierz</a>` : ''}${amendment.document_id ? `<button class="rental-document-action" type="button" data-edit-rental-document="${amendment.document_id}">Obieg</button>` : ''}${amendment.status === 'draft' ? `<button class="rental-document-action" type="button" data-edit-tenant-amendment="${contract.id}:${amendment.id}">Edytuj</button><button class="rental-document-action" type="button" data-sign-tenant-amendment="${contract.id}:${amendment.id}">${amendment.document_id ? 'Podpisz szkic' : 'Dołącz i podpisz'}</button>` : `<button class="rental-document-action" type="button" data-edit-signed-amendment="${contract.id}:${amendment.id}">Edytuj dane</button>`}</div>
                   </div>
                 </div>`,
               )
@@ -3371,6 +3371,55 @@ window.openTenantAmendmentEditForm = async function (tenantId, contractId, amend
   };
 };
 
+window.openSignedAmendmentMetadataForm = async function (tenantId, contractId, amendmentId) {
+  const snapshot = await Api.get(`/contracts/${contractId}/amendments`);
+  const amendment = (snapshot.amendments || []).find((item) => Number(item.id) === Number(amendmentId));
+  if (!amendment) return toast('Nie znaleziono aneksu.', 'err');
+  if (amendment.status !== 'signed') return toast('Ten aneks nie jest jeszcze podpisany.', 'err');
+  const dialog = modal({
+    title: `Edycja danych aneksu nr ${amendment.amendment_number}`,
+    body: `
+      <div class="amendment-form-panel compact-sign-panel">
+        <div class="amendment-form-intro"><div><div class="ch-title">Popraw dane podpisanego aneksu</div><div class="ch-sub">Możesz poprawić dane ewidencyjne. Warunki umowy pozostają niezmienione.</div></div>${amendmentStatusChip(amendment)}</div>
+        <form class="form-grid compact">
+          <div class="form-row"><label>Numer aneksu</label><input id="signed-amendment-number" required value="${escapeHtml(amendment.amendment_number)}"></div>
+          <div class="form-row"><label>Data podpisania</label><input id="signed-amendment-date" type="date" required value="${escapeHtml(amendment.signed_date || '')}"></div>
+          ${amendment.new_end_date ? `<div class="form-row"><label>Nowa data końca</label><input id="signed-amendment-end-date" type="date" required value="${escapeHtml(amendment.new_end_date)}"></div>` : ''}
+          <div class="form-row full"><label>Notatka</label><textarea id="signed-amendment-notes">${escapeHtml(amendment.notes || '')}</textarea></div>
+          <div class="form-row full amendment-effective-note">Możesz poprawić istniejącą datę końca. Data obowiązywania, czynsz, media i termin płatności są chronione i wymagają aneksu korygującego.</div>
+        </form>
+      </div>`,
+    footer: `<button class="tb-btn tb-ghost" id="signed-amendment-edit-cancel">Anuluj</button><button class="tb-btn tb-primary" id="signed-amendment-edit-save">Zapisz dane</button>`,
+  });
+  const root = dialog.root;
+  root.querySelector('#signed-amendment-edit-cancel').onclick = dialog.close;
+  root.querySelector('#signed-amendment-edit-save').onclick = async () => {
+    const number = root.querySelector('#signed-amendment-number').value.trim();
+    const signedDate = root.querySelector('#signed-amendment-date').value;
+    const endDate = root.querySelector('#signed-amendment-end-date')?.value || null;
+    const notes = root.querySelector('#signed-amendment-notes').value.trim();
+    if (!number || !signedDate) return toast('Uzupełnij numer aneksu i datę podpisania.', 'err');
+    if (amendment.new_end_date && !endDate) return toast('Podaj nową datę końca umowy.', 'err');
+    const button = root.querySelector('#signed-amendment-edit-save');
+    button.disabled = true;
+    try {
+      await Api.put(`/contracts/${contractId}/amendments/${amendmentId}`, {
+        amendment_number: number,
+        signed_date: signedDate,
+        ...(amendment.new_end_date ? { new_end_date: endDate } : {}),
+        notes: notes || null,
+      });
+      toast('Zaktualizowano dane aneksu');
+      dialog.close();
+      openTenantDetails(tenantId);
+      render({ preserveScroll: true });
+    } catch (error) {
+      button.disabled = false;
+      toast(amendmentErrorLabel(error.message), 'err');
+    }
+  };
+};
+
 window.openTenantDetails = async function (id) {
   const t = await Api.get(`/tenants/${id}`);
   const monthly = (t.contract_rent || 0) + (t.contract_media || 0);
@@ -3526,6 +3575,13 @@ window.openTenantDetails = async function (id) {
       const [contractId, amendmentId] = button.dataset.editTenantAmendment.split(':');
       detailDialog.close();
       openTenantAmendmentEditForm(t.id, contractId, amendmentId);
+    };
+  });
+  detailRoot.querySelectorAll('[data-edit-signed-amendment]').forEach((button) => {
+    button.onclick = () => {
+      const [contractId, amendmentId] = button.dataset.editSignedAmendment.split(':');
+      detailDialog.close();
+      openSignedAmendmentMetadataForm(t.id, contractId, amendmentId);
     };
   });
   if (reminderPayment)

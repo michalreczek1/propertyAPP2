@@ -131,6 +131,7 @@ const AmendmentSchema = z
 const AmendmentPatchSchema = z
   .object({
     amendment_number: z.string().trim().min(1).max(120).optional(),
+    signed_date: optionalDate,
     effective_date: DATE_SCHEMA.optional(),
     new_end_date: optionalDate,
     rent: optionalAmount,
@@ -845,6 +846,7 @@ router.put(
     }
     const fields = [
       'amendment_number',
+      'signed_date',
       'effective_date',
       'new_end_date',
       'rent',
@@ -855,9 +857,14 @@ router.put(
     if (!fields.length) return res.status(400).json({ error: 'no_fields' });
     if (
       current.status === 'signed' &&
-      fields.some((field) =>
-        ['effective_date', 'new_end_date', 'rent', 'media_advance', 'pay_by_day'].includes(field),
-      )
+      fields.some((field) => ['effective_date', 'rent', 'media_advance', 'pay_by_day'].includes(field))
+    ) {
+      return res.status(409).json({ error: 'signed_amendment_correction_required' });
+    }
+    if (
+      current.status === 'signed' &&
+      fields.includes('new_end_date') &&
+      (!current.new_end_date || !req.body.new_end_date)
     ) {
       return res.status(409).json({ error: 'signed_amendment_correction_required' });
     }
