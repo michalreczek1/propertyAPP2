@@ -131,6 +131,7 @@ const AmendmentSchema = z
 const AmendmentPatchSchema = z
   .object({
     amendment_number: z.string().trim().min(1).max(120).optional(),
+    name: z.string().trim().min(1).max(240).optional(),
     signed_date: optionalDate,
     effective_date: DATE_SCHEMA.optional(),
     new_end_date: optionalDate,
@@ -412,7 +413,7 @@ function amendmentDocumentName(contract, amendmentNumber, suppliedName) {
 }
 
 function createAmendmentDocument(contract, amendment, file, actorUserId, { name, notes, workflowStatus }) {
-  const documentName = amendmentDocumentName(contract, amendment.amendment_number, name);
+  const documentName = amendmentDocumentName(contract, amendment.amendment_number, name || amendment.name);
   const insertedDocument = db
     .prepare(
       `
@@ -702,15 +703,16 @@ router.post(
           .prepare(
             `
             INSERT INTO contract_amendments
-              (contract_id, document_id, amendment_number, signed_date, effective_date, new_end_date,
+              (contract_id, document_id, amendment_number, name, signed_date, effective_date, new_end_date,
                rent, media_advance, pay_by_day, status, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `,
           )
           .run(
             contract.id,
             documentId,
             b.amendment_number,
+            b.name || null,
             b.signed_date || null,
             b.effective_date,
             b.new_end_date || null,
@@ -750,10 +752,6 @@ router.post(
       removeUploadedFile(req.file);
       return res.status(404).json({ error: 'amendment_not_found' });
     }
-    if (amendment.status === 'signed') {
-      removeUploadedFile(req.file);
-      return res.status(409).json({ error: 'signed_amendment_correction_required' });
-    }
     try {
       db.transaction(() => {
         if (amendment.document_id) {
@@ -766,8 +764,8 @@ router.post(
         }
         const documentId = createAmendmentDocument(contract, amendment, req.file, ownerId(req), {
           name: req.body.name,
-          notes: req.body.notes || amendment.notes,
-          workflowStatus: 'uploaded',
+          notes: req.body.notes !== undefined ? req.body.notes : amendment.notes,
+          workflowStatus: amendment.status === 'signed' ? 'signed' : 'uploaded',
         });
         db.prepare(
           `UPDATE contract_amendments
@@ -846,6 +844,7 @@ router.put(
     }
     const fields = [
       'amendment_number',
+      'name',
       'signed_date',
       'effective_date',
       'new_end_date',
@@ -854,20 +853,9 @@ router.put(
       'pay_by_day',
       'notes',
     ].filter((field) => req.body[field] !== undefined);
-    if (!fields.length) return res.status(400).json({ error: 'no_fields' });
-    if (
-      current.status === 'signed' &&
-      fields.some((field) => ['effective_date', 'rent', 'media_advance', 'pay_by_day'].includes(field))
-    ) {
-      return res.status(409).json({ error: 'signed_amendment_correction_required' });
-    }
-    if (
-      current.status === 'signed' &&
-      fields.includes('new_end_date') &&
-      (!current.new_end_date || !req.body.new_end_date)
-    ) {
-      return res.status(409).json({ error: 'signed_amendment_correction_required' });
-    }
+    const updatesDocument =
+      req.body.amendment_number !== undefined || req.body.name !== undefined || req.body.notes !== undefined;
+    if (!fields.length && !updatesDocument) return res.status(400).json({ error: 'no_fields' });
     const updatedValues = { ...current, ...req.body };
     try {
       validateAmendmentValues(updatedValues);
@@ -886,11 +874,33 @@ router.put(
     }
     try {
       db.transaction(() => {
-        db.prepare(
-          `UPDATE contract_amendments
-         SET ${fields.map((field) => `${field} = ?`).join(', ')}, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
-        ).run(...fields.map((field) => updatedValues[field]), current.id);
+        if (fields.length) {
+          db.prepare(
+            `UPDATE contract_amendments
+             SET ${fields.map((field) => `${field} = ?`).join(', ')}, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+          ).run(...fields.map((field) => updatedValues[field]), current.id);
+        }
+        if (current.document_id && updatesDocument) {
+          const documentFields = [];
+          const documentValues = [];
+          if (req.body.name !== undefined) {
+            documentFields.push('name = ?');
+            documentValues.push(req.body.name);
+          }
+          if (req.body.notes !== undefined) {
+            documentFields.push('notes = ?');
+            documentValues.push(req.body.notes);
+          }
+          if (req.body.amendment_number !== undefined) {
+            documentFields.push('document_number = ?');
+            documentValues.push(req.body.amendment_number);
+          }
+          db.prepare(`UPDATE documents SET ${documentFields.join(', ')} WHERE id = ?`).run(
+            ...documentValues,
+            current.document_id,
+          );
+        }
       })();
     } catch (error) {
       return next(error);

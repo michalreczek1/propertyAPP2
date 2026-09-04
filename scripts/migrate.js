@@ -925,6 +925,18 @@ applyMigration('2026-09-03-011-contract-amendments', () => {
       ON contract_amendments(document_id);
   `);
 });
+
+applyMigration('2026-09-04-012-contract-amendment-corrections', () => {
+  db.exec(`
+    ALTER TABLE contract_amendments ADD COLUMN name TEXT;
+
+    UPDATE contract_amendments
+    SET name = (
+      SELECT d.name FROM documents d WHERE d.id = contract_amendments.document_id
+    )
+    WHERE document_id IS NOT NULL;
+  `);
+});
 console.log('✓ Schemat bazy gotowy:', db.name);
 console.log(
   '  Tabele:',

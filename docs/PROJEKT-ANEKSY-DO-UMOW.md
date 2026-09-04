@@ -193,7 +193,10 @@ Obsługuje dane formularza oraz opcjonalny plik.
 PUT /api/contracts/:contractId/amendments/:amendmentId
 ```
 
-Pozwala edytować szkic. Edycja podpisanego aneksu powinna być ograniczona do metadanych, które nie zmieniają skutków finansowych, albo wymagać jawnej korekty z historią zdarzeń.
+Pozwala edytować wszystkie dane szkicu oraz podpisanego aneksu: numer i nazwę dokumentu,
+datę podpisania, datę wejścia zmian w życie, datę końca, czynsz, media, termin płatności,
+notatkę i plik. Korekta nadpisuje błędne metadane. Tylko faktycznie zastępowany plik pozostaje
+zarchiwizowany.
 
 ### Dołączenie lub wymiana pliku
 

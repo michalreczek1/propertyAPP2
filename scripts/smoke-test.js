@@ -1603,31 +1603,86 @@ async function main() {
     );
     return 'status używa podpisanego przedłużenia';
   });
-  await check('PUT signed amendment allows metadata correction', async () => {
+  await check('PUT signed amendment allows complete correction', async () => {
     const response = await api(
       'PUT',
       `/api/contracts/${amendmentContractId}/amendments/${amendmentSignedId}`,
       {
+        amendment_number: '2/A/2098-korekta',
+        name: 'Skorygowany aneks smoke',
         signed_date: '2098-01-21',
+        effective_date: '2098-01-16',
         new_end_date: '2098-04-29',
+        rent: 1360,
+        media_advance: 260,
+        pay_by_day: 16,
         notes: 'Poprawiona data podpisania',
       },
     );
     expect(
       response.ok &&
         response.data.status === 'signed' &&
+        response.data.amendment_number === '2/A/2098-korekta' &&
+        response.data.name === 'Skorygowany aneks smoke' &&
         response.data.signed_date === '2098-01-21' &&
+        response.data.effective_date === '2098-01-16' &&
+        response.data.rent === 1360 &&
+        response.data.media_advance === 260 &&
+        response.data.pay_by_day === 16 &&
         response.data.notes === 'Poprawiona data podpisania' &&
         response.data.new_end_date === '2098-04-29',
       JSON.stringify(response),
     );
+    const correctedDocument = await api('GET', `/api/documents/${response.data.document_id}`);
+    expect(
+      correctedDocument.ok &&
+        correctedDocument.data.name === 'Skorygowany aneks smoke' &&
+        correctedDocument.data.document_number === '2/A/2098-korekta',
+      JSON.stringify(correctedDocument),
+    );
     const restored = await api(
       'PUT',
       `/api/contracts/${amendmentContractId}/amendments/${amendmentSignedId}`,
-      { new_end_date: '2098-04-30' },
+      {
+        amendment_number: '2/A/2098',
+        name: 'Aneks nr 2/A/2098',
+        signed_date: '2098-01-20',
+        effective_date: '2098-01-15',
+        new_end_date: '2098-04-30',
+        rent: 1350,
+        media_advance: 250,
+        pay_by_day: 15,
+        notes: null,
+      },
     );
     expect(restored.ok && restored.data.new_end_date === '2098-04-30', JSON.stringify(restored));
-    return 'metadane poprawione, warunki zachowane';
+    return 'wszystkie pola poprawione';
+  });
+
+  await check('POST replacement file for signed amendment archives previous version', async () => {
+    const before = (
+      await api('GET', `/api/contracts/${amendmentContractId}/amendments`)
+    ).data.amendments.find((item) => item.id === amendmentSignedId);
+    const form = new FormData();
+    form.append('file', new Blob(['%PDF-1.4\n%%EOF'], { type: 'application/pdf' }), 'replacement.pdf');
+    form.append('name', 'Aneks nr 2/A/2098');
+    const response = await fetch(
+      BASE + `/api/contracts/${amendmentContractId}/amendments/${amendmentSignedId}/document`,
+      { method: 'POST', body: form },
+    );
+    const data = await response.json().catch(() => ({}));
+    expect(response.ok && data.document_id !== before.document_id, JSON.stringify(data));
+    amendmentDocumentIds.push(data.document_id);
+    const previous = await api('GET', `/api/documents/${before.document_id}`);
+    const replacement = await api('GET', `/api/documents/${data.document_id}`);
+    expect(
+      previous.ok &&
+        previous.data.workflow_status === 'archived' &&
+        replacement.ok &&
+        replacement.data.workflow_status === 'signed',
+      JSON.stringify({ previous, replacement, data }),
+    );
+    return `doc=${data.document_id}`;
   });
   await check('POST second signed amendment uses effective-date order', async () => {
     const response = await postAmendment(
@@ -1714,19 +1769,22 @@ async function main() {
     );
     return 'widoczny do 30.04.2098';
   });
-  await check('PUT signed amendment terms → 409', async () => {
+  await check('PUT signed amendment can clear and restore a changed term', async () => {
     const response = await api(
       'PUT',
       `/api/contracts/${amendmentContractId}/amendments/${amendmentSignedId}`,
       {
-        rent: 1400,
+        pay_by_day: null,
       },
     );
-    expect(
-      response.status === 409 && response.data.error === 'signed_amendment_correction_required',
-      JSON.stringify(response),
+    expect(response.ok && response.data.pay_by_day === null, JSON.stringify(response));
+    const restored = await api(
+      'PUT',
+      `/api/contracts/${amendmentContractId}/amendments/${amendmentSignedId}`,
+      { pay_by_day: 15 },
     );
-    return 'zablokowano';
+    expect(restored.ok && restored.data.pay_by_day === 15, JSON.stringify(restored));
+    return 'wartość opcjonalna poprawiona';
   });
   await check('DELETE signed annex document keeps applied terms', async () => {
     const amendment = (

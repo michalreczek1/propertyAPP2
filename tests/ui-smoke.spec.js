@@ -281,19 +281,47 @@ test('tenant documents group a base contract and amendments on desktop and mobil
     await expect(page.getByText('Umowa i aneksy')).toBeVisible();
     await expect(page.getByText('Umowa najmu').first()).toBeVisible();
     await expect(page.getByText(`Aneks nr 1/A/${year}`, { exact: true })).toBeVisible();
-    await expect(page.getByText('Zaplanowany').first()).toBeVisible();
     const signedAmendmentCard = page
       .locator('.rental-timeline-card')
       .filter({ hasText: `Aneks nr 1/A/${year}` })
       .first();
+    await expect(signedAmendmentCard.getByText('Podpisany', { exact: true })).toBeVisible();
     await signedAmendmentCard.getByRole('button', { name: 'Edytuj dane' }).click();
-    await expect(page.getByText('Popraw dane podpisanego aneksu')).toBeVisible();
-    await page.locator('#signed-amendment-date').fill(`${year}-08-28`);
-    await page.locator('#signed-amendment-end-date').fill(`${year + 3}-11-30`);
-    await page.getByRole('button', { name: 'Zapisz dane' }).click();
-    await expect(page.getByText('Zaktualizowano dane aneksu')).toBeVisible();
+    await expect(page.getByText('Edytuj podpisany aneks')).toBeVisible();
+    await page.locator('#amendment-edit-name').fill('Pełna korekta aneksu Playwright');
+    await page.locator('#amendment-edit-signed-date').fill(`${year}-08-28`);
+    await page.locator('#amendment-edit-effective-date').fill(`${year}-09-01`);
+    await page.locator('#amendment-edit-end-date').fill(`${year + 3}-11-30`);
+    await page.locator('#amendment-edit-rent').fill('1400');
+    await page.locator('#amendment-edit-media').fill('350');
+    await page.locator('#amendment-edit-change-payment-day').check();
+    await page.locator('#amendment-edit-pay-day').fill('12');
+    await page.locator('#amendment-edit-notes').fill('Pełna korekta danych podpisanego aneksu');
+    await page.locator('#amendment-edit-file').setInputFiles({
+      name: 'corrected-signed-annex.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('%PDF-1.4\n%%EOF'),
+    });
+    await page.getByRole('button', { name: 'Zapisz zmiany' }).click();
+    await expect(page.getByText('Zaktualizowano podpisany aneks')).toBeVisible();
     await expect(page.getByText(`Podpisany 28.08.${year}`)).toBeVisible();
     await expect(page.getByText(`termin do 30.11.${year + 3}`)).toBeVisible();
+    const corrected = await request.get(`/api/contracts/${contractId}/amendments`);
+    const correctedAmendment = (await corrected.json()).amendments.find(
+      (item) => item.amendment_number === `1/A/${year}`,
+    );
+    expect(correctedAmendment).toMatchObject({
+      name: 'Pełna korekta aneksu Playwright',
+      signed_date: `${year}-08-28`,
+      effective_date: `${year}-09-01`,
+      new_end_date: `${year + 3}-11-30`,
+      rent: 1400,
+      media_advance: 350,
+      pay_by_day: 12,
+      notes: 'Pełna korekta danych podpisanego aneksu',
+      status: 'signed',
+    });
+    documentIds.push(correctedAmendment.document_id);
     await expect(page.getByRole('button', { name: 'Dodawanie aneksu' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Dodaj aneks' })).toHaveCount(1);
     await expect(page.getByRole('link', { name: 'Pobierz' }).first()).toHaveClass(/rental-document-action/);
@@ -346,7 +374,11 @@ test('tenant documents group a base contract and amendments on desktop and mobil
     await page.getByRole('button', { name: 'Podpisz aneks' }).click();
     await expect(page.getByText('Aneks został podpisany')).toBeVisible();
     await expect(page.getByText(`Aneks nr 2/A/${year}`, { exact: true })).toBeVisible();
-    await expect(page.getByText('Obowiązuje').first()).toBeVisible();
+    const newlySignedCard = page
+      .locator('.rental-timeline-card')
+      .filter({ hasText: `Aneks nr 2/A/${year}` })
+      .first();
+    await expect(newlySignedCard.getByText('Podpisany', { exact: true })).toBeVisible();
 
     await page.setViewportSize({ width: 390, height: 844 });
     const metrics = await page.evaluate(() => ({

@@ -331,7 +331,7 @@ function contractTerms(contract) {
 function amendmentStatusChip(amendment) {
   if (amendment.status === 'cancelled') return chip('chip-n', 'Anulowany');
   if (amendment.status !== 'signed') return chip('chip-a', 'Szkic');
-  return amendment.effective_now ? chip('chip-e', 'Obowiązuje', true) : chip('chip-c', 'Zaplanowany');
+  return chip('chip-e', 'Podpisany', true);
 }
 function amendmentChangesLabel(amendment) {
   const changes = [];
@@ -3162,9 +3162,9 @@ window.openTenantAmendmentForm = async function (tenantId) {
           <div class="form-row"><label>Numer aneksu</label><input id="amendment-number" required value="${escapeHtml(suggestedNumber)}"></div>
           <div class="form-row"><label>Nazwa dokumentu</label><input id="amendment-name" placeholder="Aneks do umowy najmu"></div>
           <div class="form-row"><label>Data podpisania</label><input id="amendment-signed-date" type="date" value="${todayISO()}"><div class="hint">Wymagana przy dodaniu podpisanego aneksu.</div></div>
-          <div class="form-row"><label>Obowiązuje od</label><input id="amendment-effective-date" type="date" required value="${todayISO()}"></div>
+          <div class="form-row"><label>Data wejścia zmian w życie</label><input id="amendment-effective-date" type="date" required value="${todayISO()}"><div class="hint">Pierwszy dzień, od którego stosujemy zmiany. To nie jest nowa data końca umowy.</div></div>
           <div class="form-row full amendment-change-toggle"><label><input id="amendment-change-end" type="checkbox"> Zmiana daty końca</label></div>
-          <div class="form-row amendment-conditional" data-amendment-section="end"><label>Nowa data końca</label><input id="amendment-end-date" type="date"></div>
+          <div class="form-row amendment-conditional" data-amendment-section="end"><label>Nowa data końca umowy</label><input id="amendment-end-date" type="date"><div class="hint">Ostatni dzień przedłużonego okresu najmu.</div></div>
           <div class="form-row full amendment-change-toggle"><label><input id="amendment-change-finance" type="checkbox"> Zmiana czynszu / mediów</label></div>
           <div class="form-row amendment-conditional" data-amendment-section="finance"><label>Nowy czynsz [PLN]</label><input id="amendment-rent" type="number" step="0.01" min="0"></div>
           <div class="form-row amendment-conditional" data-amendment-section="finance"><label>Nowa zaliczka na media [PLN]</label><input id="amendment-media" type="number" step="0.01" min="0"></div>
@@ -3287,8 +3287,8 @@ window.openTenantAmendmentSignForm = async function (tenantId, contractId, amend
 window.openTenantAmendmentEditForm = async function (tenantId, contractId, amendmentId) {
   const snapshot = await Api.get(`/contracts/${contractId}/amendments`);
   const amendment = (snapshot.amendments || []).find((item) => Number(item.id) === Number(amendmentId));
-  if (!amendment) return toast('Nie znaleziono szkicu aneksu.', 'err');
-  if (amendment.status !== 'draft') return toast('Edytować można tylko szkic aneksu.', 'err');
+  if (!amendment) return toast('Nie znaleziono aneksu.', 'err');
+  const signed = amendment.status === 'signed';
   const endChanged = amendment.new_end_date != null;
   const financeChanged = amendment.rent != null || amendment.media_advance != null;
   const paymentDayChanged = amendment.pay_by_day != null;
@@ -3297,19 +3297,22 @@ window.openTenantAmendmentEditForm = async function (tenantId, contractId, amend
     wide: true,
     body: `
       <div class="amendment-form-panel">
-        <div class="amendment-form-intro"><div><div class="ch-title">Edytuj szkic aneksu</div><div class="ch-sub">Zmiany zostaną zapisane w szkicu przed jego podpisaniem.</div></div>${amendmentStatusChip(amendment)}</div>
+        <div class="amendment-form-intro"><div><div class="ch-title">${signed ? 'Edytuj podpisany aneks' : 'Edytuj szkic aneksu'}</div><div class="ch-sub">${signed ? 'Możesz poprawić wszystkie błędnie wpisane dane aneksu.' : 'Możesz poprawić wszystkie dane zapisane w szkicu.'}</div></div>${amendmentStatusChip(amendment)}</div>
         <form id="amendment-edit-form" class="form-grid compact">
           <div class="form-row"><label>Numer aneksu</label><input id="amendment-edit-number" required value="${escapeHtml(amendment.amendment_number)}"></div>
-          <div class="form-row"><label>Obowiązuje od</label><input id="amendment-edit-effective-date" type="date" required value="${escapeHtml(amendment.effective_date)}"></div>
+          <div class="form-row"><label>Nazwa dokumentu</label><input id="amendment-edit-name" required value="${escapeHtml(amendment.name || amendment.document_name || `Aneks nr ${amendment.amendment_number}`)}"></div>
+          <div class="form-row"><label>Data podpisania</label><input id="amendment-edit-signed-date" type="date" ${signed ? 'required' : ''} value="${escapeHtml(amendment.signed_date || '')}"><div class="hint">Wymagana dla podpisanego aneksu.</div></div>
+          <div class="form-row"><label>Data wejścia zmian w życie</label><input id="amendment-edit-effective-date" type="date" required value="${escapeHtml(amendment.effective_date)}"><div class="hint">Pierwszy dzień stosowania zmian, nie data końca umowy.</div></div>
           <div class="form-row full amendment-change-toggle"><label><input id="amendment-edit-change-end" type="checkbox" ${endChanged ? 'checked' : ''}> Zmiana daty końca</label></div>
-          <div class="form-row amendment-conditional${endChanged ? '' : ' is-hidden'}" data-amendment-edit-section="end"><label>Nowa data końca</label><input id="amendment-edit-end-date" type="date" value="${escapeHtml(amendment.new_end_date || '')}"></div>
+          <div class="form-row amendment-conditional${endChanged ? '' : ' is-hidden'}" data-amendment-edit-section="end"><label>Nowa data końca umowy</label><input id="amendment-edit-end-date" type="date" value="${escapeHtml(amendment.new_end_date || '')}"><div class="hint">Ostatni dzień zmienionego okresu najmu.</div></div>
           <div class="form-row full amendment-change-toggle"><label><input id="amendment-edit-change-finance" type="checkbox" ${financeChanged ? 'checked' : ''}> Zmiana czynszu / mediów</label></div>
           <div class="form-row amendment-conditional${financeChanged ? '' : ' is-hidden'}" data-amendment-edit-section="finance"><label>Nowy czynsz [PLN]</label><input id="amendment-edit-rent" type="number" step="0.01" min="0" value="${amendment.rent ?? ''}"></div>
           <div class="form-row amendment-conditional${financeChanged ? '' : ' is-hidden'}" data-amendment-edit-section="finance"><label>Nowa zaliczka na media [PLN]</label><input id="amendment-edit-media" type="number" step="0.01" min="0" value="${amendment.media_advance ?? ''}"></div>
           <div class="form-row full amendment-change-toggle"><label><input id="amendment-edit-change-payment-day" type="checkbox" ${paymentDayChanged ? 'checked' : ''}> Zmiana terminu płatności</label></div>
           <div class="form-row amendment-conditional${paymentDayChanged ? '' : ' is-hidden'}" data-amendment-edit-section="payment-day"><label>Nowy dzień płatności</label><input id="amendment-edit-pay-day" type="number" min="1" max="31" value="${amendment.pay_by_day ?? ''}"></div>
           <div class="form-row full"><label>Notatka</label><textarea id="amendment-edit-notes">${escapeHtml(amendment.notes || '')}</textarea></div>
-          <div class="form-row full"><label>${amendment.document_id ? 'Zastąp plik PDF/JPG/PNG (opcjonalnie)' : 'Dołącz plik PDF/JPG/PNG (opcjonalnie)'}</label><input id="amendment-edit-file" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"><div class="hint">${amendment.document_id ? 'Poprzednia wersja pliku zostanie zarchiwizowana.' : 'Plik można również dołączyć podczas podpisywania.'}</div></div>
+          <div class="form-row full"><label>${amendment.document_id ? 'Zastąp plik PDF/JPG/PNG (opcjonalnie)' : 'Dołącz plik PDF/JPG/PNG (opcjonalnie)'}</label><input id="amendment-edit-file" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"><div class="hint">${amendment.document_id ? 'Poprzednia wersja pliku zostanie zarchiwizowana.' : signed ? 'Podpisany aneks powinien mieć dołączony plik.' : 'Plik można również dołączyć podczas podpisywania.'}</div></div>
+          ${signed ? '<div class="form-row full amendment-effective-note">Korekta warunków przeliczy bieżący status umowy. Już wygenerowane płatności pozostaną bez zmian.</div>' : ''}
         </form>
       </div>`,
     footer: `<button class="tb-btn tb-ghost" id="amendment-edit-cancel">Anuluj</button><button class="tb-btn tb-primary" id="amendment-edit-save">Zapisz zmiany</button>`,
@@ -3326,6 +3329,8 @@ window.openTenantAmendmentEditForm = async function (tenantId, contractId, amend
   root.querySelector('#amendment-edit-cancel').onclick = dialog.close;
   root.querySelector('#amendment-edit-save').onclick = async () => {
     const number = root.querySelector('#amendment-edit-number').value.trim();
+    const name = root.querySelector('#amendment-edit-name').value.trim();
+    const signedDate = root.querySelector('#amendment-edit-signed-date').value;
     const effectiveDate = root.querySelector('#amendment-edit-effective-date').value;
     const notes = root.querySelector('#amendment-edit-notes').value.trim();
     const changeEnd = root.querySelector('#amendment-edit-change-end').checked;
@@ -3336,7 +3341,9 @@ window.openTenantAmendmentEditForm = async function (tenantId, contractId, amend
     const media = root.querySelector('#amendment-edit-media').value;
     const payDay = root.querySelector('#amendment-edit-pay-day').value;
     const file = root.querySelector('#amendment-edit-file').files[0];
-    if (!number || !effectiveDate) return toast('Uzupełnij numer aneksu i datę obowiązywania.', 'err');
+    if (!number || !name || !effectiveDate)
+      return toast('Uzupełnij numer, nazwę dokumentu i datę wejścia zmian w życie.', 'err');
+    if (signed && !signedDate) return toast('Podaj datę podpisania aneksu.', 'err');
     if (changeEnd && !endDate) return toast('Podaj nową datę końca umowy.', 'err');
     if (changeFinance && rent === '' && media === '')
       return toast('Podaj nowy czynsz lub nową zaliczkę na media.', 'err');
@@ -3348,6 +3355,8 @@ window.openTenantAmendmentEditForm = async function (tenantId, contractId, amend
     try {
       await Api.put(`/contracts/${contractId}/amendments/${amendmentId}`, {
         amendment_number: number,
+        name,
+        signed_date: signedDate || null,
         effective_date: effectiveDate,
         new_end_date: changeEnd ? endDate : null,
         rent: changeFinance && rent !== '' ? Number(rent) : null,
@@ -3358,9 +3367,11 @@ window.openTenantAmendmentEditForm = async function (tenantId, contractId, amend
       if (file) {
         const formData = new FormData();
         formData.append('file', file);
+        formData.append('name', name);
+        formData.append('notes', notes);
         await Api.upload(`/contracts/${contractId}/amendments/${amendmentId}/document`, formData);
       }
-      toast('Zaktualizowano szkic aneksu');
+      toast(signed ? 'Zaktualizowano podpisany aneks' : 'Zaktualizowano szkic aneksu');
       dialog.close();
       openTenantDetails(tenantId);
       render({ preserveScroll: true });
@@ -3372,52 +3383,7 @@ window.openTenantAmendmentEditForm = async function (tenantId, contractId, amend
 };
 
 window.openSignedAmendmentMetadataForm = async function (tenantId, contractId, amendmentId) {
-  const snapshot = await Api.get(`/contracts/${contractId}/amendments`);
-  const amendment = (snapshot.amendments || []).find((item) => Number(item.id) === Number(amendmentId));
-  if (!amendment) return toast('Nie znaleziono aneksu.', 'err');
-  if (amendment.status !== 'signed') return toast('Ten aneks nie jest jeszcze podpisany.', 'err');
-  const dialog = modal({
-    title: `Edycja danych aneksu nr ${amendment.amendment_number}`,
-    body: `
-      <div class="amendment-form-panel compact-sign-panel">
-        <div class="amendment-form-intro"><div><div class="ch-title">Popraw dane podpisanego aneksu</div><div class="ch-sub">Możesz poprawić dane ewidencyjne. Warunki umowy pozostają niezmienione.</div></div>${amendmentStatusChip(amendment)}</div>
-        <form class="form-grid compact">
-          <div class="form-row"><label>Numer aneksu</label><input id="signed-amendment-number" required value="${escapeHtml(amendment.amendment_number)}"></div>
-          <div class="form-row"><label>Data podpisania</label><input id="signed-amendment-date" type="date" required value="${escapeHtml(amendment.signed_date || '')}"></div>
-          ${amendment.new_end_date ? `<div class="form-row"><label>Nowa data końca</label><input id="signed-amendment-end-date" type="date" required value="${escapeHtml(amendment.new_end_date)}"></div>` : ''}
-          <div class="form-row full"><label>Notatka</label><textarea id="signed-amendment-notes">${escapeHtml(amendment.notes || '')}</textarea></div>
-          <div class="form-row full amendment-effective-note">Możesz poprawić istniejącą datę końca. Data obowiązywania, czynsz, media i termin płatności są chronione i wymagają aneksu korygującego.</div>
-        </form>
-      </div>`,
-    footer: `<button class="tb-btn tb-ghost" id="signed-amendment-edit-cancel">Anuluj</button><button class="tb-btn tb-primary" id="signed-amendment-edit-save">Zapisz dane</button>`,
-  });
-  const root = dialog.root;
-  root.querySelector('#signed-amendment-edit-cancel').onclick = dialog.close;
-  root.querySelector('#signed-amendment-edit-save').onclick = async () => {
-    const number = root.querySelector('#signed-amendment-number').value.trim();
-    const signedDate = root.querySelector('#signed-amendment-date').value;
-    const endDate = root.querySelector('#signed-amendment-end-date')?.value || null;
-    const notes = root.querySelector('#signed-amendment-notes').value.trim();
-    if (!number || !signedDate) return toast('Uzupełnij numer aneksu i datę podpisania.', 'err');
-    if (amendment.new_end_date && !endDate) return toast('Podaj nową datę końca umowy.', 'err');
-    const button = root.querySelector('#signed-amendment-edit-save');
-    button.disabled = true;
-    try {
-      await Api.put(`/contracts/${contractId}/amendments/${amendmentId}`, {
-        amendment_number: number,
-        signed_date: signedDate,
-        ...(amendment.new_end_date ? { new_end_date: endDate } : {}),
-        notes: notes || null,
-      });
-      toast('Zaktualizowano dane aneksu');
-      dialog.close();
-      openTenantDetails(tenantId);
-      render({ preserveScroll: true });
-    } catch (error) {
-      button.disabled = false;
-      toast(amendmentErrorLabel(error.message), 'err');
-    }
-  };
+  return window.openTenantAmendmentEditForm(tenantId, contractId, amendmentId);
 };
 
 window.openTenantDetails = async function (id) {
