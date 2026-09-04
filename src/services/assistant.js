@@ -6,6 +6,7 @@ const db = require('../db');
 const { monthlyFinanceSummary } = require('./finance-summary');
 const { semanticAnswer } = require('./ai-tools');
 const { parsePeriodRange: parseAiPeriodRange } = require('./ai-preprocess');
+const { isRevenueShortfallQuestion } = require('./ai-metrics');
 const { previewPaymentReminder, sendPaymentReminder } = require('./notifications');
 const { todayLocalISO, parsePolishMonthYear, previousPeriod, periodLabel } = require('../utils/period');
 const { canAccessPayment, ownerId } = require('../utils/scope');
@@ -519,7 +520,7 @@ function localIntent(message) {
   const base = { query, period, confidence: 0.7 };
   if (/^(szukaj|wyszukaj|znajdz)\b/.test(text)) return { intent: 'search_global', ...base, confidence: 0.9 };
   if (
-    (text.includes('brakuje') && text.includes('wplat')) ||
+    isRevenueShortfallQuestion(text) ||
     (text.includes('czynsz') && text.includes('medi')) ||
     (includesAny(text, ['podsumuj', 'ile']) &&
       includesAny(text, ['wplaty', 'wplywy']) &&

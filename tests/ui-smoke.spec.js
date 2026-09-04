@@ -726,7 +726,7 @@ test('topbar command bar answers portfolio calculation commands', async ({ page,
   const fixture = await createPaymentFixture(request, '__ai_portfolio_calculation', { status: 'pending' });
   try {
     await page.goto('/#dashboard');
-    await page.locator('#global-search').fill('ile jeszcze wpłat brakuje w tym miesiącu? Podaj kwotę.');
+    await page.locator('#global-search').fill('podaj brakujące wpłaty w tym miesiącu');
     await page.locator('#global-search').press('Enter');
     const result = page.locator('.assistant-result.answer');
     await expect(result).toContainText('Brakujące wpłaty');

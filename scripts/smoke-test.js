@@ -737,18 +737,22 @@ async function main() {
       JSON.stringify(monthlyPayments),
     );
 
-    const shortfall = await api('POST', '/api/assistant/parse', {
-      period: '2026-05',
-      message: 'ile jeszcze wpłat brakuje w tym miesiącu? Podaj kwotę.',
-    });
-    expect(
-      shortfall.ok &&
-        shortfall.data.report &&
-        shortfall.data.report.metric === 'revenue_shortfall' &&
-        Math.round(shortfall.data.report.value) ===
-          Math.round(Math.max(0, shortfall.data.report.expected - shortfall.data.report.revenue)),
-      JSON.stringify(shortfall),
-    );
+    let shortfall;
+    for (const message of [
+      'ile jeszcze wpłat brakuje w tym miesiącu? Podaj kwotę.',
+      'podaj brakujące wpłaty w tym miesiącu',
+      'pokaż brak wpłat w tym miesiącu',
+    ]) {
+      shortfall = await api('POST', '/api/assistant/parse', { period: '2026-05', message });
+      expect(
+        shortfall.ok &&
+          shortfall.data.report &&
+          shortfall.data.report.metric === 'revenue_shortfall' &&
+          Math.round(shortfall.data.report.value) ===
+            Math.round(Math.max(0, shortfall.data.report.expected - shortfall.data.report.revenue)),
+        `${message}: ${JSON.stringify(shortfall)}`,
+      );
+    }
 
     const yearToDatePayments = await api('POST', '/api/assistant/parse', {
       period: '2026-05',

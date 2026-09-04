@@ -59,6 +59,12 @@ const METRICS = {
       'ile jeszcze wplat brakuje',
       'brakujące wpłaty',
       'brakujace wplaty',
+      'podaj brakujące wpłaty',
+      'podaj brakujace wplaty',
+      'pokaż brakujące wpłaty',
+      'pokaz brakujace wplaty',
+      'brak wpłat',
+      'brak wplat',
     ],
     formula: 'revenue_expected - revenue_paid',
     methodology_pl:
@@ -129,9 +135,14 @@ function metricListForPrompt() {
   }));
 }
 
+function isRevenueShortfallQuestion(question) {
+  const text = normalizeText(question);
+  return text.includes('wplat') && includesAny(text, ['brakuje', 'brakujace', 'brakujacych', 'brak']);
+}
+
 function inferMetric(question) {
   const text = normalizeText(question);
-  if (text.includes('brakuje') && text.includes('wplat')) {
+  if (isRevenueShortfallQuestion(text)) {
     return { key: 'revenue_shortfall', metric: METRICS.revenue_shortfall, ambiguous: false, source: 'rule' };
   }
   if (text.includes('czynsz') && text.includes('medi')) {
@@ -201,6 +212,7 @@ function valueFromPropertyTotals(metricKey, totals) {
 module.exports = {
   METRICS,
   inferMetric,
+  isRevenueShortfallQuestion,
   metricListForPrompt,
   valueFromPropertyTotals,
 };
