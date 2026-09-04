@@ -100,7 +100,8 @@ router.get('/', (req, res) => {
            p.id AS property_id, p.name AS property_name, p.district,
            c.start_date AS contract_start, c.end_date AS contract_end,
            c.rent AS contract_rent, c.media_advance AS contract_media,
-           c.deposit AS contract_deposit, c.id AS contract_id, c.pay_by_day AS contract_pay_by_day
+           c.deposit AS contract_deposit, c.id AS contract_id, c.pay_by_day AS contract_pay_by_day,
+           c.workflow_stage AS contract_workflow_stage
     FROM tenants t
     LEFT JOIN units u ON u.id = t.current_unit_id
     LEFT JOIN properties p ON p.id = u.property_id

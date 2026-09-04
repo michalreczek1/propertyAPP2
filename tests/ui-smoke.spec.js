@@ -404,6 +404,56 @@ test('tenant documents group a base contract and amendments on desktop and mobil
   }
 });
 
+test('expired date uses one contract status across tenants, contracts and term panel', async ({
+  page,
+  request,
+}) => {
+  const fixture = await createPaymentFixture(request, '__contract_past_end_status');
+  const year = new Date().getFullYear();
+  let contractId = null;
+  try {
+    const created = await request.post('/api/contracts', {
+      data: {
+        tenant_id: fixture.tenantId,
+        unit_id: fixture.unitId,
+        start_date: `${year - 2}-01-01`,
+        end_date: `${year - 1}-12-31`,
+        rent: 1234,
+        media_advance: 321,
+        deposit: 1500,
+        pay_by_day: 10,
+        status: 'active',
+      },
+    });
+    expect(created.ok()).toBeTruthy();
+    contractId = (await created.json()).id;
+
+    await page.goto('/#najemcy');
+    await page.locator('#ten-q').fill(fixture.name);
+    const tenantRow = page.locator('.tenant-row:not(.tenant-row-head)').filter({ hasText: fixture.name });
+    await expect(tenantRow).toContainText('Po terminie');
+    await expect(tenantRow).not.toContainText('Wygasła');
+    await expect(page.getByText('Terminy umów')).toBeVisible();
+    const termPanelRow = page.locator('.cl-item').filter({ hasText: fixture.name });
+    await expect(termPanelRow).toContainText('Po terminie');
+    await expect(termPanelRow).toContainText('dni po terminie');
+    const termRowBox = await termPanelRow.boundingBox();
+    const termChipBox = await termPanelRow.locator('.chip').boundingBox();
+    expect(termRowBox).not.toBeNull();
+    expect(termChipBox).not.toBeNull();
+    expect(termChipBox.x + termChipBox.width).toBeLessThanOrEqual(termRowBox.x + termRowBox.width + 1);
+
+    await page.goto('/#umowy');
+    const contractRow = page.locator('tbody tr').filter({ hasText: fixture.name }).first();
+    await expect(contractRow).toContainText('Po terminie');
+    await expect(contractRow).not.toContainText('Aktywna');
+    await expect(page.locator('[data-cs="past"]')).toHaveText('Po terminie');
+  } finally {
+    if (contractId) await request.delete(`/api/contracts/${contractId}`).catch(() => {});
+    await cleanupPaymentFixture(request, fixture);
+  }
+});
+
 test('mortgage owner cost can be edited from expenses', async ({ page, request }) => {
   const period = currentPeriodISO();
   const propertyName = `__ui_mortgage_${Date.now()}`;

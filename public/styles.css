@@ -1617,6 +1617,28 @@ html {
 .cl-item:hover {
   background: var(--surface-hover);
 }
+.cl-copy {
+  flex: 1;
+  min-width: 0;
+}
+.cl-name,
+.cl-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cl-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+.cl-meta {
+  margin-top: 1px;
+  color: var(--t4);
+  font-size: 11px;
+}
+.cl-item > .chip {
+  flex-shrink: 0;
+}
 .cl-icon {
   width: 32px;
   height: 32px;

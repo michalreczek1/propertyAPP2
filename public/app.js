@@ -328,6 +328,25 @@ function contractTerms(contract) {
       (has('end_date') ? terms.end_date : (contract?.effective_end_date ?? contract?.end_date ?? null)),
   };
 }
+function contractStatusState(status, endDate, workflowStage) {
+  if (workflowStage === 'archived') return { cls: 'chip-n', label: 'Archiwum', days: null };
+  if (status === 'ended') return { cls: 'chip-n', label: 'Zakończona', days: null };
+  if (status === 'planned') {
+    if (workflowStage === 'awaiting_documents') return { cls: 'chip-a', label: 'Dokumenty', days: null };
+    if (workflowStage === 'awaiting_signature') return { cls: 'chip-c', label: 'Do podpisu', days: null };
+    return { cls: 'chip-n', label: 'Szkic', days: null };
+  }
+  if (status !== 'active') return { cls: 'chip-n', label: status || '—', days: null };
+  if (workflowStage === 'ending') return { cls: 'chip-a', label: 'Wygaszanie', days: null };
+  const days = endDate ? Math.ceil((new Date(endDate) - Date.now()) / 86400000) : null;
+  if (days != null && days < 0) return { cls: 'chip-r', label: 'Po terminie', days };
+  if (days != null && days <= 30) return { cls: 'chip-a', label: 'Wygasa', days };
+  return { cls: 'chip-e', label: 'Aktywna', days };
+}
+function contractStatusChip(status, endDate, workflowStage) {
+  const state = contractStatusState(status, endDate, workflowStage);
+  return chip(state.cls, state.label, state.label === 'Aktywna');
+}
 function amendmentStatusChip(amendment) {
   if (amendment.status === 'cancelled') return chip('chip-n', 'Anulowany');
   if (amendment.status !== 'signed') return chip('chip-a', 'Szkic');
@@ -2331,8 +2350,8 @@ function renderPropertyCard(p, units, contracts, payments, expenses, idx) {
               <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;min-width:0">
                 ${avatarLg(tenantName)}
                 <div style="flex:1;min-width:0;overflow:hidden"><div style="font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(tenantName)}</div>
-                  <div style="font-size:12px;color:var(--t4);margin-top:2px">Aktywny${terms?.end_date ? ` · umowa do ${fmtDate(terms.end_date)}` : ''}</div></div>
-                ${chip('chip-e', 'Aktywny', true)}
+                  <div style="font-size:12px;color:var(--t4);margin-top:2px">${contractStatusState(c.status, terms?.end_date, c.workflow_stage).label}${terms?.end_date ? ` · umowa do ${fmtDate(terms.end_date)}` : ''}</div></div>
+                ${contractStatusChip(c.status, terms?.end_date, c.workflow_stage)}
               </div>
               <div style="display:flex;gap:6px;flex-wrap:wrap">
                 <button class="tb-btn tb-ghost" onclick="openTenantDetails(${u.tenant_id})" style="font-size:12px">Najemca</button>
@@ -2399,14 +2418,12 @@ function renderPropertyCard(p, units, contracts, payments, expenses, idx) {
             const rent = terms ? terms.rent : u.base_rent || 0;
             const media = terms ? terms.media_advance : u.base_media || 0;
             const total = rent + media;
-            const ending = terms?.end_date
-              ? Math.ceil((new Date(terms.end_date) - Date.now()) / 86400000)
-              : null;
-            const isWarn = ending != null && ending <= 30;
+            const status = c ? contractStatusState(c.status, terms?.end_date, c.workflow_stage) : null;
+            const isWarn = status && ['Wygasa', 'Po terminie'].includes(status.label);
             return `<div class="rooms-row">
             <div class="rr-code">${escapeHtml(u.code || u.name || '—')}</div>
             <div class="rr-tenant">${u.tenant_name ? `${avatar(u.tenant_name)}<span class="t-name">${escapeHtml(u.tenant_name)}</span>` : '<span style="color:var(--t4);font-style:italic">— wolny —</span>'}</div>
-            <div class="rr-col-status">${u.tenant_name ? (isWarn ? chip('chip-a', 'Uwaga') : chip('chip-e', 'Aktywny', true)) : chip('chip-n', 'Wolny')}</div>
+            <div class="rr-col-status">${u.tenant_name && c ? contractStatusChip(c.status, terms?.end_date, c.workflow_stage) : chip('chip-n', 'Wolny')}</div>
             <div class="rr-num rr-col-rent">${fmtPLN(rent)} zł</div>
             <div class="rr-num rr-col-media">${fmtPLN(media)} zł</div>
             <div class="${isWarn ? 'rr-num-a' : 'rr-num-e'}">${fmtPLN(total)} zł</div>
@@ -2781,22 +2798,19 @@ async function renderTenants(root) {
         </div>
 
         <div class="gc">
-          <div class="ch"><div><div class="ch-title">Wygaśnięcie umów</div><div class="ch-sub">${active.length} aktywnych</div></div></div>
+          <div class="ch"><div><div class="ch-title">Terminy umów</div><div class="ch-sub">${active.length} formalnie aktywnych</div></div></div>
           ${active
             .filter((t) => t.contract_end)
             .sort((a, b) => a.contract_end.localeCompare(b.contract_end))
             .slice(0, 8)
             .map((t) => {
               const days = Math.ceil((new Date(t.contract_end) - Date.now()) / 86400000);
-              const isWarn = days <= 30;
-              const isFar = days > 90;
-              const cls = isWarn ? 'chip-a' : isFar ? 'chip-e' : 'chip-c';
-              const lbl = days < 0 ? 'Wygasła' : isWarn ? 'Wygasa' : isFar ? 'OK' : 'Aktywna';
-              const iconCls = isWarn ? 'amber' : isFar ? 'emerald' : 'cyan';
+              const status = contractStatusState('active', t.contract_end, t.contract_workflow_stage);
+              const iconCls = days < 0 ? 'rose' : days <= 30 ? 'amber' : 'emerald';
               return `<div class="cl-item" onclick="openTenantDetails(${t.id})">
               <div class="cl-icon" style="background:var(--${iconCls}-l);color:var(--${iconCls})"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
-              <div style="flex:1"><div style="font-size:13px;font-weight:500">${escapeHtml(t.name)}</div><div style="font-size:11px;color:var(--t4);margin-top:1px">${fmtDate(t.contract_end)} · ${days} dni</div></div>
-              <span class="chip ${cls}">${isFar ? `<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>` : ''}${lbl}</span>
+              <div class="cl-copy"><div class="cl-name">${escapeHtml(t.name)}</div><div class="cl-meta">${fmtDate(t.contract_end)} · ${days < 0 ? `${-days} dni po terminie` : `${days} dni`}</div></div>
+              ${chip(status.cls, status.label, status.label === 'Aktywna')}
             </div>`;
             })
             .join('')}
@@ -2834,16 +2848,13 @@ function tenantRow(t, payments) {
   const monthly = (t.contract_rent || 0) + (t.contract_media || 0);
   const paid = payments.filter((p) => p.status === 'paid').length;
   const pct = payments.length ? Math.round((paid / payments.length) * 100) : 0;
-  let endChip = '';
-  if (t.contract_end) {
-    const days = Math.ceil((new Date(t.contract_end) - Date.now()) / 86400000);
-    if (days < 0) endChip = chip('chip-r', 'Wygasła');
-    else if (days <= 30) endChip = chip('chip-a', 'Uwaga');
-    else endChip = chip('chip-e', 'Aktywny', true);
-  } else {
-    endChip = chip('chip-n', t.status === 'active' ? 'Aktywny' : 'Historyczny');
-  }
-  const isWarn = t.contract_end && (new Date(t.contract_end) - Date.now()) / 86400000 <= 30;
+  const endChip = t.contract_id
+    ? contractStatusChip('active', t.contract_end, t.contract_workflow_stage)
+    : chip('chip-n', t.status === 'active' ? 'Brak aktywnej umowy' : 'Historyczny');
+  const contractState = t.contract_id
+    ? contractStatusState('active', t.contract_end, t.contract_workflow_stage)
+    : null;
+  const isWarn = contractState && ['Wygasa', 'Po terminie'].includes(contractState.label);
   const pctColor = pct >= 90 ? 'emerald' : pct >= 70 ? 'amber' : 'rose';
   const endStr = t.contract_end ? fmtDate(t.contract_end) + (isWarn ? ' ⚠' : '') : '—';
   return `
@@ -3458,7 +3469,7 @@ window.openTenantDetails = async function (id) {
           <td class="mono">${fmtPLN(terms.rent)} zł</td>
           <td class="mono">${fmtPLN(terms.media_advance)} zł</td>
           <td class="mono">${fmtPLN(c.deposit)} zł</td>
-          <td>${chip(c.status === 'active' ? 'chip-e' : 'chip-n', c.status === 'active' ? 'Aktywna' : 'Zakończona', c.status === 'active')}</td>
+          <td>${contractStatusChip(c.status, terms.end_date, c.workflow_stage)}</td>
           <td>${c.status === 'active' ? `<button class="tb-btn tb-ghost" onclick="endContractFlow(${c.id})" style="font-size:11px;height:30px;padding:0 8px">Zakończ</button>` : ''}</td>
         </tr>`;
           })
@@ -3583,6 +3594,10 @@ async function renderContracts(root) {
     const d = daysTo(contractEnd(c));
     return d != null && d >= 0 && d <= 30;
   });
+  const pastEnd = active.filter((c) => {
+    const d = daysTo(contractEnd(c));
+    return d != null && d < 0;
+  });
   const safe = active.filter((c) => {
     const d = daysTo(contractEnd(c));
     return d == null || d > 30;
@@ -3596,7 +3611,11 @@ async function renderContracts(root) {
   let filtered = contracts.slice();
   if (stStatus === 'active') filtered = filtered.filter((c) => c.status === 'active');
   else if (stStatus === 'ending30')
-    filtered = filtered.filter((c) => active.includes(c) && (daysTo(contractEnd(c)) ?? 999) <= 30);
+    filtered = filtered.filter((c) => {
+      const d = daysTo(contractEnd(c));
+      return active.includes(c) && d != null && d >= 0 && d <= 30;
+    });
+  else if (stStatus === 'past') filtered = filtered.filter((c) => pastEnd.includes(c));
   else if (stStatus === 'safe')
     filtered = filtered.filter((c) => active.includes(c) && (daysTo(contractEnd(c)) ?? 999) > 30);
   else if (stStatus === 'ended') filtered = filtered.filter((c) => c.status === 'ended');
@@ -3660,6 +3679,7 @@ async function renderContracts(root) {
             ['all', 'Wszystkie'],
             ['active', 'Aktywne'],
             ['ending30', 'Wygasające'],
+            ['past', 'Po terminie'],
             ['safe', 'Bezpieczne'],
             ['ended', 'Zakończone'],
           ]
@@ -3669,7 +3689,7 @@ async function renderContracts(root) {
       </div>
       <div style="overflow-x:auto">
         <table class="t">
-          <thead><tr><th>Najemca</th><th>Nieruchomość</th><th>Status</th><th>Wygasa</th><th>Pozostało</th><th>Czynsz</th><th>Media</th><th>Łącznie</th><th></th></tr></thead>
+          <thead><tr><th>Najemca</th><th>Nieruchomość</th><th>Status</th><th>Umowa do</th><th>Pozostało</th><th>Czynsz</th><th>Media</th><th>Łącznie</th><th></th></tr></thead>
           <tbody>${
             filtered.length === 0
               ? `<tr><td colspan="9">${emptyState('Brak umów.')}</td></tr>`
@@ -3678,33 +3698,24 @@ async function renderContracts(root) {
                     const terms = contractTerms(c);
                     const total = terms.rent + terms.media_advance;
                     const days = daysTo(terms.end_date);
-                    let stChip, leftChip;
+                    let leftChip;
                     if (c.status === 'ended') {
-                      stChip = chip('chip-n', 'Zakończona');
                       leftChip = chip('chip-n', '—');
                     } else if (days != null && days < 0) {
-                      stChip = chip('chip-r', 'Wygasła');
                       leftChip = chip('chip-r', `+${-days}d po`);
                     } else if (days != null && days <= 30) {
-                      stChip = chip('chip-a', 'Wygasa');
                       leftChip = chip('chip-a', `${days} dni`);
                     } else if (days != null && days <= 90) {
-                      stChip = chip('chip-e', 'Aktywna', true);
                       leftChip = chip('chip-c', `${days} dni`);
                     } else if (days != null) {
-                      stChip = chip('chip-e', 'Aktywna', true);
                       leftChip = chip('chip-v', `${days} dni`);
                     } else {
-                      stChip = chip('chip-e', 'Aktywna', true);
                       leftChip = chip('chip-v', 'bezterminowo');
                     }
-                    stChip = contractWorkflowChip(
-                      c.workflow_stage || (c.status === 'ended' ? 'ended' : 'active'),
-                    );
                     return `<tr>
               <td><div class="t-tenant">${avatar(c.tenant_name)}<span class="t-name">${escapeHtml(c.tenant_name || '—')}</span></div></td>
               <td style="font-size:12px;color:var(--t2)">${escapeHtml(c.property_name || '—')} / ${escapeHtml(c.unit_code || c.unit_name || '')}</td>
-              <td>${stChip}</td>
+              <td>${contractStatusChip(c.status, terms.end_date, c.workflow_stage)}</td>
               <td class="mono${days != null && days <= 30 ? '-a' : ''}">${fmtDate(terms.end_date)}</td>
               <td>${leftChip}</td>
               <td class="mono">${fmtPLN(terms.rent)} zł</td>
@@ -4055,7 +4066,7 @@ window.openContractDocuments = async function (id) {
           <div class="contract-doc-title">${escapeHtml(contract.tenant_name || 'Umowa')}</div>
           <div class="contract-doc-meta">${escapeHtml(contract.property_name || '—')} · ${fmtDate(contract.start_date)} - ${fmtDate(terms.end_date)}</div>
         </div>
-        ${chip(contract.status === 'active' ? 'chip-e' : 'chip-n', contract.status === 'active' ? 'Aktywna' : 'Zakończona', contract.status === 'active')}
+        ${contractStatusChip(contract.status, terms.end_date, contract.workflow_stage)}
       </div>
       <form id="contract-doc-form" class="form-grid compact">
         <div class="form-row"><label>Rodzaj dokumentu</label><select id="contract-doc-category"><option value="umowa">Umowa bazowa</option><option value="protokol">Protokół</option><option value="inne">Inny dokument</option></select></div>
