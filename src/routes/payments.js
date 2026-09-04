@@ -5,6 +5,7 @@ const db = require('../db');
 const { validate } = require('../middleware/validate');
 const { dueDate, currentPeriod, todayLocalISO, isValidPeriod } = require('../utils/period');
 const { assertRefs, canAccessPayment, ownerId } = require('../utils/scope');
+const { effectiveContractsForPeriod } = require('../utils/contract-amendments');
 
 const LATE_FEE_AMOUNT = 50;
 
@@ -396,23 +397,23 @@ router.post('/generate-month', (req, res) => {
   if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'invalid_period' });
   const fallbackDueDay = Number(req.body && req.body.default_due_day) || 10;
   if (fallbackDueDay < 1 || fallbackDueDay > 31) return res.status(400).json({ error: 'invalid_due_day' });
-  const monthStart = `${period}-01`;
   const monthEnd = dueDate(period, 31);
   const scoped = req.user && req.user.id && req.user.role !== 'admin';
   const uid = ownerId(req);
   const tx = db.transaction(() => {
-    const contracts = db
+    const contractRows = db
       .prepare(
         `
       SELECT * FROM contracts
       WHERE status = 'active'
         AND (start_date IS NULL OR DATE(start_date) <= DATE(?))
-        AND (end_date IS NULL OR DATE(end_date) >= DATE(?))
         ${scoped ? 'AND unit_id IN (SELECT u.id FROM units u JOIN properties p ON p.id = u.property_id WHERE p.owner_user_id = ?)' : ''}
       ORDER BY unit_id
     `,
       )
-      .all(monthEnd, monthStart, ...(scoped ? [uid] : []));
+      .all(monthEnd, ...(scoped ? [uid] : []));
+    const contracts = effectiveContractsForPeriod(db, contractRows, period);
+    const contractUnitIds = new Set(contracts.map((contract) => Number(contract.unit_id)));
     const tenantFallbacks = db
       .prepare(
         `
@@ -427,18 +428,11 @@ router.post('/generate-month', (req, res) => {
       WHERE t.status = 'active'
         AND t.current_unit_id IS NOT NULL
         ${scoped ? 'AND (t.owner_user_id = ? OR p.owner_user_id = ?)' : ''}
-        AND NOT EXISTS (
-          SELECT 1
-          FROM contracts c
-          WHERE c.unit_id = t.current_unit_id
-            AND c.status = 'active'
-            AND (c.start_date IS NULL OR DATE(c.start_date) <= DATE(?))
-            AND (c.end_date IS NULL OR DATE(c.end_date) >= DATE(?))
-        )
       ORDER BY t.current_unit_id
     `,
       )
-      .all(...(scoped ? [uid, uid] : []), monthEnd, monthStart);
+      .all(...(scoped ? [uid, uid] : []))
+      .filter((tenant) => !contractUnitIds.has(Number(tenant.unit_id)));
     let created = 0,
       skipped = 0;
     const upsert = db.prepare(`
@@ -465,13 +459,14 @@ router.post('/generate-month', (req, res) => {
     }
 
     for (const c of contracts) {
+      const terms = c.current_terms;
       insertPayment(
         {
           tenant_id: c.tenant_id,
           unit_id: c.unit_id,
-          due_day: c.pay_by_day || 31,
-          rent_amount: c.rent || 0,
-          media_amount: c.media_advance || 0,
+          due_day: terms.pay_by_day || 31,
+          rent_amount: terms.rent || 0,
+          media_amount: terms.media_advance || 0,
         },
         'contract',
       );

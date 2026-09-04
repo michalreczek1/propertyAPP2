@@ -181,6 +181,10 @@ router.post('/', upload.single('file'), (req, res) => {
     removeUploadedFile(req.file);
     return res.status(404).json({ error: 'related_not_found' });
   }
+  if (req.body.category === 'aneks' && (entityType !== 'contract' || !entityId)) {
+    removeUploadedFile(req.file);
+    return res.status(400).json({ error: 'amendment_requires_contract' });
+  }
   const r = db
     .prepare(
       `

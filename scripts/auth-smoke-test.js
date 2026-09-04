@@ -277,6 +277,58 @@ async function main() {
     'user property list is not isolated',
   );
 
+  const adminUnit = await fetch(base + '/api/units', {
+    method: 'POST',
+    headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ property_id: adminPropertyId, name: 'Admin Contract Unit', status: 'vacant' }),
+  });
+  expect(adminUnit.status === 201, `admin unit failed: ${adminUnit.status}`);
+  const adminUnitId = (await adminUnit.json()).id;
+  const adminTenant = await fetch(base + '/api/tenants', {
+    method: 'POST',
+    headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Admin Contract Tenant', status: 'active' }),
+  });
+  expect(adminTenant.status === 201, `admin tenant failed: ${adminTenant.status}`);
+  const adminTenantId = (await adminTenant.json()).id;
+  const adminContract = await fetch(base + '/api/contracts', {
+    method: 'POST',
+    headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      tenant_id: adminTenantId,
+      unit_id: adminUnitId,
+      start_date: '2026-01-01',
+      end_date: '2026-12-31',
+      rent: 1000,
+      media_advance: 100,
+      pay_by_day: 10,
+      status: 'active',
+    }),
+  });
+  expect(adminContract.status === 201, `admin contract failed: ${adminContract.status}`);
+  const adminContractId = (await adminContract.json()).id;
+  const hiddenAmendments = await fetch(base + `/api/contracts/${adminContractId}/amendments`, {
+    headers: { Cookie: userCookie },
+  });
+  expect(
+    hiddenAmendments.status === 404,
+    `user can read admin contract amendments: ${hiddenAmendments.status}`,
+  );
+  const foreignAmendment = new FormData();
+  foreignAmendment.append('amendment_number', '1/A/2026');
+  foreignAmendment.append('effective_date', '2026-02-01');
+  foreignAmendment.append('status', 'draft');
+  foreignAmendment.append('notes', 'Niedozwolona próba dostępu');
+  const deniedAmendment = await fetch(base + `/api/contracts/${adminContractId}/amendments`, {
+    method: 'POST',
+    headers: { Cookie: userCookie },
+    body: foreignAmendment,
+  });
+  expect(
+    deniedAmendment.status === 404,
+    `user can create amendment on admin contract: ${deniedAmendment.status}`,
+  );
+
   const forbiddenUnit = await fetch(base + '/api/units', {
     method: 'POST',
     headers: { Cookie: userCookie, 'Content-Type': 'application/json' },

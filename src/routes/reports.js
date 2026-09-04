@@ -4,6 +4,7 @@ const db = require('../db');
 const { currentPeriod, isValidPeriod } = require('../utils/period');
 const { monthlyFinanceSummary, paidPartExpr } = require('../services/finance-summary');
 const { canSeeAll, ownerId } = require('../utils/scope');
+const { contractsEndingWithinDays } = require('../utils/contract-amendments');
 
 function periodsInRange(from, to) {
   if (!isValidPeriod(from) || !isValidPeriod(to) || from > to) return null;
@@ -211,16 +212,17 @@ router.get('/owner-statement', (req, res) => {
          ${paymentScope}`,
     )
     .get(from, to, ...paymentParams);
-  const contractsEnding = db
+  const activeContracts = db
     .prepare(
-      `SELECT COUNT(*) AS count FROM contracts c
+      `SELECT c.* FROM contracts c
        LEFT JOIN tenants t ON t.id = c.tenant_id
        LEFT JOIN units u ON u.id = c.unit_id
        LEFT JOIN properties p ON p.id = u.property_id
-       WHERE c.status = 'active' AND c.end_date BETWEEN DATE('now') AND DATE('now', '+60 days')
+       WHERE c.status = 'active'
        ${scoped ? 'AND (p.owner_user_id = ? OR t.owner_user_id = ?)' : ''}`,
     )
-    .get(...(scoped ? [uid, uid] : []));
+    .all(...(scoped ? [uid, uid] : []));
+  const contractsEnding = contractsEndingWithinDays(db, activeContracts, 60).length;
   const expiringDocuments = db
     .prepare(
       `SELECT COUNT(*) AS count FROM documents
@@ -263,7 +265,7 @@ router.get('/owner-statement', (req, res) => {
     risks: {
       arrears_count: Number(arrears.count || 0),
       arrears_amount: round2(arrears.amount),
-      contracts_ending_60d: Number(contractsEnding.count || 0),
+      contracts_ending_60d: contractsEnding,
       documents_expiring_60d: Number(expiringDocuments.count || 0),
       bank_unresolved: Number(bank.unresolved || 0),
     },

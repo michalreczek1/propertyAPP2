@@ -897,6 +897,34 @@ applyMigration('2026-07-15-010-banking-documents-automations', () => {
       ON automation_proposals(COALESCE(owner_user_id, 0), idempotency_key);
   `);
 });
+
+applyMigration('2026-09-03-011-contract-amendments', () => {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS contract_amendments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      contract_id INTEGER NOT NULL,
+      document_id INTEGER UNIQUE,
+      amendment_number TEXT NOT NULL,
+      signed_date DATE,
+      effective_date DATE NOT NULL,
+      new_end_date DATE,
+      rent REAL,
+      media_advance REAL,
+      pay_by_day INTEGER,
+      status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'signed')),
+      notes TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE CASCADE,
+      FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE SET NULL,
+      UNIQUE(contract_id, amendment_number)
+    );
+    CREATE INDEX IF NOT EXISTS idx_contract_amendments_contract_effective
+      ON contract_amendments(contract_id, effective_date, status);
+    CREATE INDEX IF NOT EXISTS idx_contract_amendments_document
+      ON contract_amendments(document_id);
+  `);
+});
 console.log('✓ Schemat bazy gotowy:', db.name);
 console.log(
   '  Tabele:',

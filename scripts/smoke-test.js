@@ -1352,6 +1352,399 @@ async function main() {
     return 'ok';
   });
 
+  console.log('\n══ CONTRACT AMENDMENTS ══');
+  let amendmentPropId = null,
+    amendmentUnitId = null,
+    amendmentTenantId = null,
+    amendmentContractId = null,
+    secondAmendmentUnitId = null,
+    secondAmendmentTenantId = null,
+    secondAmendmentContractId = null,
+    amendmentDraftId = null,
+    amendmentSignedId = null,
+    amendmentSecondSignedId = null;
+  const amendmentDocumentIds = [];
+  const amendmentPaymentPeriods = ['2098-01', '2098-02', '2098-04'];
+
+  async function postAmendment(contractId, fields, file = null) {
+    const form = new FormData();
+    for (const [key, value] of Object.entries(fields)) {
+      if (value !== undefined && value !== null) form.append(key, String(value));
+    }
+    if (file) form.append('file', new Blob([file.body], { type: file.type }), file.name);
+    const response = await fetch(BASE + `/api/contracts/${contractId}/amendments`, {
+      method: 'POST',
+      body: form,
+    });
+    return {
+      status: response.status,
+      ok: response.ok,
+      data: await response.json().catch(() => ({})),
+    };
+  }
+
+  await check('POST contract amendments fixture', async () => {
+    const property = await api('POST', '/api/properties', {
+      name: `__smoke_amendments_${Date.now()}`,
+      district: 'Test',
+      type: 'mieszkanie',
+    });
+    expect(property.ok && property.data.id, JSON.stringify(property));
+    amendmentPropId = property.data.id;
+    const unit = await api('POST', '/api/units', {
+      property_id: amendmentPropId,
+      name: 'Lokal aneksowy',
+      code: 'A1',
+      status: 'vacant',
+    });
+    expect(unit.ok && unit.data.id, JSON.stringify(unit));
+    amendmentUnitId = unit.data.id;
+    const tenant = await api('POST', '/api/tenants', { name: '__smoke_amendment_tenant', status: 'active' });
+    expect(tenant.ok && tenant.data.id, JSON.stringify(tenant));
+    amendmentTenantId = tenant.data.id;
+    const contract = await api('POST', '/api/contracts', {
+      tenant_id: amendmentTenantId,
+      unit_id: amendmentUnitId,
+      start_date: '2098-01-01',
+      end_date: '2098-03-31',
+      rent: 1000,
+      media_advance: 200,
+      deposit: 1200,
+      pay_by_day: 10,
+      status: 'active',
+    });
+    expect(contract.ok && contract.data.id, JSON.stringify(contract));
+    amendmentContractId = contract.data.id;
+    return `contract=${amendmentContractId}`;
+  });
+  await check('POST base contract document for amendment fixture', async () => {
+    const form = new FormData();
+    form.append('file', new Blob(['%PDF-1.4\n%%EOF'], { type: 'application/pdf' }), 'base.pdf');
+    form.append('name', 'Umowa bazowa aneksy smoke');
+    const response = await fetch(BASE + `/api/contracts/${amendmentContractId}/documents`, {
+      method: 'POST',
+      body: form,
+    });
+    const data = await response.json().catch(() => ({}));
+    expect(
+      response.ok && data.id && data.category === 'umowa' && data.workflow_status === 'signed',
+      JSON.stringify(data),
+    );
+    amendmentDocumentIds.push(data.id);
+    return `doc=${data.id}`;
+  });
+  await check('POST draft amendment without file', async () => {
+    const response = await postAmendment(amendmentContractId, {
+      amendment_number: '1/A/2098',
+      effective_date: '2098-01-01',
+      status: 'draft',
+      notes: 'Szkic aneksu bez zmiany warunków',
+    });
+    expect(
+      response.ok && response.data.id && response.data.status === 'draft' && !response.data.document_id,
+      JSON.stringify(response),
+    );
+    amendmentDraftId = response.data.id;
+    return `amendment=${amendmentDraftId}`;
+  });
+  await check('GET draft does not change effective terms', async () => {
+    const response = await api('GET', `/api/contracts/${amendmentContractId}?as_of=2098-01-10`);
+    const terms = response.data.current_terms || {};
+    expect(
+      response.ok && terms.rent === 1000 && terms.media_advance === 200 && terms.pay_by_day === 10,
+      JSON.stringify(response),
+    );
+    return 'warunki bazowe';
+  });
+  await check('POST invalid amendment file signature → 400', async () => {
+    const response = await postAmendment(
+      amendmentContractId,
+      {
+        amendment_number: 'invalid/A/2098',
+        effective_date: '2098-01-02',
+        status: 'draft',
+        notes: 'Nieprawidłowy plik testowy',
+      },
+      { name: 'not-a-pdf.pdf', type: 'application/pdf', body: 'to nie jest PDF' },
+    );
+    expect(
+      response.status === 400 && response.data.error === 'invalid_file_signature',
+      JSON.stringify(response),
+    );
+    return 'odrzucono';
+  });
+  await check('POST signed amendment without file → 400', async () => {
+    const response = await postAmendment(amendmentContractId, {
+      amendment_number: '2/A/2098',
+      signed_date: '2098-01-20',
+      effective_date: '2098-01-15',
+      new_end_date: '2098-04-30',
+      status: 'signed',
+    });
+    expect(
+      response.status === 400 && response.data.error === 'signed_amendment_document_required',
+      JSON.stringify(response),
+    );
+    return 'odrzucono';
+  });
+  await check('POST /api/payments/generate-month before signed terms', async () => {
+    const response = await api('POST', '/api/payments/generate-month', { period: '2098-01' });
+    expect(response.ok, JSON.stringify(response));
+    const payments = await api('GET', '/api/payments?period=2098-01');
+    const payment = payments.data.find((item) => item.tenant_id === amendmentTenantId);
+    expect(
+      payments.ok &&
+        payment &&
+        payment.rent_amount === 1000 &&
+        payment.media_amount === 200 &&
+        payment.due_day === 10,
+      JSON.stringify(payments),
+    );
+    return `payment=${payment.id}`;
+  });
+  await check('POST attachment and sign existing draft amendment', async () => {
+    const form = new FormData();
+    form.append('file', new Blob(['%PDF-1.4\n%%EOF'], { type: 'application/pdf' }), 'draft-signed.pdf');
+    const uploaded = await fetch(
+      BASE + `/api/contracts/${amendmentContractId}/amendments/${amendmentDraftId}/document`,
+      { method: 'POST', body: form },
+    );
+    const uploadedData = await uploaded.json().catch(() => ({}));
+    expect(uploaded.ok && uploadedData.document_id, JSON.stringify(uploadedData));
+    amendmentDocumentIds.push(uploadedData.document_id);
+    const signed = await api(
+      'POST',
+      `/api/contracts/${amendmentContractId}/amendments/${amendmentDraftId}/sign`,
+      {
+        signed_date: '2098-01-12',
+      },
+    );
+    expect(signed.ok && signed.data.status === 'signed', JSON.stringify(signed));
+    return `doc=${uploadedData.document_id}`;
+  });
+  await check('POST signed amendment with changed terms', async () => {
+    const response = await postAmendment(
+      amendmentContractId,
+      {
+        amendment_number: '2/A/2098',
+        signed_date: '2098-01-20',
+        effective_date: '2098-01-15',
+        new_end_date: '2098-04-30',
+        rent: 1350,
+        media_advance: 250,
+        pay_by_day: 15,
+        status: 'signed',
+      },
+      { name: 'signed-amendment.pdf', type: 'application/pdf', body: '%PDF-1.4\n%%EOF' },
+    );
+    expect(
+      response.ok && response.data.id && response.data.status === 'signed' && response.data.document_id,
+      JSON.stringify(response),
+    );
+    amendmentSignedId = response.data.id;
+    amendmentDocumentIds.push(response.data.document_id);
+    const document = await api('GET', `/api/documents/${response.data.document_id}`);
+    expect(
+      document.ok && document.data.category === 'aneks' && document.data.workflow_status === 'signed',
+      JSON.stringify(document),
+    );
+    return `amendment=${amendmentSignedId}`;
+  });
+  await check('POST second signed amendment uses effective-date order', async () => {
+    const response = await postAmendment(
+      amendmentContractId,
+      {
+        amendment_number: '3/A/2098',
+        signed_date: '2098-01-25',
+        effective_date: '2098-02-01',
+        media_advance: 300,
+        status: 'signed',
+      },
+      { name: 'second-amendment.pdf', type: 'application/pdf', body: '%PDF-1.4\n%%EOF' },
+    );
+    expect(response.ok && response.data.id && response.data.status === 'signed', JSON.stringify(response));
+    amendmentSecondSignedId = response.data.id;
+    amendmentDocumentIds.push(response.data.document_id);
+    return `amendment=${amendmentSecondSignedId}`;
+  });
+  await check('POST duplicate amendment number → 409', async () => {
+    const response = await postAmendment(amendmentContractId, {
+      amendment_number: '2/A/2098',
+      effective_date: '2098-02-02',
+      status: 'draft',
+      notes: 'Duplikat',
+    });
+    expect(
+      response.status === 409 && response.data.error === 'amendment_number_exists',
+      JSON.stringify(response),
+    );
+    return 'konflikt wykryty';
+  });
+  await check('GET amendments preserves chronology and base checklist', async () => {
+    const amendments = await api('GET', `/api/contracts/${amendmentContractId}/amendments`);
+    expect(
+      amendments.ok &&
+        amendments.data.amendments.map((item) => item.amendment_number).join(',') ===
+          '1/A/2098,2/A/2098,3/A/2098',
+      JSON.stringify(amendments),
+    );
+    const workflow = await api('GET', `/api/contracts/${amendmentContractId}/workflow`);
+    const signedBase = workflow.data.checklist.find((item) => item.key === 'signed_contract');
+    expect(workflow.ok && signedBase && signedBase.complete, JSON.stringify(workflow));
+    return 'kolejność oraz umowa bazowa';
+  });
+  await check('GET terms after signed amendment and existing payment remains unchanged', async () => {
+    const contract = await api('GET', `/api/contracts/${amendmentContractId}?as_of=2098-01-31`);
+    const terms = contract.data.current_terms || {};
+    expect(
+      contract.ok &&
+        terms.rent === 1350 &&
+        terms.media_advance === 250 &&
+        terms.pay_by_day === 15 &&
+        terms.end_date === '2098-04-30',
+      JSON.stringify(contract),
+    );
+    const regenerated = await api('POST', '/api/payments/generate-month', { period: '2098-01' });
+    expect(regenerated.ok, JSON.stringify(regenerated));
+    const payments = await api('GET', '/api/payments?period=2098-01');
+    const payment = payments.data.find((item) => item.tenant_id === amendmentTenantId);
+    expect(
+      payment && payment.rent_amount === 1000 && payment.media_amount === 200 && payment.due_day === 10,
+      JSON.stringify(payments),
+    );
+    return 'płatność historyczna bez zmian';
+  });
+  await check('POST future periods use signed amendment terms', async () => {
+    for (const period of ['2098-02', '2098-04']) {
+      const generated = await api('POST', '/api/payments/generate-month', { period });
+      expect(generated.ok, JSON.stringify(generated));
+      const payments = await api('GET', `/api/payments?period=${period}`);
+      const payment = payments.data.find((item) => item.tenant_id === amendmentTenantId);
+      expect(
+        payment && payment.rent_amount === 1350 && payment.media_amount === 300 && payment.due_day === 15,
+        `${period}: ${JSON.stringify(payments)}`,
+      );
+    }
+    return 'luty i kwiecień';
+  });
+  await check('GET extended contract appears in expiry alert query', async () => {
+    const response = await api('GET', `/api/contracts?status=active&as_of=2098-04-01&ending_within_days=30`);
+    expect(
+      response.ok && response.data.some((item) => item.id === amendmentContractId),
+      JSON.stringify(response),
+    );
+    return 'widoczny do 30.04.2098';
+  });
+  await check('PUT signed amendment terms → 409', async () => {
+    const response = await api(
+      'PUT',
+      `/api/contracts/${amendmentContractId}/amendments/${amendmentSignedId}`,
+      {
+        rent: 1400,
+      },
+    );
+    expect(
+      response.status === 409 && response.data.error === 'signed_amendment_correction_required',
+      JSON.stringify(response),
+    );
+    return 'zablokowano';
+  });
+  await check('DELETE signed annex document keeps applied terms', async () => {
+    const amendment = (
+      await api('GET', `/api/contracts/${amendmentContractId}/amendments`)
+    ).data.amendments.find((item) => item.id === amendmentSignedId);
+    expect(amendment && amendment.document_id, JSON.stringify(amendment));
+    const deleted = await api('DELETE', `/api/documents/${amendment.document_id}`);
+    expect(deleted.ok, JSON.stringify(deleted));
+    const contract = await api('GET', `/api/contracts/${amendmentContractId}?as_of=2098-02-28`);
+    const terms = contract.data.current_terms || {};
+    const history = await api('GET', `/api/contracts/${amendmentContractId}/amendments`);
+    const removedFile = history.data.amendments.find((item) => item.id === amendmentSignedId);
+    expect(
+      terms.rent === 1350 && terms.media_advance === 300 && removedFile && !removedFile.document_id,
+      JSON.stringify({ contract, history }),
+    );
+    return 'historia zachowana';
+  });
+  await check('POST same amendment number on another contract', async () => {
+    const unit = await api('POST', '/api/units', {
+      property_id: amendmentPropId,
+      name: 'Drugi lokal aneksowy',
+      code: 'A2',
+      status: 'vacant',
+    });
+    expect(unit.ok && unit.data.id, JSON.stringify(unit));
+    secondAmendmentUnitId = unit.data.id;
+    const tenant = await api('POST', '/api/tenants', {
+      name: '__smoke_amendment_tenant_2',
+      status: 'active',
+    });
+    expect(tenant.ok && tenant.data.id, JSON.stringify(tenant));
+    secondAmendmentTenantId = tenant.data.id;
+    const contract = await api('POST', '/api/contracts', {
+      tenant_id: secondAmendmentTenantId,
+      unit_id: secondAmendmentUnitId,
+      start_date: '2098-01-01',
+      end_date: '2098-12-31',
+      rent: 900,
+      media_advance: 100,
+      pay_by_day: 10,
+      status: 'planned',
+    });
+    expect(contract.ok && contract.data.id, JSON.stringify(contract));
+    secondAmendmentContractId = contract.data.id;
+    const response = await postAmendment(
+      secondAmendmentContractId,
+      {
+        amendment_number: '2/A/2098',
+        signed_date: '2098-01-20',
+        effective_date: '2098-01-15',
+        rent: 950,
+        status: 'signed',
+      },
+      { name: 'same-number.pdf', type: 'application/pdf', body: '%PDF-1.4\n%%EOF' },
+    );
+    expect(response.ok && response.data.id && response.data.document_id, JSON.stringify(response));
+    amendmentDocumentIds.push(response.data.document_id);
+    const workflow = await api('GET', `/api/contracts/${secondAmendmentContractId}/workflow`);
+    const signedBase = workflow.data.checklist.find((item) => item.key === 'signed_contract');
+    expect(workflow.ok && signedBase && !signedBase.complete, JSON.stringify(workflow));
+    return `contract=${secondAmendmentContractId}`;
+  });
+  await check('GET tenant rental documents groups contract and annexes', async () => {
+    const tenant = await api('GET', `/api/tenants/${amendmentTenantId}`);
+    const group = (tenant.data.rental_documents || []).find(
+      (item) => item.contract.id === amendmentContractId,
+    );
+    expect(
+      tenant.ok &&
+        group &&
+        group.documents.some((document) => document.category === 'umowa') &&
+        group.amendments.length === 3,
+      JSON.stringify(tenant),
+    );
+    return 'umowa + 3 aneksy';
+  });
+  await check('DEL  contract amendments fixtures', async () => {
+    for (const period of amendmentPaymentPeriods) {
+      const payments = await api('GET', `/api/payments?period=${period}`).catch(() => ({ data: [] }));
+      for (const payment of (payments.data || []).filter((item) => item.tenant_id === amendmentTenantId)) {
+        await api('DELETE', `/api/payments/${payment.id}`).catch(() => {});
+      }
+    }
+    for (const documentId of [...new Set(amendmentDocumentIds)].reverse()) {
+      await api('DELETE', `/api/documents/${documentId}`).catch(() => {});
+    }
+    if (secondAmendmentContractId)
+      await api('DELETE', `/api/contracts/${secondAmendmentContractId}`).catch(() => {});
+    if (amendmentContractId) await api('DELETE', `/api/contracts/${amendmentContractId}`).catch(() => {});
+    if (secondAmendmentTenantId)
+      await api('DELETE', `/api/tenants/${secondAmendmentTenantId}`).catch(() => {});
+    if (amendmentTenantId) await api('DELETE', `/api/tenants/${amendmentTenantId}`).catch(() => {});
+    if (amendmentPropId) await api('DELETE', `/api/properties/${amendmentPropId}`).catch(() => {});
+    return 'ok';
+  });
+
   console.log('\n══ EKSPORT ══');
   await check('GET  /api/export/payments.csv?period=2025-01', async () => {
     const r = await fetch(BASE + '/api/export/payments.csv?period=2025-01');

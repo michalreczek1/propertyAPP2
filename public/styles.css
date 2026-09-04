@@ -2883,6 +2883,258 @@ select.slim {
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
 }
 
+/* ── RENTAL DOCUMENTS / AMENDMENTS ── */
+.tenant-detail-tabs {
+  display: flex;
+  gap: 18px;
+  border-bottom: 1px solid var(--border);
+  margin: 4px 0 14px;
+}
+.tenant-detail-tab {
+  appearance: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--t3);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  padding: 10px 2px 11px;
+}
+.tenant-detail-tab:hover,
+.tenant-detail-tab.active {
+  color: var(--t1);
+}
+.tenant-detail-tab.active {
+  border-bottom-color: var(--cyan);
+}
+.rental-documents-section {
+  border: 1px solid var(--border-bright);
+  border-radius: 14px;
+  background: rgba(25, 40, 67, 0.58);
+  overflow: hidden;
+}
+.rental-documents-heading,
+.rental-contract-summary,
+.amendment-form-intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.rental-documents-heading {
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.rental-contract-groups {
+  display: flex;
+  flex-direction: column;
+}
+.rental-contract-group + .rental-contract-group {
+  border-top: 1px solid var(--border);
+}
+.rental-contract-summary {
+  padding: 15px 18px 10px;
+}
+.rental-contract-summary > div:first-child {
+  min-width: 0;
+}
+.rental-contract-summary strong,
+.rental-contract-summary span {
+  display: block;
+}
+.rental-contract-summary strong {
+  color: var(--t1);
+  font-size: 13px;
+}
+.rental-contract-summary span {
+  color: var(--t3);
+  font-size: 11.5px;
+  margin-top: 4px;
+}
+.rental-contract-actions,
+.rental-timeline-actions {
+  align-items: center;
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.rental-contract-actions .tb-btn {
+  font-size: 11px;
+  height: 30px;
+  padding: 0 9px;
+}
+.rental-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 2px 18px 18px;
+  padding-left: 24px;
+  position: relative;
+}
+.rental-timeline::before {
+  background: #314766;
+  bottom: 16px;
+  content: '';
+  left: 7px;
+  position: absolute;
+  top: 16px;
+  width: 1px;
+}
+.rental-timeline-row {
+  min-width: 0;
+  position: relative;
+}
+.rental-timeline-dot {
+  background: #5c98ff;
+  border: 2px solid #1a2b47;
+  border-radius: 50%;
+  height: 10px;
+  left: -21px;
+  position: absolute;
+  top: 25px;
+  width: 10px;
+  z-index: 1;
+}
+.rental-timeline-row.missing .rental-timeline-dot,
+.rental-timeline-row.secondary .rental-timeline-dot {
+  background: var(--amber);
+}
+.rental-timeline-card {
+  background: rgba(8, 19, 38, 0.66);
+  border-radius: 10px;
+  min-width: 0;
+  padding: 12px 14px;
+}
+.rental-timeline-main {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+.rental-timeline-main > div {
+  min-width: 0;
+}
+.rental-timeline-main strong,
+.rental-timeline-main small,
+.rental-timeline-change b,
+.rental-timeline-change span {
+  display: block;
+}
+.rental-timeline-main strong {
+  color: var(--t1);
+  font-size: 12.5px;
+}
+.rental-timeline-main small,
+.rental-timeline-change span {
+  color: var(--t3);
+  font-size: 11px;
+  line-height: 1.45;
+  margin-top: 3px;
+}
+.rental-timeline-change {
+  border-top: 1px solid rgba(255, 255, 255, 0.045);
+  margin-top: 10px;
+  padding-top: 9px;
+}
+.rental-timeline-change b {
+  color: var(--t2);
+  font-size: 11px;
+}
+.rental-timeline-actions {
+  margin-top: 9px;
+}
+.rental-timeline-actions a,
+.rental-timeline-actions button {
+  background: transparent;
+  border: 0;
+  color: var(--cyan);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  padding: 0;
+  text-decoration: none;
+}
+.rental-timeline-actions button:hover,
+.rental-timeline-actions a:hover {
+  color: var(--t1);
+  text-decoration: underline;
+}
+.amendment-form-panel {
+  padding: 18px;
+}
+.amendment-form-intro {
+  border-bottom: 1px solid var(--border);
+  margin: -18px -18px 17px;
+  padding: 16px 18px;
+}
+.amendment-change-toggle {
+  background: rgba(7, 18, 37, 0.58);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.amendment-change-toggle label {
+  align-items: center;
+  color: var(--t2);
+  cursor: pointer;
+  display: flex;
+  font-size: 12px;
+  font-weight: 600;
+  gap: 9px;
+}
+.amendment-change-toggle input {
+  accent-color: var(--cyan);
+}
+.amendment-effective-note {
+  background: rgba(14, 165, 233, 0.08);
+  border: 1px solid rgba(14, 165, 233, 0.2);
+  border-radius: 8px;
+  color: var(--t3);
+  font-size: 11px;
+  line-height: 1.45;
+  padding: 10px 12px;
+}
+
+@media (max-width: 620px) {
+  .tenant-detail-tabs {
+    gap: 13px;
+  }
+  .tenant-detail-tab {
+    font-size: 12px;
+  }
+  .rental-documents-heading,
+  .rental-contract-summary,
+  .amendment-form-intro {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .rental-documents-heading .tb-btn,
+  .rental-contract-actions {
+    width: 100%;
+  }
+  .rental-contract-actions .tb-btn {
+    flex: 1;
+  }
+  .rental-timeline {
+    margin-left: 12px;
+    margin-right: 12px;
+    padding-left: 21px;
+  }
+  .rental-timeline-main {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .amendment-form-panel {
+    padding: 14px;
+  }
+  .amendment-form-intro {
+    margin: -14px -14px 14px;
+    padding: 14px;
+  }
+}
+
 /* ── EMPTY ── */
 .empty {
   padding: 36px 20px;
@@ -3540,7 +3792,11 @@ select.slim {
     grid-template-columns: 1fr;
   }
   .tenant-bento {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+  }
+  .tenant-bento > * {
+    min-width: 0;
   }
   .chart-grid,
   .dash-grid,

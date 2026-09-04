@@ -308,6 +308,56 @@ function avatarLg(name) {
 function emptyState(msg, sub) {
   return `<div class="empty"><div class="empty-title">${escapeHtml(msg || '')}</div>${sub ? `<div class="empty-sub">${escapeHtml(sub)}</div>` : ''}</div>`;
 }
+function contractTerms(contract) {
+  const terms = contract?.current_terms || {};
+  const has = (key) => Object.prototype.hasOwnProperty.call(terms, key);
+  return {
+    rent: Number(has('rent') ? terms.rent : (contract?.effective_rent ?? contract?.rent ?? 0)),
+    media_advance: Number(
+      has('media_advance')
+        ? terms.media_advance
+        : (contract?.effective_media_advance ?? contract?.media_advance ?? 0),
+    ),
+    pay_by_day: Number(
+      has('pay_by_day') ? terms.pay_by_day : (contract?.effective_pay_by_day ?? contract?.pay_by_day ?? 31),
+    ),
+    end_date: has('end_date') ? terms.end_date : (contract?.effective_end_date ?? contract?.end_date ?? null),
+  };
+}
+function amendmentStatusChip(amendment) {
+  if (amendment.status === 'cancelled') return chip('chip-n', 'Anulowany');
+  if (amendment.status !== 'signed') return chip('chip-a', 'Szkic');
+  return amendment.effective_now ? chip('chip-e', 'Obowiązuje', true) : chip('chip-c', 'Zaplanowany');
+}
+function amendmentChangesLabel(amendment) {
+  const changes = [];
+  if (amendment.new_end_date) changes.push(`termin do ${fmtDate(amendment.new_end_date)}`);
+  if (amendment.rent != null) changes.push(`czynsz ${fmtPLN(amendment.rent)} zł`);
+  if (amendment.media_advance != null) changes.push(`media ${fmtPLN(amendment.media_advance)} zł`);
+  if (amendment.pay_by_day != null) changes.push(`płatność do ${amendment.pay_by_day}.`);
+  return changes.length ? changes.join(' · ') : 'Bez zmiany warunków finansowych';
+}
+function amendmentErrorLabel(error) {
+  const code = String(error || '');
+  return (
+    {
+      amendment_number_exists: 'Ten numer aneksu jest już użyty przy tej umowie.',
+      amendment_change_or_note_required: 'Wskaż zmianę warunków albo dodaj notatkę wyjaśniającą aneks.',
+      amendment_end_before_effective_date:
+        'Nowa data końca nie może być wcześniejsza niż data obowiązywania.',
+      amendment_signed_date_required: 'Podaj datę podpisania aneksu.',
+      signed_amendment_document_required: 'Podpisany aneks wymaga dołączonego pliku PDF, JPG albo PNG.',
+      invalid_file_signature: 'Wybrany plik nie jest poprawnym plikiem PDF, JPG ani PNG.',
+      unsupported_file_type_pdf_jpg_only: 'Dozwolone są wyłącznie pliki PDF, JPG i PNG.',
+      signed_amendment_correction_required:
+        'Podpisanego aneksu nie można zmienić w zakresie warunków. Użyj korekty.',
+      amendment_document_archived: 'Najpierw przywróć plik aneksu z archiwum.',
+      amendment_document_not_for_contract: 'Plik nie należy do wskazanej umowy.',
+    }[code] ||
+    code ||
+    'Nie udało się zapisać aneksu.'
+  );
+}
 function spinner() {
   return `<div style="padding:32px;text-align:center"><span class="spinner"></span></div>`;
 }
@@ -2141,24 +2191,19 @@ async function renderProperties(root) {
     Api.get(`/expenses?from=${fromP}-01`).catch(() => []),
   ]);
 
-  const totalRent = allUnits.reduce(
-    (s, u) =>
-      s +
-      ((contracts.find((c) => c.status === 'active' && c.unit_id === u.id) || {}).rent || u.base_rent || 0),
-    0,
-  );
-  const totalMedia = allUnits.reduce(
-    (s, u) =>
-      s +
-      ((contracts.find((c) => c.status === 'active' && c.unit_id === u.id) || {}).media_advance ||
-        u.base_media ||
-        0),
-    0,
-  );
+  const totalRent = allUnits.reduce((sum, unit) => {
+    const contract = contracts.find((item) => item.status === 'active' && item.unit_id === unit.id);
+    return sum + (contract ? contractTerms(contract).rent : unit.base_rent || 0);
+  }, 0);
+  const totalMedia = allUnits.reduce((sum, unit) => {
+    const contract = contracts.find((item) => item.status === 'active' && item.unit_id === unit.id);
+    return sum + (contract ? contractTerms(contract).media_advance : unit.base_media || 0);
+  }, 0);
   const occupied = allUnits.filter((u) => u.status === 'rented').length;
   const ending30 = contracts.filter((c) => {
-    if (c.status !== 'active' || !c.end_date) return false;
-    const days = (new Date(c.end_date) - Date.now()) / 86400000;
+    const endDate = contractTerms(c).end_date;
+    if (c.status !== 'active' || !endDate) return false;
+    const days = (new Date(endDate) - Date.now()) / 86400000;
     return days >= 0 && days <= 30;
   });
 
@@ -2233,9 +2278,13 @@ function renderPropertyCard(p, units, contracts, payments, expenses, idx) {
     if (!cur || (c.start_date || '') > (cur.start_date || '')) contractByUnit[c.unit_id] = c;
   }
   const occupied = units.filter((u) => u.status === 'rented').length;
-  const totalRent = units.reduce((s, u) => s + ((contractByUnit[u.id] || {}).rent ?? u.base_rent ?? 0), 0);
+  const totalRent = units.reduce(
+    (s, u) => s + (contractByUnit[u.id] ? contractTerms(contractByUnit[u.id]).rent : (u.base_rent ?? 0)),
+    0,
+  );
   const totalMedia = units.reduce(
-    (s, u) => s + ((contractByUnit[u.id] || {}).media_advance ?? u.base_media ?? 0),
+    (s, u) =>
+      s + (contractByUnit[u.id] ? contractTerms(contractByUnit[u.id]).media_advance : (u.base_media ?? 0)),
     0,
   );
 
@@ -2244,8 +2293,9 @@ function renderPropertyCard(p, units, contracts, payments, expenses, idx) {
     const u = units[0];
     const c = u ? contractByUnit[u.id] : null;
     const tenantName = u ? u.tenant_name : null;
-    const rent = c ? c.rent : u ? u.base_rent : 0;
-    const media = c ? c.media_advance : u ? u.base_media : 0;
+    const terms = c ? contractTerms(c) : null;
+    const rent = terms ? terms.rent : u ? u.base_rent : 0;
+    const media = terms ? terms.media_advance : u ? u.base_media : 0;
     const total = rent + media;
     return `
       <div class="gc">
@@ -2265,7 +2315,7 @@ function renderPropertyCard(p, units, contracts, payments, expenses, idx) {
               <div><div class="prop-detail-stat-lbl">Media</div><div class="prop-detail-stat-val">${fmtPLN(media)} zł</div></div>
               <div><div class="prop-detail-stat-lbl">Łącznie</div><div class="prop-detail-stat-val" style="color:var(--emerald)">${fmtPLN(total)} zł</div></div>
               <div><div class="prop-detail-stat-lbl">Kaucja</div><div class="prop-detail-stat-val">${fmtPLN(c ? c.deposit : 0)} zł</div></div>
-              <div><div class="prop-detail-stat-lbl">Termin</div><div class="prop-detail-stat-val">${c && c.pay_by_day ? 'do ' + c.pay_by_day + '.' : '—'}</div></div>
+              <div><div class="prop-detail-stat-lbl">Termin</div><div class="prop-detail-stat-val">${terms?.pay_by_day ? 'do ' + terms.pay_by_day + '.' : '—'}</div></div>
             </div>
           </div>
           <div class="prop-detail-col">
@@ -2276,7 +2326,7 @@ function renderPropertyCard(p, units, contracts, payments, expenses, idx) {
               <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;min-width:0">
                 ${avatarLg(tenantName)}
                 <div style="flex:1;min-width:0;overflow:hidden"><div style="font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(tenantName)}</div>
-                  <div style="font-size:12px;color:var(--t4);margin-top:2px">Aktywny${c && c.end_date ? ` · umowa do ${fmtDate(c.end_date)}` : ''}</div></div>
+                  <div style="font-size:12px;color:var(--t4);margin-top:2px">Aktywny${terms?.end_date ? ` · umowa do ${fmtDate(terms.end_date)}` : ''}</div></div>
                 ${chip('chip-e', 'Aktywny', true)}
               </div>
               <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -2298,10 +2348,14 @@ function renderPropertyCard(p, units, contracts, payments, expenses, idx) {
   const totalDeposit = units.reduce((s, u) => s + ((contractByUnit[u.id] || {}).deposit || 0), 0);
   const totalMonthly = totalRent + totalMedia;
   // Termin: jeśli wszyscy mają ten sam pay_by_day, pokaż go; inaczej "różne"
-  const days = new Set(units.map((u) => (contractByUnit[u.id] || {}).pay_by_day).filter((d) => d != null));
+  const days = new Set(
+    units
+      .map((u) => (contractByUnit[u.id] ? contractTerms(contractByUnit[u.id]).pay_by_day : null))
+      .filter((d) => d != null),
+  );
   const termLbl = days.size === 0 ? '—' : days.size === 1 ? `do ${[...days][0]}.` : 'różne';
   const ends = units
-    .map((u) => (contractByUnit[u.id] || {}).end_date)
+    .map((u) => (contractByUnit[u.id] ? contractTerms(contractByUnit[u.id]).end_date : null))
     .filter(Boolean)
     .sort();
   const earliestEnd = ends[0];
@@ -2336,10 +2390,13 @@ function renderPropertyCard(p, units, contracts, payments, expenses, idx) {
         ${units
           .map((u) => {
             const c = contractByUnit[u.id];
-            const rent = c ? c.rent : u.base_rent || 0;
-            const media = c ? c.media_advance : u.base_media || 0;
+            const terms = c ? contractTerms(c) : null;
+            const rent = terms ? terms.rent : u.base_rent || 0;
+            const media = terms ? terms.media_advance : u.base_media || 0;
             const total = rent + media;
-            const ending = c && c.end_date ? Math.ceil((new Date(c.end_date) - Date.now()) / 86400000) : null;
+            const ending = terms?.end_date
+              ? Math.ceil((new Date(terms.end_date) - Date.now()) / 86400000)
+              : null;
             const isWarn = ending != null && ending <= 30;
             return `<div class="rooms-row">
             <div class="rr-code">${escapeHtml(u.code || u.name || '—')}</div>
@@ -2348,7 +2405,7 @@ function renderPropertyCard(p, units, contracts, payments, expenses, idx) {
             <div class="rr-num rr-col-rent">${fmtPLN(rent)} zł</div>
             <div class="rr-num rr-col-media">${fmtPLN(media)} zł</div>
             <div class="${isWarn ? 'rr-num-a' : 'rr-num-e'}">${fmtPLN(total)} zł</div>
-            <div class="rr-num rr-col-end" style="${isWarn ? 'color:var(--amber)' : ''}">${c && c.end_date ? fmtDate(c.end_date) + (isWarn ? ' ⚠' : '') : '—'}</div>
+            <div class="rr-num rr-col-end" style="${isWarn ? 'color:var(--amber)' : ''}">${terms?.end_date ? fmtDate(terms.end_date) + (isWarn ? ' ⚠' : '') : '—'}</div>
             <div class="rr-actions">
               ${c ? `<button class="tb-btn tb-ghost" onclick="endContractFlow(${c.id})" title="Zakończ umowę" style="font-size:11px;padding:0 8px;height:30px">Zakończ</button>` : ''}
               <button class="tb-btn ${c ? 'tb-ghost' : 'tb-primary'}" onclick="tenantTurnover(${u.id}, ${c ? c.id : 'null'})" title="${c ? 'Zmień najemcę' : 'Dodaj najemcę'}" style="font-size:11px;padding:0 8px;height:30px">${c ? 'Zmień' : 'Dodaj'}</button>
@@ -3000,6 +3057,224 @@ window.openSmsReminderPreview = async function (paymentId, tenantId) {
   }
 };
 
+function rentalDocumentsHtml(tenant) {
+  const groups = tenant.rental_documents || [];
+  if (!groups.length) return emptyState('Brak dokumentów najmu.', 'Dodaj umowę bazową albo pierwszy aneks.');
+  return `
+    <section class="rental-documents-section">
+      <div class="rental-documents-heading">
+        <div><div class="ch-title">Umowa i aneksy</div><div class="ch-sub">Dokumenty są grupowane przy właściwej umowie, nie jako osobne umowy.</div></div>
+        <button class="tb-btn tb-primary" type="button" data-add-tenant-amendment="">＋ Dodaj aneks</button>
+      </div>
+      <div class="rental-contract-groups">
+        ${groups
+          .map((group) => {
+            const contract = group.contract;
+            const terms = contractTerms(contract);
+            const documents = group.documents || [];
+            const amendments = group.amendments || [];
+            const linkedAmendmentDocuments = new Set(
+              amendments.map((amendment) => Number(amendment.document_id)).filter(Boolean),
+            );
+            const baseDocuments = documents.filter((document) => document.category === 'umowa');
+            const otherDocuments = documents.filter(
+              (document) =>
+                document.category !== 'umowa' && !linkedAmendmentDocuments.has(Number(document.id)),
+            );
+            const baseTimeline = baseDocuments.length
+              ? baseDocuments
+                  .map(
+                    (document) => `
+                    <div class="rental-timeline-row">
+                      <div class="rental-timeline-dot"></div>
+                      <div class="rental-timeline-card">
+                        <div class="rental-timeline-main"><div><strong>Umowa najmu ${escapeHtml(document.document_number || '')}</strong><small>${document.workflow_status === 'signed' ? 'Podpisana' : 'Wgrana'} ${fmtDate(document.uploaded_at)} · dokument bazowy</small></div>${documentWorkflowChip(document.workflow_status)}</div>
+                        <div class="rental-timeline-change"><b>Warunki początkowe</b><span>${fmtDate(contract.start_date)}–${fmtDate(contract.end_date)} · ${fmtPLN(contract.rent)} zł + ${fmtPLN(contract.media_advance)} zł media</span></div>
+                        <div class="rental-timeline-actions"><a href="/api/documents/${document.id}/download" download>Pobierz</a><button type="button" data-edit-rental-document="${document.id}">Obieg</button></div>
+                      </div>
+                    </div>`,
+                  )
+                  .join('')
+              : `
+                  <div class="rental-timeline-row missing">
+                    <div class="rental-timeline-dot"></div>
+                    <div class="rental-timeline-card"><div class="rental-timeline-main"><div><strong>Umowa najmu</strong><small>Brak wgranego dokumentu bazowego.</small></div>${chip('chip-a', 'Brak pliku')}</div></div>
+                  </div>`;
+            const amendmentTimeline = amendments
+              .map(
+                (amendment) => `
+                <div class="rental-timeline-row">
+                  <div class="rental-timeline-dot"></div>
+                  <div class="rental-timeline-card">
+                    <div class="rental-timeline-main"><div><strong>Aneks nr ${escapeHtml(amendment.amendment_number)}</strong><small>${amendment.signed_date ? `Podpisany ${fmtDate(amendment.signed_date)} · ` : 'Szkic · '}${amendment.status === 'signed' ? `obowiązuje od ${fmtDate(amendment.effective_date)}` : `planowany od ${fmtDate(amendment.effective_date)}`}</small></div>${amendmentStatusChip(amendment)}</div>
+                    <div class="rental-timeline-change"><b>${escapeHtml(amendmentChangesLabel(amendment))}</b><span>${amendment.notes ? escapeHtml(amendment.notes) : amendment.document_name ? escapeHtml(amendment.document_name) : 'Brak dołączonego pliku'}</span></div>
+                    <div class="rental-timeline-actions">${amendment.document_id ? `<a href="/api/documents/${amendment.document_id}/download" download>Pobierz</a>` : ''}${amendment.document_id ? `<button type="button" data-edit-rental-document="${amendment.document_id}">Obieg</button>` : ''}${amendment.status === 'draft' ? `<button type="button" data-sign-tenant-amendment="${contract.id}:${amendment.id}">${amendment.document_id ? 'Podpisz szkic' : 'Dołącz i podpisz'}</button>` : ''}</div>
+                  </div>
+                </div>`,
+              )
+              .join('');
+            const otherTimeline = otherDocuments
+              .map(
+                (document) => `
+                <div class="rental-timeline-row secondary">
+                  <div class="rental-timeline-dot"></div>
+                  <div class="rental-timeline-card"><div class="rental-timeline-main"><div><strong>${escapeHtml(document.name)}</strong><small>${escapeHtml(document.category || 'dokument')} · ${fmtDate(document.uploaded_at)}</small></div>${documentWorkflowChip(document.workflow_status)}</div><div class="rental-timeline-actions"><a href="/api/documents/${document.id}/download" download>Pobierz</a><button type="button" data-edit-rental-document="${document.id}">Obieg</button></div></div>
+                </div>`,
+              )
+              .join('');
+            return `
+              <article class="rental-contract-group">
+                <div class="rental-contract-summary">
+                  <div><strong>Najem: ${escapeHtml(contract.property_name || tenant.property_name || '—')} ${escapeHtml(contract.unit_code || contract.unit_name || '')}</strong><span>${fmtDate(contract.start_date)}–${fmtDate(terms.end_date)} · aktualnie ${fmtPLN(terms.rent)} zł + ${fmtPLN(terms.media_advance)} zł media</span></div>
+                  <div class="rental-contract-actions"><button class="tb-btn tb-ghost" type="button" data-open-contract-documents="${contract.id}">Inny dokument</button><button class="tb-btn tb-primary" type="button" data-add-tenant-amendment="${contract.id}">＋ Dodaj aneks</button></div>
+                </div>
+                <div class="rental-timeline">${baseTimeline}${amendmentTimeline}${otherTimeline}</div>
+              </article>`;
+          })
+          .join('')}
+      </div>
+    </section>`;
+}
+
+window.openTenantAmendmentForm = async function (tenantId, preferredContractId = null) {
+  const tenant = await Api.get(`/tenants/${tenantId}`);
+  const contracts = (tenant.contracts || []).filter((contract) => contract.status !== 'ended');
+  if (!contracts.length) return toast('Ten najemca nie ma umowy, do której można dodać aneks.', 'err');
+  const selectedId = String(preferredContractId || contracts[0].id);
+  const selectedGroup = (tenant.rental_documents || []).find(
+    (group) => String(group.contract.id) === selectedId,
+  );
+  const suggestedNumber = `${((selectedGroup?.amendments || []).length || 0) + 1}/A/${new Date().getFullYear()}`;
+  const dialog = modal({
+    title: `Dodawanie aneksu · ${tenant.name}`,
+    wide: true,
+    body: `
+      <div class="amendment-form-panel">
+        <div class="amendment-form-intro"><div><div class="ch-title">Nowy aneks do umowy</div><div class="ch-sub">Zmiany warunków są zapisane razem z dokumentem i datą obowiązywania.</div></div><button type="button" class="tb-btn tb-ghost" id="amendment-back">← Dokumenty najmu</button></div>
+        <form id="amendment-form" class="form-grid compact">
+          <div class="form-row full"><label>Umowa bazowa</label><select id="amendment-contract">${contracts.map((contract) => `<option value="${contract.id}" ${String(contract.id) === selectedId ? 'selected' : ''}>${escapeHtml(`${contract.property_name || tenant.property_name || '—'} ${contract.unit_code || contract.unit_name || ''} · ${fmtDate(contract.start_date)}–${fmtDate(contractTerms(contract).end_date)}`)}</option>`).join('')}</select></div>
+          <div class="form-row"><label>Numer aneksu</label><input id="amendment-number" required value="${escapeHtml(suggestedNumber)}"></div>
+          <div class="form-row"><label>Nazwa dokumentu</label><input id="amendment-name" placeholder="Aneks do umowy najmu"></div>
+          <div class="form-row"><label>Data podpisania</label><input id="amendment-signed-date" type="date" value="${todayISO()}"><div class="hint">Wymagana przy dodaniu podpisanego aneksu.</div></div>
+          <div class="form-row"><label>Obowiązuje od</label><input id="amendment-effective-date" type="date" required value="${todayISO()}"></div>
+          <div class="form-row full amendment-change-toggle"><label><input id="amendment-change-end" type="checkbox"> Zmiana daty końca</label></div>
+          <div class="form-row amendment-conditional" data-amendment-section="end"><label>Nowa data końca</label><input id="amendment-end-date" type="date"></div>
+          <div class="form-row full amendment-change-toggle"><label><input id="amendment-change-finance" type="checkbox"> Zmiana czynszu / mediów</label></div>
+          <div class="form-row amendment-conditional" data-amendment-section="finance"><label>Nowy czynsz [PLN]</label><input id="amendment-rent" type="number" step="0.01" min="0"></div>
+          <div class="form-row amendment-conditional" data-amendment-section="finance"><label>Nowa zaliczka na media [PLN]</label><input id="amendment-media" type="number" step="0.01" min="0"></div>
+          <div class="form-row full amendment-change-toggle"><label><input id="amendment-change-payment-day" type="checkbox"> Zmiana terminu płatności</label></div>
+          <div class="form-row amendment-conditional" data-amendment-section="payment-day"><label>Nowy dzień płatności</label><input id="amendment-pay-day" type="number" min="1" max="31"></div>
+          <div class="form-row full"><label>Notatka</label><textarea id="amendment-notes" placeholder="Opcjonalnie wyjaśnij aneks, jeżeli nie zmienia on pól powyżej."></textarea></div>
+          <div class="form-row full"><label>Podpisany plik PDF/JPG/PNG</label><input id="amendment-file" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"><div class="hint">Szkic można zapisać bez pliku. Podpisany aneks wymaga pliku.</div></div>
+          <div class="form-row full amendment-effective-note">Zmiany działają przy generowaniu nowych płatności od miesiąca daty „Obowiązuje od”. Już wygenerowane płatności pozostaną bez zmian.</div>
+        </form>
+      </div>`,
+    footer: `<button class="tb-btn tb-ghost" id="amendment-save-draft">Zapisz szkic</button><button class="tb-btn tb-primary" id="amendment-save-signed">Dodaj podpisany aneks</button>`,
+  });
+  const root = dialog.root;
+  const syncSections = () => {
+    root.querySelectorAll('[data-amendment-section]').forEach((section) => {
+      const key = section.dataset.amendmentSection;
+      const input = root.querySelector(`#amendment-change-${key}`);
+      section.style.display = input?.checked ? '' : 'none';
+    });
+  };
+  root.querySelectorAll('[id^="amendment-change-"]').forEach((input) => (input.onchange = syncSections));
+  syncSections();
+  root.querySelector('#amendment-back').onclick = () => {
+    dialog.close();
+    openTenantDetails(tenantId);
+  };
+  const submit = async (status) => {
+    const number = root.querySelector('#amendment-number').value.trim();
+    const effectiveDate = root.querySelector('#amendment-effective-date').value;
+    const notes = root.querySelector('#amendment-notes').value.trim();
+    const file = root.querySelector('#amendment-file').files[0];
+    const endChanged = root.querySelector('#amendment-change-end').checked;
+    const financeChanged = root.querySelector('#amendment-change-finance').checked;
+    const paymentDayChanged = root.querySelector('#amendment-change-payment-day').checked;
+    if (!number || !effectiveDate) return toast('Uzupełnij numer aneksu i datę obowiązywania.', 'err');
+    if (!endChanged && !financeChanged && !paymentDayChanged && !notes) {
+      return toast('Wskaż zmianę warunków albo dodaj notatkę wyjaśniającą aneks.', 'err');
+    }
+    if (status === 'signed' && !file) return toast('Podpisany aneks wymaga pliku PDF, JPG albo PNG.', 'err');
+    const formData = new FormData();
+    formData.append('amendment_number', number);
+    formData.append('effective_date', effectiveDate);
+    formData.append('status', status);
+    if (root.querySelector('#amendment-name').value.trim())
+      formData.append('name', root.querySelector('#amendment-name').value.trim());
+    if (root.querySelector('#amendment-signed-date').value)
+      formData.append('signed_date', root.querySelector('#amendment-signed-date').value);
+    if (endChanged && root.querySelector('#amendment-end-date').value)
+      formData.append('new_end_date', root.querySelector('#amendment-end-date').value);
+    if (financeChanged && root.querySelector('#amendment-rent').value !== '')
+      formData.append('rent', root.querySelector('#amendment-rent').value);
+    if (financeChanged && root.querySelector('#amendment-media').value !== '')
+      formData.append('media_advance', root.querySelector('#amendment-media').value);
+    if (paymentDayChanged && root.querySelector('#amendment-pay-day').value !== '')
+      formData.append('pay_by_day', root.querySelector('#amendment-pay-day').value);
+    if (notes) formData.append('notes', notes);
+    if (file) formData.append('file', file);
+    const contractId = root.querySelector('#amendment-contract').value;
+    await Api.upload(`/contracts/${contractId}/amendments`, formData);
+    toast(status === 'signed' ? 'Dodano podpisany aneks' : 'Zapisano szkic aneksu');
+    dialog.close();
+    openTenantDetails(tenantId);
+    render({ preserveScroll: true });
+  };
+  root.querySelector('#amendment-save-draft').onclick = () =>
+    submit('draft').catch((error) => toast(amendmentErrorLabel(error.message), 'err'));
+  root.querySelector('#amendment-save-signed').onclick = () =>
+    submit('signed').catch((error) => toast(amendmentErrorLabel(error.message), 'err'));
+};
+
+window.openTenantAmendmentSignForm = async function (tenantId, contractId, amendmentId) {
+  const snapshot = await Api.get(`/contracts/${contractId}/amendments`);
+  const amendment = (snapshot.amendments || []).find((item) => Number(item.id) === Number(amendmentId));
+  if (!amendment) return toast('Nie znaleziono szkicu aneksu.', 'err');
+  if (amendment.status === 'signed') return toast('Ten aneks jest już podpisany.', 'info');
+  const hasDocument = Boolean(amendment.document_id);
+  const dialog = modal({
+    title: `Podpisanie aneksu nr ${amendment.amendment_number}`,
+    body: `
+      <div class="amendment-form-panel compact-sign-panel">
+        <div class="amendment-form-intro"><div><div class="ch-title">Podpisz szkic aneksu</div><div class="ch-sub">Po podpisaniu warunki będą obowiązywać od ${fmtDate(amendment.effective_date)}.</div></div>${amendmentStatusChip(amendment)}</div>
+        <div class="amendment-effective-note">Jeżeli data obowiązywania jest w przeszłości, istniejące płatności nie zostaną zmienione automatycznie.</div>
+        <form id="amendment-sign-form" class="form-grid compact">
+          <div class="form-row"><label>Data podpisania</label><input id="amendment-sign-date" type="date" required value="${todayISO()}"></div>
+          <div class="form-row full"><label>${hasDocument ? 'Nowy plik PDF/JPG/PNG (opcjonalnie)' : 'Podpisany plik PDF/JPG/PNG'}</label><input id="amendment-sign-file" type="file" ${hasDocument ? '' : 'required'} accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"><div class="hint">${hasDocument ? 'Wybranie pliku zastąpi wersję dołączoną do szkicu; poprzednia zostanie zarchiwizowana.' : 'Szkic nie ma pliku — dodaj podpisany dokument przed aktywacją.'}</div></div>
+        </form>
+      </div>`,
+    footer: `<button class="tb-btn tb-ghost" id="amendment-sign-cancel">Anuluj</button><button class="tb-btn tb-primary" id="amendment-sign-confirm">Podpisz aneks</button>`,
+  });
+  const root = dialog.root;
+  root.querySelector('#amendment-sign-cancel').onclick = dialog.close;
+  root.querySelector('#amendment-sign-confirm').onclick = async () => {
+    const signedDate = root.querySelector('#amendment-sign-date').value;
+    const file = root.querySelector('#amendment-sign-file').files[0];
+    if (!signedDate) return toast('Podaj datę podpisania aneksu.', 'err');
+    if (!hasDocument && !file) return toast('Podpisany aneks wymaga pliku PDF, JPG albo PNG.', 'err');
+    const button = root.querySelector('#amendment-sign-confirm');
+    button.disabled = true;
+    try {
+      if (file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        await Api.upload(`/contracts/${contractId}/amendments/${amendmentId}/document`, formData);
+      }
+      await Api.post(`/contracts/${contractId}/amendments/${amendmentId}/sign`, { signed_date: signedDate });
+      toast('Aneks został podpisany');
+      dialog.close();
+      openTenantDetails(tenantId);
+      render({ preserveScroll: true });
+    } catch (error) {
+      button.disabled = false;
+      toast(amendmentErrorLabel(error.message), 'err');
+    }
+  };
+};
+
 window.openTenantDetails = async function (id) {
   const t = await Api.get(`/tenants/${id}`);
   const monthly = (t.contract_rent || 0) + (t.contract_media || 0);
@@ -3064,17 +3339,18 @@ window.openTenantDetails = async function (id) {
       ? `<table class="t" style="margin-top:10px">
         <thead><tr><th>Od</th><th>Do</th><th>Czynsz</th><th>Media</th><th>Kaucja</th><th>Status</th><th></th></tr></thead>
         <tbody>${t.contracts
-          .map(
-            (c) => `<tr>
+          .map((c) => {
+            const terms = contractTerms(c);
+            return `<tr>
           <td class="mono">${fmtDate(c.start_date)}</td>
-          <td class="mono">${fmtDate(c.end_date)}</td>
-          <td class="mono">${fmtPLN(c.rent)} zł</td>
-          <td class="mono">${fmtPLN(c.media_advance)} zł</td>
+          <td class="mono">${fmtDate(terms.end_date)}</td>
+          <td class="mono">${fmtPLN(terms.rent)} zł</td>
+          <td class="mono">${fmtPLN(terms.media_advance)} zł</td>
           <td class="mono">${fmtPLN(c.deposit)} zł</td>
           <td>${chip(c.status === 'active' ? 'chip-e' : 'chip-n', c.status === 'active' ? 'Aktywna' : 'Zakończona', c.status === 'active')}</td>
           <td>${c.status === 'active' ? `<button class="tb-btn tb-ghost" onclick="endContractFlow(${c.id})" style="font-size:11px;height:30px;padding:0 8px">Zakończ</button>` : ''}</td>
-        </tr>`,
-          )
+        </tr>`;
+          })
           .join('')}</tbody>
       </table>`
       : emptyState('Brak umów.');
@@ -3095,7 +3371,9 @@ window.openTenantDetails = async function (id) {
         <div><span style="color:var(--t4)">Umowa do:</span> <span style="color:var(--t1)">${fmtDate(t.contract_end)}</span></div>
         ${t.notes ? `<div style="grid-column:span 2"><span style="color:var(--t4)">Notatka:</span> <span style="color:var(--t1)">${escapeHtml(t.notes)}</span></div>` : ''}
       </div>
-      <div class="ch-title" style="margin-bottom:6px">Umowy (${(t.contracts || []).length})</div>
+      <div class="tenant-detail-tabs" role="tablist"><button type="button" class="tenant-detail-tab active" id="td-documents-tab">Dokumenty najmu</button><button type="button" class="tenant-detail-tab" id="td-add-amendment-tab">Dodawanie aneksu</button></div>
+      <div id="td-rental-documents">${rentalDocumentsHtml(t)}</div>
+      <div class="ch-title" style="margin-top:18px;margin-bottom:6px">Historia umów (${(t.contracts || []).length})</div>
       <div style="overflow-x:auto">${contractsHtml}</div>
       <div class="ch-title" style="margin-top:18px;margin-bottom:6px">Kary za opóźnione wpłaty</div>
       <div style="overflow-x:auto">${lateFeesHtml}</div>
@@ -3103,7 +3381,7 @@ window.openTenantDetails = async function (id) {
       <div style="overflow-x:auto">${paymentsHtml}</div>
     </div>`;
 
-  modal({
+  const detailDialog = modal({
     title: t.name,
     body,
     wide: true,
@@ -3114,17 +3392,49 @@ window.openTenantDetails = async function (id) {
              <button class="tb-btn tb-ghost" id="td-edit">Edytuj dane</button>
              <button class="tb-btn tb-primary" id="td-close">Zamknij</button>`,
   });
-  document.getElementById('td-close').onclick = () => (document.getElementById('modal-root').innerHTML = '');
-  document.getElementById('td-edit').onclick = () => {
-    document.getElementById('modal-root').innerHTML = '';
+  const detailRoot = detailDialog.root;
+  detailRoot.querySelector('#td-close').onclick = detailDialog.close;
+  detailRoot.querySelector('#td-edit').onclick = () => {
+    detailDialog.close();
     editTenant(id);
   };
+  detailRoot.querySelector('#td-documents-tab').onclick = () =>
+    detailRoot.querySelector('#td-rental-documents')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  detailRoot.querySelector('#td-add-amendment-tab').onclick = () => {
+    detailDialog.close();
+    openTenantAmendmentForm(t.id, t.contract_id || null);
+  };
+  detailRoot.querySelectorAll('[data-add-tenant-amendment]').forEach((button) => {
+    button.onclick = () => {
+      detailDialog.close();
+      openTenantAmendmentForm(t.id, button.dataset.addTenantAmendment || null);
+    };
+  });
+  detailRoot.querySelectorAll('[data-open-contract-documents]').forEach((button) => {
+    button.onclick = () => {
+      detailDialog.close();
+      openContractDocuments(button.dataset.openContractDocuments);
+    };
+  });
+  detailRoot.querySelectorAll('[data-edit-rental-document]').forEach((button) => {
+    button.onclick = async () => {
+      const documentData = await Api.get(`/documents/${button.dataset.editRentalDocument}`);
+      editDocumentWorkflow(documentData);
+    };
+  });
+  detailRoot.querySelectorAll('[data-sign-tenant-amendment]').forEach((button) => {
+    button.onclick = () => {
+      const [contractId, amendmentId] = button.dataset.signTenantAmendment.split(':').map(Number);
+      detailDialog.close();
+      openTenantAmendmentSignForm(t.id, contractId, amendmentId);
+    };
+  });
   if (reminderPayment)
-    document.getElementById('td-sms-reminder').onclick = () =>
+    detailRoot.querySelector('#td-sms-reminder').onclick = () =>
       openSmsReminderPreview(reminderPayment.id, t.id);
   if (t.contract_id)
-    document.getElementById('td-end-contract').onclick = () => endContractFlow(t.contract_id);
-  document.getElementById('td-del').onclick = () =>
+    detailRoot.querySelector('#td-end-contract').onclick = () => endContractFlow(t.contract_id);
+  detailRoot.querySelector('#td-del').onclick = () =>
     confirmDialog({
       title: 'Usuń najemcę',
       message: `Usunąć "${t.name}"?`,
@@ -3132,7 +3442,7 @@ window.openTenantDetails = async function (id) {
       onYes: async () => {
         await Api.del(`/tenants/${id}`);
         toast('Usunięto', 'info');
-        document.getElementById('modal-root').innerHTML = '';
+        detailDialog.close();
         render();
       },
     });
@@ -3145,36 +3455,40 @@ async function renderContracts(root) {
 
   const now = Date.now();
   const daysTo = (d) => (d ? Math.ceil((new Date(d) - now) / 86400000) : null);
+  const contractEnd = (contract) => contractTerms(contract).end_date;
 
   const active = contracts.filter((c) => c.status === 'active');
   const ending30 = active.filter((c) => {
-    const d = daysTo(c.end_date);
+    const d = daysTo(contractEnd(c));
     return d != null && d >= 0 && d <= 30;
   });
   const safe = active.filter((c) => {
-    const d = daysTo(c.end_date);
+    const d = daysTo(contractEnd(c));
     return d == null || d > 30;
   });
   const totalDeposit = active.reduce((s, c) => s + (c.deposit || 0), 0);
-  const totalMonthly = active.reduce((s, c) => s + (c.rent || 0) + (c.media_advance || 0), 0);
+  const totalMonthly = active.reduce((s, c) => {
+    const terms = contractTerms(c);
+    return s + terms.rent + terms.media_advance;
+  }, 0);
 
   let filtered = contracts.slice();
   if (stStatus === 'active') filtered = filtered.filter((c) => c.status === 'active');
   else if (stStatus === 'ending30')
-    filtered = filtered.filter((c) => active.includes(c) && (daysTo(c.end_date) ?? 999) <= 30);
+    filtered = filtered.filter((c) => active.includes(c) && (daysTo(contractEnd(c)) ?? 999) <= 30);
   else if (stStatus === 'safe')
-    filtered = filtered.filter((c) => active.includes(c) && (daysTo(c.end_date) ?? 999) > 30);
+    filtered = filtered.filter((c) => active.includes(c) && (daysTo(contractEnd(c)) ?? 999) > 30);
   else if (stStatus === 'ended') filtered = filtered.filter((c) => c.status === 'ended');
 
   filtered.sort((a, b) => {
     if (a.status !== b.status) return a.status === 'active' ? -1 : 1;
-    return (a.end_date || '9999').localeCompare(b.end_date || '9999');
+    return (contractEnd(a) || '9999').localeCompare(contractEnd(b) || '9999');
   });
 
   const avgMonths = (() => {
     const durs = contracts
-      .filter((c) => c.start_date && c.end_date)
-      .map((c) => (new Date(c.end_date) - new Date(c.start_date)) / (86400000 * 30.44));
+      .filter((c) => c.start_date && contractEnd(c))
+      .map((c) => (new Date(contractEnd(c)) - new Date(c.start_date)) / (86400000 * 30.44));
     return durs.length ? Math.round(durs.reduce((a, b) => a + b, 0) / durs.length) : 0;
   })();
 
@@ -3240,8 +3554,9 @@ async function renderContracts(root) {
               ? `<tr><td colspan="9">${emptyState('Brak umów.')}</td></tr>`
               : filtered
                   .map((c) => {
-                    const total = (c.rent || 0) + (c.media_advance || 0);
-                    const days = daysTo(c.end_date);
+                    const terms = contractTerms(c);
+                    const total = terms.rent + terms.media_advance;
+                    const days = daysTo(terms.end_date);
                     let stChip, leftChip;
                     if (c.status === 'ended') {
                       stChip = chip('chip-n', 'Zakończona');
@@ -3269,10 +3584,10 @@ async function renderContracts(root) {
               <td><div class="t-tenant">${avatar(c.tenant_name)}<span class="t-name">${escapeHtml(c.tenant_name || '—')}</span></div></td>
               <td style="font-size:12px;color:var(--t2)">${escapeHtml(c.property_name || '—')} / ${escapeHtml(c.unit_code || c.unit_name || '')}</td>
               <td>${stChip}</td>
-              <td class="mono${days != null && days <= 30 ? '-a' : ''}">${fmtDate(c.end_date)}</td>
+              <td class="mono${days != null && days <= 30 ? '-a' : ''}">${fmtDate(terms.end_date)}</td>
               <td>${leftChip}</td>
-              <td class="mono">${fmtPLN(c.rent)} zł</td>
-              <td class="mono">${fmtPLN(c.media_advance)} zł</td>
+              <td class="mono">${fmtPLN(terms.rent)} zł</td>
+              <td class="mono">${fmtPLN(terms.media_advance)} zł</td>
               <td class="mono-e">${fmtPLN(total)} zł</td>
               <td><div style="display:flex;gap:4px">
                 <button class="tb-btn tb-ghost" onclick="openContractWorkflow(${c.id})" title="Obieg umowy" style="font-size:11px;height:30px;padding:0 8px">Obieg</button>
@@ -3285,7 +3600,7 @@ async function renderContracts(root) {
                   })
                   .join('')
           }</tbody>
-          <tfoot>${active.length ? `<tr><td colspan="5" style="font-size:13px">Suma (aktywne)</td><td class="mono">${fmtPLN(active.reduce((s, c) => s + (c.rent || 0), 0))} zł</td><td class="mono">${fmtPLN(active.reduce((s, c) => s + (c.media_advance || 0), 0))} zł</td><td class="mono-e" style="font-size:13px">${fmtPLN(totalMonthly)} zł</td><td></td></tr>` : ''}</tfoot>
+          <tfoot>${active.length ? `<tr><td colspan="5" style="font-size:13px">Suma (aktywne)</td><td class="mono">${fmtPLN(active.reduce((s, c) => s + contractTerms(c).rent, 0))} zł</td><td class="mono">${fmtPLN(active.reduce((s, c) => s + contractTerms(c).media_advance, 0))} zł</td><td class="mono-e" style="font-size:13px">${fmtPLN(totalMonthly)} zł</td><td></td></tr>` : ''}</tfoot>
         </table>
       </div>
     </div>`;
@@ -3458,6 +3773,7 @@ window.editContract = async function (id) {
 
 window.endContractFlow = async function (id) {
   const contract = await Api.get(`/contracts/${id}`);
+  const terms = contractTerms(contract);
   formModal({
     title: `Zakończ umowę: ${contract.tenant_name || 'najemca'}`,
     fields: [
@@ -3465,7 +3781,7 @@ window.endContractFlow = async function (id) {
         name: 'end_date',
         label: 'Data zakończenia',
         type: 'date',
-        default: contract.end_date || monthEndISO(State.period),
+        default: terms.end_date || monthEndISO(State.period),
         full: true,
       },
       {
@@ -3492,8 +3808,9 @@ window.tenantTurnover = async function (unitId, contractId = null) {
   const contract = contractId ? await Api.get(`/contracts/${contractId}`) : null;
   const start = todayISO();
   const defaultPeriod = periodFromDateISO(start);
-  const currentRent = contract ? Number(contract.rent || 0) : Number(unit.base_rent || 0);
-  const currentMedia = contract ? Number(contract.media_advance || 0) : Number(unit.base_media || 0);
+  const contractTermsNow = contract ? contractTerms(contract) : null;
+  const currentRent = contractTermsNow ? contractTermsNow.rent : Number(unit.base_rent || 0);
+  const currentMedia = contractTermsNow ? contractTermsNow.media_advance : Number(unit.base_media || 0);
   const fields = [];
   if (contract) {
     fields.push(
@@ -3533,7 +3850,7 @@ window.tenantTurnover = async function (unitId, contractId = null) {
       name: 'pay_by_day',
       label: 'Termin płatności (dzień)',
       type: 'number',
-      default: contract ? contract.pay_by_day || 31 : 31,
+      default: contractTermsNow ? contractTermsNow.pay_by_day || 31 : 31,
     },
     {
       name: 'create_payment',
@@ -3588,6 +3905,7 @@ window.openContractDocuments = async function (id) {
     Api.get(`/contracts/${id}`),
     Api.get(`/contracts/${id}/documents`),
   ]);
+  const terms = contractTerms(contract);
   const list = docs.length
     ? `
     <div class="doc-grid contract-doc-grid">
@@ -3597,7 +3915,8 @@ window.openContractDocuments = async function (id) {
         <div class="doc-card">
           <div class="doc-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
           <div class="doc-name" title="${escapeHtml(d.name)}">${escapeHtml(d.name)}</div>
-          <div class="doc-meta">${escapeHtml(d.mime_type || 'plik')} · ${(Number(d.size_bytes || 0) / 1024).toFixed(0)} kB · ${fmtDate(d.uploaded_at)}</div>
+          <div class="doc-meta">${escapeHtml(d.category || 'inne')} · ${escapeHtml(d.mime_type || 'plik')} · ${(Number(d.size_bytes || 0) / 1024).toFixed(0)} kB · ${fmtDate(d.uploaded_at)}</div>
+          <div class="doc-workflow-line">${documentWorkflowChip(d.workflow_status)}</div>
           <div class="doc-actions">
             <a href="/api/documents/${d.id}/download" download>Pobierz</a>
             <button onclick="deleteContractDocument(${d.id}, ${id})">Usuń</button>
@@ -3606,38 +3925,47 @@ window.openContractDocuments = async function (id) {
         )
         .join('')}
     </div>`
-    : emptyState('Brak podpisanych dokumentów.', 'Dodaj skan PDF albo JPG podpisanej umowy.');
+    : emptyState('Brak dokumentów najmu.', 'Dodaj dokument bazowy, protokół albo inny plik do tej umowy.');
 
   const body = `
     <div class="contract-doc-panel">
       <div class="contract-doc-summary">
         <div>
           <div class="contract-doc-title">${escapeHtml(contract.tenant_name || 'Umowa')}</div>
-          <div class="contract-doc-meta">${escapeHtml(contract.property_name || '—')} · ${fmtDate(contract.start_date)} - ${fmtDate(contract.end_date)}</div>
+          <div class="contract-doc-meta">${escapeHtml(contract.property_name || '—')} · ${fmtDate(contract.start_date)} - ${fmtDate(terms.end_date)}</div>
         </div>
         ${chip(contract.status === 'active' ? 'chip-e' : 'chip-n', contract.status === 'active' ? 'Aktywna' : 'Zakończona', contract.status === 'active')}
       </div>
       <form id="contract-doc-form" class="form-grid compact">
-        <div class="form-row full"><label>Podpisany dokument PDF/JPG</label><input id="contract-doc-file" type="file" accept=".pdf,.jpg,.jpeg,application/pdf,image/jpeg"></div>
+        <div class="form-row"><label>Rodzaj dokumentu</label><select id="contract-doc-category"><option value="umowa">Umowa bazowa</option><option value="protokol">Protokół</option><option value="inne">Inny dokument</option></select></div>
+        <div class="form-row"><label>Status przy dodaniu</label><select id="contract-doc-status"><option value="signed">Podpisany</option><option value="uploaded">Nowy / do obiegu</option></select></div>
+        <div class="form-row full"><label>Dokument PDF/JPG/PNG</label><input id="contract-doc-file" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"></div>
         <div class="form-row full"><label>Nazwa dokumentu</label><input id="contract-doc-name" value="${escapeHtml(`Umowa podpisana - ${contract.tenant_name || ''}`.trim())}"></div>
       </form>
       <div class="contract-doc-list">${list}</div>
     </div>`;
   const m = modal({
-    title: 'Dokumenty umowy',
+    title: 'Umowa i aneksy',
     body,
     wide: true,
     footer: `
       <button class="tb-btn tb-ghost" id="contract-doc-close">Zamknij</button>
+      <button class="tb-btn tb-ghost" id="contract-add-amendment">＋ Dodaj aneks</button>
       <button class="tb-btn tb-primary" id="contract-doc-upload">Dodaj dokument</button>`,
   });
   m.root.querySelector('#contract-doc-close').onclick = m.close;
+  m.root.querySelector('#contract-add-amendment').onclick = () => {
+    m.close();
+    openTenantAmendmentForm(contract.tenant_id, id);
+  };
   m.root.querySelector('#contract-doc-upload').onclick = async () => {
     const file = m.root.querySelector('#contract-doc-file').files[0];
     if (!file) return toast('Wybierz plik PDF albo JPG', 'err');
     const fd = new FormData();
     fd.append('file', file);
     fd.append('name', m.root.querySelector('#contract-doc-name').value || file.name);
+    fd.append('category', m.root.querySelector('#contract-doc-category').value);
+    fd.append('workflow_status', m.root.querySelector('#contract-doc-status').value);
     try {
       await Api.upload(`/contracts/${id}/documents`, fd);
       toast('Dokument zapisany');
@@ -4606,7 +4934,7 @@ async function uploadDocDialog() {
     <div class="form-grid">
       <div class="form-row full"><label>Plik</label><input type="file" id="doc-file" required></div>
       <div class="form-row"><label>Kategoria</label>
-        <select id="doc-cat"><option value="umowa">Umowa</option><option value="faktura">Faktura</option><option value="protokol">Protokół</option><option value="inne" selected>Inne</option></select>
+        <select id="doc-cat"><option value="umowa">Umowa</option><option value="aneks">Aneks</option><option value="faktura">Faktura</option><option value="protokol">Protokół</option><option value="inne" selected>Inne</option></select>
       </div>
       <div class="form-row"><label>Numer dokumentu</label><input id="doc-number"></div>
       <div class="form-row"><label>Ważny do</label><input id="doc-expiry" type="date"></div>
@@ -4625,6 +4953,7 @@ async function uploadDocDialog() {
   });
   m.root.querySelector('#m-cancel').onclick = m.close;
   const entSel = m.root.querySelector('#doc-ent');
+  const categorySel = m.root.querySelector('#doc-cat');
   const refRow = m.root.querySelector('#doc-ref-row');
   const refLabel = m.root.querySelector('#doc-ref-label');
   const refSel = m.root.querySelector('#doc-eid-sel');
@@ -4644,12 +4973,26 @@ async function uploadDocDialog() {
       '<option value="">— wybierz —</option>' +
       (opts[v] || []).map((x) => `<option value="${x.id}">${escapeHtml(lblMap[v](x))}</option>`).join('');
   };
+  const syncAmendmentCategory = () => {
+    const isAmendment = categorySel.value === 'aneks';
+    if (isAmendment) {
+      entSel.value = 'contract';
+      entSel.disabled = true;
+      entSel.onchange();
+    } else {
+      entSel.disabled = false;
+    }
+  };
+  categorySel.onchange = syncAmendmentCategory;
   m.root.querySelector('#m-save').onclick = async () => {
     const f = m.root.querySelector('#doc-file').files[0];
     if (!f) return toast('Wybierz plik', 'err');
+    if (categorySel.value === 'aneks' && (!entSel.value || !refSel.value)) {
+      return toast('Aneks musi być powiązany z konkretną umową.', 'err');
+    }
     const fd = new FormData();
     fd.append('file', f);
-    fd.append('category', m.root.querySelector('#doc-cat').value);
+    fd.append('category', categorySel.value);
     fd.append('document_number', m.root.querySelector('#doc-number').value.trim());
     fd.append('expires_on', m.root.querySelector('#doc-expiry').value);
     const ent = entSel.value;

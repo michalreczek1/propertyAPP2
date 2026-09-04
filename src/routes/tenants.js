@@ -4,6 +4,11 @@ const { z } = require('zod');
 const db = require('../db');
 const { validate } = require('../middleware/validate');
 const { assertRefs, canAccessTenant, ownerId } = require('../utils/scope');
+const {
+  amendmentHistory,
+  decorateContractsWithTerms,
+  getContractAmendments,
+} = require('../utils/contract-amendments');
 
 const TenantSchema = z.object({
   name: z.string().min(1),
@@ -103,7 +108,35 @@ router.get('/', (req, res) => {
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
     ORDER BY t.status, t.name
   `;
-  res.json(db.prepare(sql).all(...params));
+  const rows = db.prepare(sql).all(...params);
+  const contractTerms = new Map(
+    decorateContractsWithTerms(
+      db,
+      rows
+        .filter((row) => row.contract_id)
+        .map((row) => ({
+          id: row.contract_id,
+          rent: row.contract_rent,
+          media_advance: row.contract_media,
+          pay_by_day: row.contract_pay_by_day,
+          end_date: row.contract_end,
+        })),
+    ).map((contract) => [contract.id, contract.current_terms]),
+  );
+  res.json(
+    rows.map((row) => {
+      const terms = contractTerms.get(row.contract_id);
+      if (!terms) return row;
+      return {
+        ...row,
+        contract_rent: terms.rent,
+        contract_media: terms.media_advance,
+        contract_pay_by_day: terms.pay_by_day,
+        contract_end: terms.end_date,
+        contract_current_terms: terms,
+      };
+    }),
+  );
 });
 
 router.get('/:id', (req, res) => {
@@ -120,7 +153,47 @@ router.get('/:id', (req, res) => {
     )
     .get(req.params.id);
   if (!t) return res.status(404).json({ error: 'not_found' });
-  t.contracts = db.prepare('SELECT * FROM contracts WHERE tenant_id = ? ORDER BY start_date DESC').all(t.id);
+  const contractRows = db
+    .prepare(
+      `
+      SELECT c.*, u.name AS unit_name, u.code AS unit_code, p.name AS property_name
+      FROM contracts c
+      LEFT JOIN units u ON u.id = c.unit_id
+      LEFT JOIN properties p ON p.id = u.property_id
+      WHERE c.tenant_id = ?
+      ORDER BY c.start_date DESC, c.id DESC
+    `,
+    )
+    .all(t.id);
+  t.contracts = decorateContractsWithTerms(db, contractRows);
+  const activeContract = t.contracts.find((contract) => contract.status === 'active');
+  if (activeContract) {
+    const terms = activeContract.current_terms;
+    t.contract_id = activeContract.id;
+    t.contract_rent = terms.rent;
+    t.contract_media = terms.media_advance;
+    t.contract_pay_by_day = terms.pay_by_day;
+    t.contract_end = terms.end_date;
+  }
+  t.rental_documents = t.contracts.map((contract) => {
+    const documents = db
+      .prepare(
+        `
+        SELECT *
+        FROM documents
+        WHERE related_entity_type = 'contract'
+          AND related_entity_id = ?
+          ${req.user && req.user.id && req.user.role !== 'admin' ? 'AND owner_user_id = ?' : ''}
+        ORDER BY uploaded_at ASC, id ASC
+      `,
+      )
+      .all(contract.id, ...(req.user && req.user.id && req.user.role !== 'admin' ? [req.user.id] : []));
+    return {
+      contract,
+      documents,
+      amendments: amendmentHistory(contract, getContractAmendments(db, contract.id)),
+    };
+  });
   t.payments = db
     .prepare('SELECT * FROM payments WHERE tenant_id = ? ORDER BY period DESC LIMIT 24')
     .all(t.id);

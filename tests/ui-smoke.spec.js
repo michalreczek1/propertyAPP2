@@ -217,6 +217,118 @@ test('contract workflow moves a draft through controlled stages', async ({ page,
   }
 });
 
+test('tenant documents group a base contract and amendments on desktop and mobile', async ({
+  page,
+  request,
+}) => {
+  const fixture = await createPaymentFixture(request, '__contract_amendments_ui');
+  const year = new Date().getFullYear();
+  const today = new Date().toISOString().slice(0, 10);
+  let contractId = null;
+  const documentIds = [];
+  try {
+    const created = await request.post('/api/contracts', {
+      data: {
+        tenant_id: fixture.tenantId,
+        unit_id: fixture.unitId,
+        start_date: `${currentPeriodISO()}-01`,
+        end_date: `${year + 1}-12-31`,
+        rent: 1234,
+        media_advance: 321,
+        deposit: 1500,
+        pay_by_day: 10,
+        status: 'active',
+      },
+    });
+    expect(created.ok()).toBeTruthy();
+    contractId = (await created.json()).id;
+
+    const base = await request.post(`/api/contracts/${contractId}/documents`, {
+      multipart: {
+        name: 'Umowa bazowa Playwright',
+        file: { name: 'base.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n%%EOF') },
+      },
+    });
+    expect(base.ok()).toBeTruthy();
+    documentIds.push((await base.json()).id);
+
+    const signed = await request.post(`/api/contracts/${contractId}/amendments`, {
+      multipart: {
+        amendment_number: `1/A/${year}`,
+        signed_date: today,
+        effective_date: today,
+        rent: '1300',
+        status: 'signed',
+        file: {
+          name: 'signed-annex.pdf',
+          mimeType: 'application/pdf',
+          buffer: Buffer.from('%PDF-1.4\n%%EOF'),
+        },
+      },
+    });
+    expect(signed.ok()).toBeTruthy();
+    documentIds.push((await signed.json()).document_id);
+
+    await page.goto('/#najemcy');
+    await page.locator('#ten-q').fill(fixture.name);
+    const row = page.locator('.tenant-row:not(.tenant-row-head)').filter({ hasText: fixture.name }).first();
+    await expect(row).toBeVisible();
+    await row.click();
+    await expect(page.getByRole('button', { name: 'Dokumenty najmu' })).toBeVisible();
+    await expect(page.getByText('Umowa i aneksy')).toBeVisible();
+    await expect(page.getByText('Umowa najmu').first()).toBeVisible();
+    await expect(page.getByText(`Aneks nr 1/A/${year}`, { exact: true })).toBeVisible();
+    await expect(page.getByText('Obowiązuje').first()).toBeVisible();
+    await page.getByRole('button', { name: 'Dodawanie aneksu' }).click();
+    await expect(page.getByText('Nowy aneks do umowy')).toBeVisible();
+    await expect(page.locator('#amendment-contract')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Zapisz szkic' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Dodaj podpisany aneks' })).toBeVisible();
+
+    await page.locator('#amendment-number').fill(`2/A/${year}`);
+    await page.locator('#amendment-notes').fill('Szkic aneksu dodany przez Playwright');
+    await page.getByRole('button', { name: 'Dodaj podpisany aneks' }).click();
+    await expect(page.getByText('Podpisany aneks wymaga pliku PDF, JPG albo PNG.')).toBeVisible();
+    await page.getByRole('button', { name: 'Zapisz szkic' }).click();
+    await expect(page.getByText('Zapisano szkic aneksu')).toBeVisible();
+    await expect(page.getByText(`Aneks nr 2/A/${year}`, { exact: true })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Dołącz i podpisz' }).click();
+    await expect(page.getByText('Podpisz szkic aneksu')).toBeVisible();
+    await page.locator('#amendment-sign-file').setInputFiles({
+      name: 'draft-to-signed.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('%PDF-1.4\n%%EOF'),
+    });
+    await page.getByRole('button', { name: 'Podpisz aneks' }).click();
+    await expect(page.getByText('Aneks został podpisany')).toBeVisible();
+    await expect(page.getByText(`Aneks nr 2/A/${year}`, { exact: true })).toBeVisible();
+    await expect(page.getByText('Obowiązuje').first()).toBeVisible();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    const metrics = await page.evaluate(() => ({
+      documentWidth: document.documentElement.scrollWidth,
+      viewportWidth: window.innerWidth,
+      contentWidth: document.querySelector('.content')?.scrollWidth || 0,
+      contentClient: document.querySelector('.content')?.clientWidth || 0,
+    }));
+    expect(metrics.documentWidth).toBeLessThanOrEqual(metrics.viewportWidth + 1);
+    expect(metrics.contentWidth).toBeLessThanOrEqual(metrics.contentClient + 1);
+  } finally {
+    if (contractId) {
+      const documents = await request.get(`/api/contracts/${contractId}/documents`).catch(() => null);
+      if (documents?.ok()) {
+        for (const document of await documents.json()) documentIds.push(document.id);
+      }
+    }
+    for (const documentId of [...new Set(documentIds)].filter(Boolean)) {
+      await request.delete(`/api/documents/${documentId}`).catch(() => {});
+    }
+    if (contractId) await request.delete(`/api/contracts/${contractId}`).catch(() => {});
+    await cleanupPaymentFixture(request, fixture);
+  }
+});
+
 test('mortgage owner cost can be edited from expenses', async ({ page, request }) => {
   const period = currentPeriodISO();
   const propertyName = `__ui_mortgage_${Date.now()}`;

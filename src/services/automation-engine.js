@@ -3,6 +3,7 @@
 const db = require('../db');
 const { confirmMatch } = require('./bank-reconciliation');
 const { canSeeAll, ownerId } = require('../utils/scope');
+const { contractsEndingWithinDays } = require('../utils/contract-amendments');
 
 const ALLOWED_ACTIONS = new Set(['create_task', 'reconcile_bank']);
 
@@ -28,20 +29,20 @@ function insertProposal(uid, proposal) {
 function scan(req) {
   const uid = ownerId(req);
   const scoped = !canSeeAll(req);
-  const endingContracts = db
+  const activeContracts = db
     .prepare(
-      `SELECT c.id, c.end_date, c.tenant_id, c.unit_id, t.name AS tenant_name,
+      `SELECT c.*, t.name AS tenant_name,
               p.id AS property_id, p.name AS property_name, u.name AS unit_name
        FROM contracts c
        LEFT JOIN tenants t ON t.id = c.tenant_id
        LEFT JOIN units u ON u.id = c.unit_id
        LEFT JOIN properties p ON p.id = u.property_id
        WHERE c.status = 'active'
-         AND c.end_date BETWEEN DATE('now') AND DATE('now', '+30 days')
-         ${scoped ? 'AND (p.owner_user_id = ? OR t.owner_user_id = ?)' : ''}
-       ORDER BY c.end_date LIMIT 25`,
+       ${scoped ? 'AND (p.owner_user_id = ? OR t.owner_user_id = ?)' : ''}
+       ORDER BY c.end_date`,
     )
     .all(...(scoped ? [uid, uid] : []));
+  const endingContracts = contractsEndingWithinDays(db, activeContracts, 30).slice(0, 25);
   const expiringDocuments = db
     .prepare(
       `SELECT id, name, expires_on, related_entity_type, related_entity_id
@@ -66,20 +67,21 @@ function scan(req) {
 
   let created = 0;
   for (const contract of endingContracts) {
+    const endDate = contract.current_terms.end_date;
     created += insertProposal(uid, {
       action_type: 'create_task',
       risk_level: 'low',
       summary: `Przygotuj przedłużenie lub zakończenie umowy: ${contract.tenant_name || 'najemca'} · ${contract.property_name || 'nieruchomość'}`,
       payload: {
-        title: `Umowa kończy się ${contract.end_date}: ${contract.tenant_name || 'najemca'}`,
+        title: `Umowa kończy się ${endDate}: ${contract.tenant_name || 'najemca'}`,
         description: `Sprawdź decyzję, dokumenty i rozliczenie kaucji dla ${contract.property_name || ''} ${contract.unit_name || ''}.`,
-        due_date: contract.end_date,
+        due_date: endDate,
         priority: 'high',
         property_id: contract.property_id,
         unit_id: contract.unit_id,
         tenant_id: contract.tenant_id,
       },
-      idempotency_key: `contract-expiry:${contract.id}:${contract.end_date}`,
+      idempotency_key: `contract-expiry:${contract.id}:${endDate}`,
     });
   }
   for (const document of expiringDocuments) {

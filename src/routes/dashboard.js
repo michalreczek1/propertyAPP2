@@ -3,6 +3,7 @@ const router = require('express').Router();
 const db = require('../db');
 const { currentPeriod, isValidPeriod } = require('../utils/period');
 const { monthlyFinanceSummary } = require('../services/finance-summary');
+const { contractsEndingWithinDays } = require('../utils/contract-amendments');
 
 router.get('/', (req, res) => {
   const period = req.query.period || currentPeriod();
@@ -71,16 +72,16 @@ router.get('/', (req, res) => {
   `,
     )
     .get(...(scoped ? [req.user.id, req.user.id] : []));
-  const endingContracts = db
+  const activeContracts = db
     .prepare(
       `
-    SELECT COUNT(*) AS c FROM contracts
-    WHERE status='active' AND end_date IS NOT NULL
-      AND DATE(end_date) <= DATE('now', '+30 days')
+    SELECT c.* FROM contracts c
+    WHERE c.status='active'
       ${scoped ? 'AND unit_id IN (SELECT u.id FROM units u JOIN properties p ON p.id = u.property_id WHERE p.owner_user_id = ?)' : ''}
   `,
     )
-    .get(...scopeParams).c;
+    .all(...scopeParams);
+  const endingContracts = contractsEndingWithinDays(db, activeContracts, 30).length;
   const openTasks = db
     .prepare(
       `

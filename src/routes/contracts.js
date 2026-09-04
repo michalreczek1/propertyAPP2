@@ -6,9 +6,22 @@ const multer = require('multer');
 const { z } = require('zod');
 const db = require('../db');
 const { validate } = require('../middleware/validate');
-const { assertRefs, canAccessContract, canAccessTenant, canAccessUnit, ownerId } = require('../utils/scope');
+const {
+  assertRefs,
+  canAccessContract,
+  canAccessDocument,
+  canAccessTenant,
+  canAccessUnit,
+  ownerId,
+} = require('../utils/scope');
 const { dueDate } = require('../utils/period');
 const { isAllowedMime, hasExpectedSignature, removeUploadedFile } = require('../utils/document-upload');
+const {
+  amendmentHistory,
+  contractsEndingWithinDays,
+  decorateContractsWithTerms,
+  getContractAmendments,
+} = require('../utils/contract-amendments');
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, '..', '..', 'data', 'uploads');
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -26,6 +39,7 @@ const signedDocumentUpload = multer({
     const ok = isAllowedMime(file.mimetype);
     if (ok) return cb(null, true);
     const err = new Error('unsupported_file_type_pdf_jpg_only');
+    err.code = 'unsupported_file_type_pdf_jpg_only';
     err.status = 400;
     cb(err);
   },
@@ -80,6 +94,68 @@ const ContractWorkflowSchema = z
   .object({
     stage: z.enum(CONTRACT_STAGES),
     note: z.string().trim().max(500).nullable().optional(),
+  })
+  .strict();
+
+const DATE_SCHEMA = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const optionalDate = z.preprocess(
+  (value) => (value === '' ? null : value),
+  DATE_SCHEMA.nullable().optional(),
+);
+const optionalAmount = z.preprocess(
+  (value) => (value === '' ? null : value),
+  z.coerce.number().min(0).nullable().optional(),
+);
+const optionalPayDay = z.preprocess(
+  (value) => (value === '' ? null : value),
+  z.coerce.number().int().min(1).max(31).nullable().optional(),
+);
+const AmendmentSchema = z
+  .object({
+    amendment_number: z.string().trim().min(1).max(120),
+    name: z.string().trim().min(1).max(240).optional(),
+    signed_date: optionalDate,
+    effective_date: DATE_SCHEMA,
+    new_end_date: optionalDate,
+    rent: optionalAmount,
+    media_advance: optionalAmount,
+    pay_by_day: optionalPayDay,
+    status: z.enum(['draft', 'signed']).default('signed'),
+    notes: z.string().trim().max(2000).nullable().optional(),
+    document_id: z.preprocess(
+      (value) => (value === '' ? null : value),
+      z.coerce.number().int().positive().nullable().optional(),
+    ),
+  })
+  .strict();
+const AmendmentPatchSchema = z
+  .object({
+    amendment_number: z.string().trim().min(1).max(120).optional(),
+    effective_date: DATE_SCHEMA.optional(),
+    new_end_date: optionalDate,
+    rent: optionalAmount,
+    media_advance: optionalAmount,
+    pay_by_day: optionalPayDay,
+    notes: z.string().trim().max(2000).nullable().optional(),
+  })
+  .strict();
+const AmendmentDocumentSchema = z
+  .object({
+    name: z.string().trim().min(1).max(240).optional(),
+    notes: z.string().trim().max(2000).nullable().optional(),
+  })
+  .strict();
+const AmendmentSignSchema = z
+  .object({
+    signed_date: DATE_SCHEMA,
+  })
+  .strict();
+const ContractDocumentUploadSchema = z
+  .object({
+    name: z.string().trim().min(1).max(240).optional(),
+    notes: z.string().trim().max(2000).nullable().optional(),
+    category: z.enum(['umowa', 'protokol', 'inne']).default('umowa'),
+    workflow_status: z.enum(['uploaded', 'review', 'approved', 'signed', 'rejected', 'archived']).optional(),
   })
   .strict();
 
@@ -224,9 +300,165 @@ function requireContractAccess(req, res, next) {
   next();
 }
 
+function validateAmendmentValues(values) {
+  if (values.new_end_date && values.effective_date && values.new_end_date < values.effective_date) {
+    const error = new Error('amendment_end_before_effective_date');
+    error.status = 400;
+    throw error;
+  }
+  if (values.status === 'signed' && !values.signed_date) {
+    const error = new Error('amendment_signed_date_required');
+    error.status = 400;
+    throw error;
+  }
+  const hasTermsChange = ['new_end_date', 'rent', 'media_advance', 'pay_by_day'].some(
+    (field) => values[field] !== null && values[field] !== undefined && values[field] !== '',
+  );
+  if (!hasTermsChange && !String(values.notes || '').trim()) {
+    const error = new Error('amendment_change_or_note_required');
+    error.status = 400;
+    throw error;
+  }
+}
+
+function validateUploadedAmendment(req, res, next) {
+  const parsed = AmendmentSchema.safeParse(req.body);
+  if (!parsed.success) {
+    removeUploadedFile(req.file);
+    return next(parsed.error);
+  }
+  try {
+    validateAmendmentValues(parsed.data);
+  } catch (error) {
+    removeUploadedFile(req.file);
+    return next(error);
+  }
+  if (req.file && !hasExpectedSignature(req.file.path, req.file.mimetype)) {
+    removeUploadedFile(req.file);
+    return res.status(400).json({ error: 'invalid_file_signature' });
+  }
+  if (parsed.data.status === 'signed' && !req.file && !parsed.data.document_id) {
+    return res.status(400).json({ error: 'signed_amendment_document_required' });
+  }
+  if (req.file && parsed.data.document_id) {
+    removeUploadedFile(req.file);
+    return res.status(400).json({ error: 'amendment_document_source_conflict' });
+  }
+  req.body = parsed.data;
+  next();
+}
+
+function validateUploadedAmendmentDocument(req, res, next) {
+  const parsed = AmendmentDocumentSchema.safeParse(req.body);
+  if (!parsed.success) {
+    removeUploadedFile(req.file);
+    return next(parsed.error);
+  }
+  if (!req.file) return res.status(400).json({ error: 'no_file' });
+  if (!hasExpectedSignature(req.file.path, req.file.mimetype)) {
+    removeUploadedFile(req.file);
+    return res.status(400).json({ error: 'invalid_file_signature' });
+  }
+  req.body = parsed.data;
+  next();
+}
+
+function validateUploadedContractDocument(req, res, next) {
+  const parsed = ContractDocumentUploadSchema.safeParse(req.body);
+  if (!parsed.success) {
+    removeUploadedFile(req.file);
+    return next(parsed.error);
+  }
+  if (!req.file) {
+    return res.status(400).json({ error: 'no_file' });
+  }
+  if (!hasExpectedSignature(req.file.path, req.file.mimetype)) {
+    removeUploadedFile(req.file);
+    return res.status(400).json({ error: 'invalid_file_signature' });
+  }
+  req.body = {
+    ...parsed.data,
+    workflow_status:
+      parsed.data.workflow_status || (parsed.data.category === 'umowa' ? 'signed' : 'uploaded'),
+  };
+  next();
+}
+
+function setDocumentStatus(documentId, status, actorUserId, note) {
+  const document = db.prepare('SELECT * FROM documents WHERE id = ?').get(documentId);
+  if (!document || document.workflow_status === status) return;
+  db.prepare('UPDATE documents SET workflow_status = ? WHERE id = ?').run(status, document.id);
+  db.prepare(
+    `INSERT INTO document_workflow_events(document_id, actor_user_id, from_status, to_status, note)
+     VALUES (?, ?, ?, ?, ?)`,
+  ).run(document.id, actorUserId, document.workflow_status, status, note || null);
+}
+
+function amendmentDocumentName(contract, amendmentNumber, suppliedName) {
+  if (suppliedName) return suppliedName;
+  const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(contract.tenant_id);
+  const unit = db
+    .prepare(
+      `SELECT p.name AS property_name
+       FROM units u LEFT JOIN properties p ON p.id = u.property_id
+       WHERE u.id = ?`,
+    )
+    .get(contract.unit_id);
+  return `Aneks nr ${amendmentNumber} - ${tenant?.name || 'najemca'} - ${unit?.property_name || 'nieruchomosc'}`;
+}
+
+function createAmendmentDocument(contract, amendment, file, actorUserId, { name, notes, workflowStatus }) {
+  const documentName = amendmentDocumentName(contract, amendment.amendment_number, name);
+  const insertedDocument = db
+    .prepare(
+      `
+      INSERT INTO documents
+        (owner_user_id, name, file_path, mime_type, size_bytes, related_entity_type, related_entity_id,
+         category, notes, workflow_status, document_number)
+      VALUES (?, ?, ?, ?, ?, 'contract', ?, 'aneks', ?, ?, ?)
+    `,
+    )
+    .run(
+      actorUserId,
+      documentName,
+      file.filename,
+      file.mimetype,
+      file.size,
+      contract.id,
+      notes || null,
+      workflowStatus,
+      amendment.amendment_number,
+    );
+  const documentId = Number(insertedDocument.lastInsertRowid);
+  db.prepare(
+    `INSERT INTO document_workflow_events(document_id, actor_user_id, from_status, to_status, note)
+     VALUES (?, ?, NULL, ?, ?)`,
+  ).run(
+    documentId,
+    actorUserId,
+    workflowStatus,
+    workflowStatus === 'signed' ? 'Dodano podpisany aneks do umowy' : 'Dodano plik szkicu aneksu',
+  );
+  return documentId;
+}
+
+function amendmentSnapshot(contract) {
+  const amendments = getContractAmendments(db, contract.id);
+  const decorated = decorateContractsWithTerms(db, [contract])[0];
+  return {
+    contract: decorated,
+    amendments: amendmentHistory(contract, amendments),
+  };
+}
+
 router.get('/', (req, res) => {
   const where = [];
   const params = [];
+  const endingWithinDays =
+    req.query.ending_within_days === undefined ? null : Number(req.query.ending_within_days);
+  if (endingWithinDays !== null && (!Number.isInteger(endingWithinDays) || endingWithinDays < 0)) {
+    return res.status(400).json({ error: 'invalid_ending_within_days' });
+  }
   if (req.query.status) {
     where.push('c.status = ?');
     params.push(req.query.status);
@@ -235,20 +467,13 @@ router.get('/', (req, res) => {
     where.push('c.tenant_id = ?');
     params.push(req.query.tenant_id);
   }
-  if (req.query.ending_within_days) {
-    where.push(
-      "c.end_date IS NOT NULL AND DATE(c.end_date) <= DATE('now', '+' || ? || ' days') AND c.status='active'",
-    );
-    params.push(req.query.ending_within_days);
-  }
   if (req.user && req.user.id && req.user.role !== 'admin') {
     where.push('(p.owner_user_id = ? OR t.owner_user_id = ?)');
     params.push(req.user.id, req.user.id);
   }
-  res.json(
-    db
-      .prepare(
-        `
+  const rows = db
+    .prepare(
+      `
     SELECT c.*, t.name AS tenant_name, u.name AS unit_name, u.code AS unit_code,
            p.name AS property_name, p.district,
            (SELECT COUNT(*) FROM documents d WHERE d.related_entity_type = 'contract' AND d.related_entity_id = c.id) AS documents_count
@@ -259,8 +484,13 @@ router.get('/', (req, res) => {
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
     ORDER BY c.status, c.end_date
   `,
-      )
-      .all(...params),
+    )
+    .all(...params);
+  const contracts = decorateContractsWithTerms(db, rows, { asOf: req.query.as_of });
+  res.json(
+    endingWithinDays === null
+      ? contracts
+      : contractsEndingWithinDays(db, contracts, endingWithinDays, { asOf: req.query.as_of }),
   );
 });
 
@@ -280,7 +510,7 @@ router.get('/:id', (req, res) => {
     )
     .get(req.params.id);
   if (!c) return res.status(404).json({ error: 'not_found' });
-  res.json(c);
+  res.json(decorateContractsWithTerms(db, [c], { asOf: req.query.as_of })[0]);
 });
 
 function contractWorkflowSnapshot(contractId) {
@@ -403,15 +633,266 @@ router.get('/:id/documents', requireContractAccess, (req, res) => {
   res.json(rows);
 });
 
-router.post('/:id/documents', requireContractAccess, signedDocumentUpload.single('file'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'no_file' });
-  if (!hasExpectedSignature(req.file.path, req.file.mimetype)) {
-    removeUploadedFile(req.file);
-    return res.status(400).json({ error: 'invalid_file_signature' });
-  }
-  const contract = db
-    .prepare(
-      `
+router.get('/:id/amendments', requireContractAccess, (req, res) => {
+  const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(req.params.id);
+  if (!contract) return res.status(404).json({ error: 'not_found' });
+  res.json(amendmentSnapshot(contract));
+});
+
+router.post(
+  '/:id/amendments',
+  requireContractAccess,
+  signedDocumentUpload.single('file'),
+  validateUploadedAmendment,
+  (req, res, next) => {
+    const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(req.params.id);
+    if (!contract) {
+      removeUploadedFile(req.file);
+      return res.status(404).json({ error: 'not_found' });
+    }
+    const b = req.body;
+    const existingDocument = b.document_id
+      ? db.prepare('SELECT * FROM documents WHERE id = ?').get(b.document_id)
+      : null;
+    if (
+      b.document_id &&
+      (!existingDocument ||
+        !canAccessDocument(db, req, existingDocument.id) ||
+        existingDocument.related_entity_type !== 'contract' ||
+        Number(existingDocument.related_entity_id) !== Number(contract.id))
+    ) {
+      removeUploadedFile(req.file);
+      return res.status(404).json({ error: 'amendment_document_not_for_contract' });
+    }
+    if (existingDocument && existingDocument.category !== 'aneks') {
+      removeUploadedFile(req.file);
+      return res.status(409).json({ error: 'amendment_document_category_required' });
+    }
+    if (
+      db
+        .prepare('SELECT id FROM contract_amendments WHERE contract_id = ? AND amendment_number = ?')
+        .get(contract.id, b.amendment_number)
+    ) {
+      removeUploadedFile(req.file);
+      return res.status(409).json({ error: 'amendment_number_exists' });
+    }
+
+    let amendmentId;
+    try {
+      amendmentId = db.transaction(() => {
+        let documentId = b.document_id || null;
+        if (req.file) {
+          documentId = createAmendmentDocument(contract, b, req.file, ownerId(req), {
+            name: b.name,
+            notes: b.notes,
+            workflowStatus: b.status === 'signed' ? 'signed' : 'uploaded',
+          });
+        } else if (documentId && b.status === 'signed') {
+          setDocumentStatus(documentId, 'signed', ownerId(req), 'Podpisano aneks do umowy');
+        }
+        const inserted = db
+          .prepare(
+            `
+            INSERT INTO contract_amendments
+              (contract_id, document_id, amendment_number, signed_date, effective_date, new_end_date,
+               rent, media_advance, pay_by_day, status, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          )
+          .run(
+            contract.id,
+            documentId,
+            b.amendment_number,
+            b.signed_date || null,
+            b.effective_date,
+            b.new_end_date || null,
+            b.rent ?? null,
+            b.media_advance ?? null,
+            b.pay_by_day ?? null,
+            b.status,
+            b.notes || null,
+          );
+        return Number(inserted.lastInsertRowid);
+      })();
+    } catch (error) {
+      removeUploadedFile(req.file);
+      if (String(error.message || '').includes('UNIQUE constraint failed: contract_amendments')) {
+        return res.status(409).json({ error: 'amendment_number_exists' });
+      }
+      return next(error);
+    }
+
+    const snapshot = amendmentSnapshot(contract);
+    const amendment = snapshot.amendments.find((item) => Number(item.id) === amendmentId);
+    res.status(201).json({ ...amendment, contract: snapshot.contract });
+  },
+);
+
+router.post(
+  '/:id/amendments/:amendmentId/document',
+  requireContractAccess,
+  signedDocumentUpload.single('file'),
+  validateUploadedAmendmentDocument,
+  (req, res, next) => {
+    const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(req.params.id);
+    const amendment = db
+      .prepare('SELECT * FROM contract_amendments WHERE id = ? AND contract_id = ?')
+      .get(req.params.amendmentId, req.params.id);
+    if (!contract || !amendment) {
+      removeUploadedFile(req.file);
+      return res.status(404).json({ error: 'amendment_not_found' });
+    }
+    if (amendment.status === 'signed') {
+      removeUploadedFile(req.file);
+      return res.status(409).json({ error: 'signed_amendment_correction_required' });
+    }
+    try {
+      db.transaction(() => {
+        if (amendment.document_id) {
+          setDocumentStatus(
+            amendment.document_id,
+            'archived',
+            ownerId(req),
+            'Zastąpiono plik szkicu aneksu nową wersją',
+          );
+        }
+        const documentId = createAmendmentDocument(contract, amendment, req.file, ownerId(req), {
+          name: req.body.name,
+          notes: req.body.notes || amendment.notes,
+          workflowStatus: 'uploaded',
+        });
+        db.prepare(
+          `UPDATE contract_amendments
+           SET document_id = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+        ).run(documentId, amendment.id);
+      })();
+    } catch (error) {
+      removeUploadedFile(req.file);
+      return next(error);
+    }
+    const snapshot = amendmentSnapshot(contract);
+    const updated = snapshot.amendments.find((item) => Number(item.id) === Number(amendment.id));
+    res.status(201).json({ ...updated, contract: snapshot.contract });
+  },
+);
+
+router.post(
+  '/:id/amendments/:amendmentId/sign',
+  requireContractAccess,
+  validate(AmendmentSignSchema),
+  (req, res, next) => {
+    const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(req.params.id);
+    const amendment = db
+      .prepare('SELECT * FROM contract_amendments WHERE id = ? AND contract_id = ?')
+      .get(req.params.amendmentId, req.params.id);
+    if (!contract || !amendment) return res.status(404).json({ error: 'amendment_not_found' });
+    if (amendment.status === 'signed') return res.status(409).json({ error: 'amendment_already_signed' });
+    if (!amendment.document_id) return res.status(409).json({ error: 'signed_amendment_document_required' });
+    const document = db.prepare('SELECT * FROM documents WHERE id = ?').get(amendment.document_id);
+    if (
+      !document ||
+      !canAccessDocument(db, req, document.id) ||
+      document.category !== 'aneks' ||
+      document.related_entity_type !== 'contract' ||
+      Number(document.related_entity_id) !== Number(contract.id)
+    ) {
+      return res.status(404).json({ error: 'amendment_document_not_for_contract' });
+    }
+    if (document.workflow_status === 'archived') {
+      return res.status(409).json({ error: 'amendment_document_archived' });
+    }
+    const values = { ...amendment, status: 'signed', signed_date: req.body.signed_date };
+    try {
+      validateAmendmentValues(values);
+      db.transaction(() => {
+        db.prepare(
+          `UPDATE contract_amendments
+           SET status = 'signed', signed_date = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+        ).run(req.body.signed_date, amendment.id);
+        setDocumentStatus(document.id, 'signed', ownerId(req), 'Podpisano aneks do umowy');
+      })();
+    } catch (error) {
+      return next(error);
+    }
+    const snapshot = amendmentSnapshot(contract);
+    const updated = snapshot.amendments.find((item) => Number(item.id) === Number(amendment.id));
+    res.json({ ...updated, contract: snapshot.contract });
+  },
+);
+
+router.put(
+  '/:id/amendments/:amendmentId',
+  requireContractAccess,
+  validate(AmendmentPatchSchema),
+  (req, res, next) => {
+    const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(req.params.id);
+    if (!contract) return res.status(404).json({ error: 'not_found' });
+    const current = db
+      .prepare('SELECT * FROM contract_amendments WHERE id = ? AND contract_id = ?')
+      .get(req.params.amendmentId, contract.id);
+    if (!current) return res.status(404).json({ error: 'amendment_not_found' });
+    const fields = [
+      'amendment_number',
+      'effective_date',
+      'new_end_date',
+      'rent',
+      'media_advance',
+      'pay_by_day',
+      'notes',
+    ].filter((field) => req.body[field] !== undefined);
+    if (!fields.length) return res.status(400).json({ error: 'no_fields' });
+    if (
+      current.status === 'signed' &&
+      fields.some((field) =>
+        ['effective_date', 'new_end_date', 'rent', 'media_advance', 'pay_by_day'].includes(field),
+      )
+    ) {
+      return res.status(409).json({ error: 'signed_amendment_correction_required' });
+    }
+    const updatedValues = { ...current, ...req.body };
+    try {
+      validateAmendmentValues(updatedValues);
+    } catch (error) {
+      return next(error);
+    }
+    if (
+      fields.includes('amendment_number') &&
+      db
+        .prepare(
+          'SELECT id FROM contract_amendments WHERE contract_id = ? AND amendment_number = ? AND id != ?',
+        )
+        .get(contract.id, updatedValues.amendment_number, current.id)
+    ) {
+      return res.status(409).json({ error: 'amendment_number_exists' });
+    }
+    try {
+      db.transaction(() => {
+        db.prepare(
+          `UPDATE contract_amendments
+         SET ${fields.map((field) => `${field} = ?`).join(', ')}, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        ).run(...fields.map((field) => updatedValues[field]), current.id);
+      })();
+    } catch (error) {
+      return next(error);
+    }
+    const snapshot = amendmentSnapshot(contract);
+    const amendment = snapshot.amendments.find((item) => Number(item.id) === Number(current.id));
+    res.json({ ...amendment, contract: snapshot.contract });
+  },
+);
+
+router.post(
+  '/:id/documents',
+  requireContractAccess,
+  signedDocumentUpload.single('file'),
+  validateUploadedContractDocument,
+  (req, res) => {
+    const contract = db
+      .prepare(
+        `
     SELECT c.id, t.name AS tenant_name, p.name AS property_name
     FROM contracts c
     LEFT JOIN tenants t ON t.id = c.tenant_id
@@ -419,33 +900,44 @@ router.post('/:id/documents', requireContractAccess, signedDocumentUpload.single
     LEFT JOIN properties p ON p.id = u.property_id
     WHERE c.id = ?
   `,
-    )
-    .get(req.params.id);
-  const defaultName = `Umowa podpisana - ${contract.tenant_name || 'najemca'} - ${contract.property_name || 'nieruchomosc'}`;
-  const r = db
-    .prepare(
-      `
+      )
+      .get(req.params.id);
+    const categoryLabel = { umowa: 'Umowa', protokol: 'Protokół', inne: 'Dokument' }[req.body.category];
+    const defaultName = `${categoryLabel} - ${contract.tenant_name || 'najemca'} - ${contract.property_name || 'nieruchomosc'}`;
+    const r = db
+      .prepare(
+        `
     INSERT INTO documents
       (owner_user_id, name, file_path, mime_type, size_bytes, related_entity_type, related_entity_id,
        category, notes, workflow_status)
-    VALUES (?, ?, ?, ?, ?, 'contract', ?, 'umowa', ?, 'signed')
+    VALUES (?, ?, ?, ?, ?, 'contract', ?, ?, ?, ?)
   `,
-    )
-    .run(
+      )
+      .run(
+        ownerId(req),
+        req.body.name || defaultName,
+        req.file.filename,
+        req.file.mimetype,
+        req.file.size,
+        req.params.id,
+        req.body.category,
+        req.body.notes || null,
+        req.body.workflow_status,
+      );
+    db.prepare(
+      `INSERT INTO document_workflow_events(document_id, actor_user_id, from_status, to_status, note)
+     VALUES (?, ?, NULL, ?, ?)`,
+    ).run(
+      r.lastInsertRowid,
       ownerId(req),
-      req.body.name || defaultName,
-      req.file.filename,
-      req.file.mimetype,
-      req.file.size,
-      req.params.id,
-      req.body.notes || null,
+      req.body.workflow_status,
+      req.body.workflow_status === 'signed'
+        ? 'Dodano podpisany dokument do umowy'
+        : 'Dodano dokument do umowy',
     );
-  db.prepare(
-    `INSERT INTO document_workflow_events(document_id, actor_user_id, from_status, to_status, note)
-     VALUES (?, ?, NULL, 'signed', 'Dodano podpisany dokument do umowy')`,
-  ).run(r.lastInsertRowid, ownerId(req));
-  res.status(201).json(db.prepare('SELECT * FROM documents WHERE id = ?').get(r.lastInsertRowid));
-});
+    res.status(201).json(db.prepare('SELECT * FROM documents WHERE id = ?').get(r.lastInsertRowid));
+  },
+);
 
 router.post('/:id/end', validate(EndContractSchema), (req, res) => {
   if (!canAccessContract(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });

@@ -9,6 +9,11 @@ const { parsePeriodRange: parseAiPeriodRange } = require('./ai-preprocess');
 const { previewPaymentReminder, sendPaymentReminder } = require('./notifications');
 const { todayLocalISO, parsePolishMonthYear, previousPeriod, periodLabel } = require('../utils/period');
 const { canAccessPayment, ownerId } = require('../utils/scope');
+const {
+  contractsEndingWithinDays,
+  decorateContractsWithTerms,
+  effectiveContractsForPeriod,
+} = require('../utils/contract-amendments');
 
 const GROQ_BASE_URL = process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1';
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
@@ -1294,7 +1299,7 @@ function scopedUnits(req) {
 
 function scopedContracts(req) {
   const scope = scopeCondition(req, { tenant: 't', property: 'p' });
-  return db
+  const rows = db
     .prepare(
       `
     SELECT c.*, t.name AS tenant_name, u.code AS unit_code, u.name AS unit_name, p.name AS property_name
@@ -1307,6 +1312,7 @@ function scopedContracts(req) {
   `,
     )
     .all(...scope.params);
+  return decorateContractsWithTerms(db, rows);
 }
 
 function scopedExpenses(req, period) {
@@ -2546,7 +2552,7 @@ function answerFromDataTool(req, model, message, period) {
         type: 'contract',
         id: c.id,
         title: c.tenant_name,
-        subtitle: `${c.unit_code || ''} · ${c.status || ''} · ${c.end_date || 'bez daty końca'}`,
+        subtitle: `${c.unit_code || ''} · ${c.status || ''} · ${c.current_terms.end_date || 'bez daty końca'}`,
         view: 'umowy',
       })),
       { view: 'umowy' },
@@ -2684,17 +2690,12 @@ function filterResponse(req, intent, model, message, period) {
     );
   }
   if (intent === 'filter_contracts') {
-    const contracts = scopedContracts(req).filter(
-      (c) =>
-        c.status === 'active' &&
-        c.end_date &&
-        new Date(c.end_date) <= new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-    );
+    const contracts = contractsEndingWithinDays(db, scopedContracts(req), 30);
     const items = contracts.slice(0, 12).map((c) => ({
       type: 'contract',
       id: c.id,
       title: c.tenant_name,
-      subtitle: `${c.unit_code || ''} · koniec ${c.end_date}`,
+      subtitle: `${c.unit_code || ''} · koniec ${c.current_terms.end_date}`,
       view: 'umowy',
     }));
     return resultList(
@@ -3598,23 +3599,22 @@ function createAuditTasks(req, action) {
 
 function generatePayments(req, period) {
   const fallbackDueDay = 10;
-  const monthStart = `${period}-01`;
   const monthEndDate = monthEnd(period);
   const uid = ownerId(req);
   const scoped = req.user && req.user.id && req.user.role !== 'admin';
   const tx = db.transaction(() => {
-    const contracts = db
+    const contractRows = db
       .prepare(
         `
       SELECT * FROM contracts
       WHERE status = 'active'
         AND (start_date IS NULL OR DATE(start_date) <= DATE(?))
-        AND (end_date IS NULL OR DATE(end_date) >= DATE(?))
         ${scoped ? 'AND unit_id IN (SELECT u.id FROM units u JOIN properties p ON p.id = u.property_id WHERE p.owner_user_id = ?)' : ''}
       ORDER BY unit_id
     `,
       )
-      .all(monthEndDate, monthStart, ...(scoped ? [uid] : []));
+      .all(monthEndDate, ...(scoped ? [uid] : []));
+    const contracts = effectiveContractsForPeriod(db, contractRows, period);
     const upsert = db.prepare(`
       INSERT INTO payments (owner_user_id,period,tenant_id,unit_id,due_day,due_date,rent_amount,media_amount,late_fee_amount,late_fee_paid,late_fee_manual,total_paid,status,source)
       VALUES (@owner_user_id,@period,@tenant_id,@unit_id,@due_day,@due_date,@rent_amount,@media_amount,0,0,0,0,'pending','assistant')
@@ -3623,7 +3623,8 @@ function generatePayments(req, period) {
     let created = 0;
     let skipped = 0;
     for (const c of contracts) {
-      const dueDay = c.pay_by_day || fallbackDueDay;
+      const terms = c.current_terms;
+      const dueDay = terms.pay_by_day || fallbackDueDay;
       const result = upsert.run({
         owner_user_id: uid,
         period,
@@ -3631,8 +3632,8 @@ function generatePayments(req, period) {
         unit_id: c.unit_id,
         due_day: dueDay,
         due_date: `${period}-${String(Math.min(dueDay, Number(monthEndDate.slice(8)))).padStart(2, '0')}`,
-        rent_amount: c.rent || 0,
-        media_amount: c.media_advance || 0,
+        rent_amount: terms.rent || 0,
+        media_amount: terms.media_advance || 0,
       });
       if (result.changes) created += 1;
       else skipped += 1;
