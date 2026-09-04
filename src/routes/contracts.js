@@ -840,6 +840,9 @@ router.put(
       .prepare('SELECT * FROM contract_amendments WHERE id = ? AND contract_id = ?')
       .get(req.params.amendmentId, contract.id);
     if (!current) return res.status(404).json({ error: 'amendment_not_found' });
+    if (current.status === 'draft' && contract.status !== 'active') {
+      return res.status(409).json({ error: 'amendment_requires_active_contract' });
+    }
     const fields = [
       'amendment_number',
       'effective_date',

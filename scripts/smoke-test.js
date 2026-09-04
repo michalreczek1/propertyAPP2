@@ -1456,6 +1456,29 @@ async function main() {
     );
     return 'warunki bazowe';
   });
+  await check('PUT draft amendment updates editable data', async () => {
+    const response = await api(
+      'PUT',
+      `/api/contracts/${amendmentContractId}/amendments/${amendmentDraftId}`,
+      {
+        amendment_number: '1/A/2098',
+        effective_date: '2098-01-01',
+        new_end_date: '2098-03-31',
+        rent: null,
+        media_advance: null,
+        pay_by_day: null,
+        notes: 'Zmieniony szkic aneksu',
+      },
+    );
+    expect(
+      response.ok &&
+        response.data.status === 'draft' &&
+        response.data.new_end_date === '2098-03-31' &&
+        response.data.notes === 'Zmieniony szkic aneksu',
+      JSON.stringify(response),
+    );
+    return 'szkic zaktualizowany';
+  });
   await check('POST amendment without change returns readable validation', async () => {
     const response = await postAmendment(
       amendmentContractId,
@@ -1566,6 +1589,19 @@ async function main() {
       JSON.stringify(document),
     );
     return `amendment=${amendmentSignedId}`;
+  });
+  await check('GET projected end date includes future signed extension', async () => {
+    const contract = await api('GET', `/api/contracts/${amendmentContractId}?as_of=2098-01-10`);
+    const tenants = await api('GET', '/api/tenants?status=active');
+    const tenant = tenants.data.find((item) => item.id === amendmentTenantId);
+    expect(
+      contract.ok &&
+        contract.data.current_terms.end_date === '2098-03-31' &&
+        contract.data.projected_terms.end_date === '2098-04-30' &&
+        tenant?.contract_end === '2098-04-30',
+      JSON.stringify({ contract, tenant }),
+    );
+    return 'status używa podpisanego przedłużenia';
   });
   await check('POST second signed amendment uses effective-date order', async () => {
     const response = await postAmendment(

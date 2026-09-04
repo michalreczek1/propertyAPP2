@@ -231,8 +231,8 @@ test('tenant documents group a base contract and amendments on desktop and mobil
       data: {
         tenant_id: fixture.tenantId,
         unit_id: fixture.unitId,
-        start_date: `${currentPeriodISO()}-01`,
-        end_date: `${year + 1}-12-31`,
+        start_date: `${year - 1}-01-01`,
+        end_date: `${year - 1}-12-31`,
         rent: 1234,
         media_advance: 321,
         deposit: 1500,
@@ -256,7 +256,8 @@ test('tenant documents group a base contract and amendments on desktop and mobil
       multipart: {
         amendment_number: `1/A/${year}`,
         signed_date: today,
-        effective_date: today,
+        effective_date: `${year + 1}-01-01`,
+        new_end_date: `${year + 2}-12-31`,
         rent: '1300',
         status: 'signed',
         file: {
@@ -273,12 +274,14 @@ test('tenant documents group a base contract and amendments on desktop and mobil
     await page.locator('#ten-q').fill(fixture.name);
     const row = page.locator('.tenant-row:not(.tenant-row-head)').filter({ hasText: fixture.name }).first();
     await expect(row).toBeVisible();
+    await expect(row).not.toContainText('Wygasła');
+    await expect(row).toContainText(`31.12.${year + 2}`);
     await row.click();
     await expect(page.getByRole('button', { name: 'Dokumenty najmu' })).toBeVisible();
     await expect(page.getByText('Umowa i aneksy')).toBeVisible();
     await expect(page.getByText('Umowa najmu').first()).toBeVisible();
     await expect(page.getByText(`Aneks nr 1/A/${year}`, { exact: true })).toBeVisible();
-    await expect(page.getByText('Obowiązuje').first()).toBeVisible();
+    await expect(page.getByText('Zaplanowany').first()).toBeVisible();
     await expect(page.getByRole('button', { name: 'Dodawanie aneksu' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Dodaj aneks' })).toHaveCount(1);
     await expect(page.getByRole('link', { name: 'Pobierz' }).first()).toHaveClass(/rental-document-action/);
@@ -311,6 +314,15 @@ test('tenant documents group a base contract and amendments on desktop and mobil
     await page.getByRole('button', { name: 'Zapisz szkic' }).click();
     await expect(page.getByText('Zapisano szkic aneksu')).toBeVisible();
     await expect(page.getByText(`Aneks nr 2/A/${year}`, { exact: true })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Edytuj', exact: true }).click();
+    await expect(page.getByText('Edytuj szkic aneksu')).toBeVisible();
+    await expect(page.locator('#amendment-edit-end-date')).toBeVisible();
+    await page.locator('#amendment-edit-end-date').fill(`${year + 3}-12-31`);
+    await page.locator('#amendment-edit-notes').fill('Zmieniony szkic aneksu przez Playwright');
+    await page.getByRole('button', { name: 'Zapisz zmiany' }).click();
+    await expect(page.getByText('Zaktualizowano szkic aneksu')).toBeVisible();
+    await expect(page.getByText(`termin do 31.12.${year + 3}`)).toBeVisible();
 
     await page.getByRole('button', { name: 'Dołącz i podpisz' }).click();
     await expect(page.getByText('Podpisz szkic aneksu')).toBeVisible();

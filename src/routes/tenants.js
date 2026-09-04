@@ -121,19 +121,21 @@ router.get('/', (req, res) => {
           pay_by_day: row.contract_pay_by_day,
           end_date: row.contract_end,
         })),
-    ).map((contract) => [contract.id, contract.current_terms]),
+    ).map((contract) => [contract.id, contract]),
   );
   res.json(
     rows.map((row) => {
-      const terms = contractTerms.get(row.contract_id);
-      if (!terms) return row;
+      const contract = contractTerms.get(row.contract_id);
+      if (!contract) return row;
+      const terms = contract.current_terms;
       return {
         ...row,
         contract_rent: terms.rent,
         contract_media: terms.media_advance,
         contract_pay_by_day: terms.pay_by_day,
-        contract_end: terms.end_date,
+        contract_end: contract.projected_terms.end_date,
         contract_current_terms: terms,
+        contract_projected_terms: contract.projected_terms,
       };
     }),
   );
@@ -173,7 +175,7 @@ router.get('/:id', (req, res) => {
     t.contract_rent = terms.rent;
     t.contract_media = terms.media_advance;
     t.contract_pay_by_day = terms.pay_by_day;
-    t.contract_end = terms.end_date;
+    t.contract_end = activeContract.projected_terms.end_date;
   }
   t.rental_documents = t.contracts.map((contract) => {
     const documents = db

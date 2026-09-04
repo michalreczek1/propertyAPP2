@@ -48,7 +48,7 @@ function amendmentOrder(a, b) {
   );
 }
 
-function getSignedAmendmentsByContract(db, contractIds, asOf) {
+function getSignedAmendmentsByContract(db, contractIds, asOf, { includeFuture = false } = {}) {
   const ids = [...new Set((contractIds || []).map(Number).filter(Boolean))];
   if (!ids.length) return new Map();
   const cutoff = dateForTerms(asOf);
@@ -60,11 +60,11 @@ function getSignedAmendmentsByContract(db, contractIds, asOf) {
       FROM contract_amendments
       WHERE status = 'signed'
         AND contract_id IN (${placeholders})
-        AND DATE(effective_date) <= DATE(?)
+        ${includeFuture ? '' : 'AND DATE(effective_date) <= DATE(?)'}
       ORDER BY contract_id, DATE(effective_date), id
     `,
     )
-    .all(...ids, cutoff);
+    .all(...ids, ...(includeFuture ? [] : [cutoff]));
   const byContract = new Map();
   for (const row of rows) {
     const list = byContract.get(row.contract_id) || [];
@@ -81,20 +81,32 @@ function decorateContractsWithTerms(db, contracts, { asOf } = {}) {
     rows.map((contract) => contract.id),
     asOf,
   );
+  const projectedByContract = getSignedAmendmentsByContract(
+    db,
+    rows.map((contract) => contract.id),
+    asOf,
+    { includeFuture: true },
+  );
   const effectiveOn = dateForTerms(asOf);
   return rows.map((contract) => {
     const base = baseTerms(contract);
     const applied = appliedByContract.get(contract.id) || [];
     const current = applied.reduce((terms, amendment) => applyAmendment(terms, amendment), base);
+    const projected = (projectedByContract.get(contract.id) || []).reduce(
+      (terms, amendment) => applyAmendment(terms, amendment),
+      base,
+    );
     return {
       ...contract,
       base_terms: base,
       current_terms: current,
+      projected_terms: projected,
       effective_on: effectiveOn,
       effective_rent: current.rent,
       effective_media_advance: current.media_advance,
       effective_pay_by_day: current.pay_by_day,
       effective_end_date: current.end_date,
+      projected_end_date: projected.end_date,
       applied_amendments_count: applied.length,
     };
   });
@@ -117,12 +129,12 @@ function contractsEndingWithinDays(db, contracts, days, { asOf } = {}) {
   const end = addDays(start, days);
   return decorateContractsWithTerms(db, contracts, { asOf: start })
     .filter((contract) => {
-      const effectiveEnd = contract.current_terms.end_date;
+      const effectiveEnd = contract.projected_terms.end_date;
       return contract.status === 'active' && effectiveEnd && effectiveEnd >= start && effectiveEnd <= end;
     })
     .sort(
       (a, b) =>
-        String(a.current_terms.end_date).localeCompare(String(b.current_terms.end_date)) || a.id - b.id,
+        String(a.projected_terms.end_date).localeCompare(String(b.projected_terms.end_date)) || a.id - b.id,
     );
 }
 
