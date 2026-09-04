@@ -519,7 +519,7 @@ function localIntent(message) {
   const base = { query, period, confidence: 0.7 };
   if (/^(szukaj|wyszukaj|znajdz)\b/.test(text)) return { intent: 'search_global', ...base, confidence: 0.9 };
   if (
-    includesAny(text, ['brakuje wplat', 'brakujace wplaty']) ||
+    (text.includes('brakuje') && text.includes('wplat')) ||
     (text.includes('czynsz') && text.includes('medi')) ||
     (includesAny(text, ['podsumuj', 'ile']) &&
       includesAny(text, ['wplaty', 'wplywy']) &&

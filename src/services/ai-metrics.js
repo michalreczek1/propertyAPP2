@@ -53,6 +53,10 @@ const METRICS = {
       'ile brakuje wplat',
       'brakuje wpłat',
       'brakuje wplat',
+      'wpłat brakuje',
+      'wplat brakuje',
+      'ile jeszcze wpłat brakuje',
+      'ile jeszcze wplat brakuje',
       'brakujące wpłaty',
       'brakujace wplaty',
     ],
@@ -127,7 +131,7 @@ function metricListForPrompt() {
 
 function inferMetric(question) {
   const text = normalizeText(question);
-  if (includesAny(text, ['ile brakuje wplat', 'brakuje wplat', 'brakujace wplaty'])) {
+  if (text.includes('brakuje') && text.includes('wplat')) {
     return { key: 'revenue_shortfall', metric: METRICS.revenue_shortfall, ambiguous: false, source: 'rule' };
   }
   if (text.includes('czynsz') && text.includes('medi')) {

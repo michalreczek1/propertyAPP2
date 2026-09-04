@@ -739,7 +739,7 @@ async function main() {
 
     const shortfall = await api('POST', '/api/assistant/parse', {
       period: '2026-05',
-      message: 'ile brakuje wpłat w tym miesiącu? Podaj kwotę.',
+      message: 'ile jeszcze wpłat brakuje w tym miesiącu? Podaj kwotę.',
     });
     expect(
       shortfall.ok &&
