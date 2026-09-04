@@ -369,7 +369,7 @@ html {
 
 /* ── TOPBAR ── */
 .topbar {
-  height: 60px;
+  min-height: 60px;
   flex-shrink: 0;
   position: sticky;
   top: 0;
@@ -380,7 +380,7 @@ html {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 28px;
+  padding: 8px 28px;
   gap: 16px;
 }
 .topbar-left {
@@ -432,16 +432,26 @@ html {
   stroke-width: 1.8;
   flex-shrink: 0;
 }
-.topbar-search input {
+.topbar-search textarea {
   background: none;
   border: none;
   font-size: 13px;
+  line-height: 18px;
   color: var(--t1);
   outline: none;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 18px;
+  padding: 0;
+  resize: none;
+  overflow-y: hidden;
+  scrollbar-width: thin;
 }
-.topbar-search input::placeholder {
+.topbar-search textarea::placeholder {
   color: var(--t4);
+}
+.topbar-search.expanded .topbar-kbd {
+  display: none;
 }
 .topbar-voice {
   width: 28px;
@@ -4274,7 +4284,8 @@ select.slim {
 }
 @media (max-height: 920px) and (min-width: 900px) {
   .topbar {
-    height: 54px;
+    min-height: 54px;
+    padding: 6px 18px;
   }
   .rail-logo {
     height: 54px;

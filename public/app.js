@@ -737,6 +737,7 @@ function bindAssistantResult(root, modalRef) {
       const input = document.getElementById('global-search');
       if (input) {
         input.value = btn.dataset.example;
+        resizeCommandBar(input);
         input.focus();
         modalRef.close();
       }
@@ -811,18 +812,43 @@ async function runCommandBar(message) {
     if (input) {
       input.disabled = false;
       input.value = '';
+      resizeCommandBar(input);
     }
   }
+}
+
+function resizeCommandBar(input) {
+  if (!input) return;
+  const lineHeight = Number.parseFloat(window.getComputedStyle(input).lineHeight) || 18;
+  input.style.height = 'auto';
+  const nextHeight = Math.max(input.scrollHeight, lineHeight);
+  input.style.height = `${nextHeight}px`;
+  input.style.overflowY = 'hidden';
+  input.closest('.topbar-search')?.classList.toggle('expanded', nextHeight > lineHeight + 1);
 }
 
 function bindCommandBar() {
   const input = document.getElementById('global-search');
   if (!input) return;
   input.placeholder = 'Szukaj lub wpisz komendę AI…';
+  resizeCommandBar(input);
+  input.addEventListener('input', () => resizeCommandBar(input));
   input.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter') return;
+    if (event.shiftKey) return;
     event.preventDefault();
     runCommandBar(input.value);
+  });
+  document.addEventListener('keydown', (event) => {
+    if (
+      event.key.toLowerCase() !== 'k' ||
+      !(event.ctrlKey || event.metaKey) ||
+      event.altKey ||
+      event.isComposing
+    )
+      return;
+    event.preventDefault();
+    input.focus();
   });
   bindVoiceCommand();
 }

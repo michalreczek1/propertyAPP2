@@ -138,7 +138,13 @@
               <circle cx="11" cy="11" r="8" />
               <line x1="21" y1="21" x2="16.65" y2="16.65" />
             </svg>
-            <input type="text" placeholder="Szukaj albo wpisz komendę AI…" id="global-search" />
+            <textarea
+              id="global-search"
+              rows="1"
+              aria-label="Szukaj albo wpisz komendę AI"
+              aria-keyshortcuts="Control+K"
+              placeholder="Szukaj albo wpisz komendę AI…"
+            ></textarea>
             <button
               type="button"
               class="topbar-voice"
@@ -154,7 +160,7 @@
                 <line x1="8" y1="22" x2="16" y2="22" />
               </svg>
             </button>
-            <span class="topbar-kbd">⌘K</span>
+            <span class="topbar-kbd" aria-hidden="true">Ctrl K</span>
           </div>
           <div class="topbar-right" id="topbar-actions"></div>
         </div>

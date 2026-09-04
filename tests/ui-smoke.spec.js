@@ -825,11 +825,33 @@ test('mobile topbar keeps AI command bar visible and usable', async ({ page }) =
   }
   const search = page.locator('#global-search');
   await expect(search).toBeVisible();
-  await expect(search).toHaveCSS('display', /block|inline-block/);
+  await expect(search).toHaveJSProperty('tagName', 'TEXTAREA');
   await expect(page.locator('#voice-command')).toBeVisible();
   await search.fill('ile wynosi podatek za ten miesiąc?');
   await search.press('Enter');
   await expect(page.locator('.assistant-result.answer')).toContainText(/Podatek za/);
+});
+
+test('command bar expands long commands and Ctrl+K focuses it', async ({ page }) => {
+  await page.goto('/#dashboard');
+  const search = page.locator('#global-search');
+  await page.locator('body').press('Control+K');
+  await expect(search).toBeFocused();
+
+  const longCommand =
+    'podsumuj wpłaty z tego miesiąca, podaj brakującą kwotę, czynsz, media i krótko wyjaśnij najważniejsze różnice ';
+  await search.fill(longCommand.repeat(4));
+  const dimensions = await search.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+    topbarHeight: element.closest('#topbar').getBoundingClientRect().height,
+  }));
+  expect(dimensions.clientHeight).toBeGreaterThan(18);
+  expect(dimensions.scrollHeight).toBeLessThanOrEqual(dimensions.clientHeight + 1);
+  expect(dimensions.topbarHeight).toBeGreaterThan(60);
+
+  await search.press('Shift+Enter');
+  await expect(search).toHaveValue(new RegExp(`\\n$`));
 });
 
 test('AI voice dictation fills command bar on desktop and mobile', async ({ page }) => {
