@@ -359,6 +359,7 @@ function monthlyFinanceSummary(db, period, req = null, options = {}) {
     totals: {
       revenue: round2(current.paid || 0),
       rent_paid: round2(current.rent_paid || 0),
+      media_paid: round2(current.media_paid || 0),
       tax_base: tax.base,
       expected_revenue: round2(current.gross_expected || 0),
       expected_revenue_with_late_fees: round2(current.expected_with_late_fees || current.gross_expected || 0),

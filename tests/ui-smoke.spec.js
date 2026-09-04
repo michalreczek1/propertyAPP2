@@ -722,6 +722,27 @@ test('topbar command bar explains finance result drivers', async ({ page }) => {
   await expect(result).toContainText('Marża');
 });
 
+test('topbar command bar answers portfolio calculation commands', async ({ page, request }) => {
+  const fixture = await createPaymentFixture(request, '__ai_portfolio_calculation', { status: 'pending' });
+  try {
+    await page.goto('/#dashboard');
+    await page.locator('#global-search').fill('ile brakuje wpłat w tym miesiącu? Podaj kwotę.');
+    await page.locator('#global-search').press('Enter');
+    const result = page.locator('.assistant-result.answer');
+    await expect(result).toContainText('Brakujące wpłaty');
+    await expect(result).toContainText('oczekiwano');
+    await page.locator('#m-close').click();
+
+    await page.locator('#global-search').fill('ile zapłaciłem czynszu i mediów od początku roku');
+    await page.locator('#global-search').press('Enter');
+    await expect(result).toContainText('Zapłacony czynsz i media');
+    await expect(result).toContainText('Czynsz:');
+    await expect(result).toContainText('media:');
+  } finally {
+    await cleanupPaymentFixture(request, fixture);
+  }
+});
+
 test('topbar command bar explains margin in plain language', async ({ page, request }) => {
   const fixture = await createPaymentFixture(request, '__ai_margin_plain', {
     period: '2026-05',

@@ -518,6 +518,15 @@ function localIntent(message) {
   const query = extractSearchQuery(message);
   const base = { query, period, confidence: 0.7 };
   if (/^(szukaj|wyszukaj|znajdz)\b/.test(text)) return { intent: 'search_global', ...base, confidence: 0.9 };
+  if (
+    includesAny(text, ['brakuje wplat', 'brakujace wplaty']) ||
+    (text.includes('czynsz') && text.includes('medi')) ||
+    (includesAny(text, ['podsumuj', 'ile']) &&
+      includesAny(text, ['wplaty', 'wplywy']) &&
+      includesAny(text, ['tego miesiaca', 'w tym miesiacu', 'od poczatku roku', 'w tym roku']))
+  ) {
+    return { intent: 'report_answer', query: 'portfolio_finance', ...base, confidence: 0.93 };
+  }
   if (/\b(sms|wiadomosc|przypomnienie|przypomnij)\b/.test(text))
     return {
       intent: 'send_sms_reminder',

@@ -186,6 +186,18 @@ function parsePeriodRange(message, fallbackPeriod, bounds = {}) {
   const text = normalizeText(message);
   const fallback = fallbackPeriod || todayLocalISO().slice(0, 7);
   const fallbackYear = Number(String(fallback).slice(0, 4));
+  const explicitYear = String(message || '').match(/\b(20\d{2})\b/);
+  if (includesAny(text, ['od poczatku roku', 'od stycznia'])) {
+    const year = explicitYear ? Number(explicitYear[1]) : fallbackYear;
+    const range = yearRange(year, fallback, text, 'year_to_date');
+    return {
+      ...range,
+      label:
+        year === fallbackYear
+          ? `od początku ${year} r. do ${periodLabel(range.end)}`
+          : `od początku ${year} r.`,
+    };
+  }
   if (
     includesAny(text, [
       'od poczatku',
@@ -255,7 +267,6 @@ function parsePeriodRange(message, fallbackPeriod, bounds = {}) {
       source: 'rule',
     };
   }
-  const explicitYear = String(message || '').match(/\b(20\d{2})\b/);
   if (
     explicitYear ||
     includesAny(text, [
@@ -321,7 +332,7 @@ function cleanEntityName(value) {
       ' ',
     )
     .replace(
-      /\b(suma|sum[eę]|razem|dochod[oó]w?|przychod[oó]w?|wp[łl]yw[oó]w?|wp[łl]aty|wplaty|zysk|zarobi[łl]e[msś]?|zarobile[ms]?|netto|koszt[oó]w?|mar[zż]a|mar[zż][eęy]|zap[łl]aci[łl]a?|zap[łl]acili|op[łl]aci[łl]a?|wp[łl]aci[łl]a?|wp[łl]acili|p[łl]atno[śs][ćc]|p[łl]atno[śs]ci|najemc[oó]w|najemcy|najemca|podatek|podatku)\b/gi,
+      /\b(suma|sum[eę]|razem|dochod[oó]w?|przychod[oó]w?|wp[łl]yw\w*|wp[łl]at\w*|zysk|zarobi[łl]e[msś]?|zarobile[ms]?|netto|koszt[oó]w?|mar[zż]a|mar[zż][eęy]|zap[łl]aci[łl]a?|zap[łl]acili|zap[łl]acon\w*|op[łl]aci[łl]a?|wp[łl]aci[łl]a?|wp[łl]acili|p[łl]atno[śs][ćc]|p[łl]atno[śs]ci|najemc[oó]w|najemcy|najemca|najmu|brakuje|brakuj[aą]c\w*|podatek|podatku)\b/gi,
       ' ',
     )
     .replace(/\s+/g, ' ')

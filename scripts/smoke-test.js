@@ -704,6 +704,92 @@ async function main() {
     );
     return `${assistant.data.report.tax_total} zł`;
   });
+  await check('POST /api/assistant/parse portfolio calculation commands', async () => {
+    const fixture = await createAiPaymentFixture(`__smoke_ai_calculations_${Date.now()}`, {
+      period: '2026-05',
+      status: 'pending',
+      code: 'CAL',
+    });
+    const januaryPayment = await api('POST', '/api/payments', {
+      period: '2026-01',
+      tenant_id: fixture.tenantId,
+      unit_id: fixture.unitId,
+      due_day: 10,
+      rent_amount: 1000,
+      media_amount: 200,
+      other_amount: 0,
+      total_paid: 1200,
+      status: 'paid',
+      source: 'smoke-ai',
+    });
+    expect(januaryPayment.ok && januaryPayment.data.id, JSON.stringify(januaryPayment));
+    aiFixtures.push({ paymentId: januaryPayment.data.id });
+
+    const monthlyPayments = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'podsumuj wpłaty z tego miesiąca',
+    });
+    expect(
+      monthlyPayments.ok &&
+        monthlyPayments.data.report &&
+        monthlyPayments.data.report.metric === 'revenue_paid' &&
+        monthlyPayments.data.report.range.mode === 'period',
+      JSON.stringify(monthlyPayments),
+    );
+
+    const shortfall = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'ile brakuje wpłat w tym miesiącu? Podaj kwotę.',
+    });
+    expect(
+      shortfall.ok &&
+        shortfall.data.report &&
+        shortfall.data.report.metric === 'revenue_shortfall' &&
+        Math.round(shortfall.data.report.value) ===
+          Math.round(Math.max(0, shortfall.data.report.expected - shortfall.data.report.revenue)),
+      JSON.stringify(shortfall),
+    );
+
+    const yearToDatePayments = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'podsumuj wpływy z najmu od początku roku',
+    });
+    expect(
+      yearToDatePayments.ok &&
+        yearToDatePayments.data.report &&
+        yearToDatePayments.data.report.metric === 'revenue_paid' &&
+        yearToDatePayments.data.report.range.start === '2026-01' &&
+        yearToDatePayments.data.report.range.end === '2026-05',
+      JSON.stringify(yearToDatePayments),
+    );
+
+    const yearToDateTax = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'podsumuj zapłacony podatek od początku roku',
+    });
+    expect(
+      yearToDateTax.ok &&
+        yearToDateTax.data.report &&
+        yearToDateTax.data.report.tax_total >= 0 &&
+        yearToDateTax.data.report.range.start === '2026-01' &&
+        yearToDateTax.data.report.range.end === '2026-05',
+      JSON.stringify(yearToDateTax),
+    );
+
+    const rentAndMedia = await api('POST', '/api/assistant/parse', {
+      period: '2026-05',
+      message: 'ile zapłaciłem czynszu i mediów od początku roku',
+    });
+    expect(
+      rentAndMedia.ok &&
+        rentAndMedia.data.report &&
+        rentAndMedia.data.report.metric === 'rent_and_media_paid' &&
+        Math.round(rentAndMedia.data.report.value) ===
+          Math.round(rentAndMedia.data.report.rent_paid + rentAndMedia.data.report.media_paid),
+      JSON.stringify(rentAndMedia),
+    );
+    return `${Math.round(shortfall.data.report.value)} zł brakuje`;
+  });
   await check('POST /api/assistant/parse tenant count previous year by property', async () => {
     const prop = await api('POST', '/api/properties', {
       name: `__smoke_ai_Lawendowa_${Date.now()}`,

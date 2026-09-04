@@ -251,6 +251,8 @@ function getGlobalFinance(req, range) {
       period,
       revenue: Number(summary.totals.revenue || 0),
       expected: Number(summary.totals.expected_revenue || 0),
+      rent_paid: Number(summary.totals.rent_paid || 0),
+      media_paid: Number(summary.totals.media_paid || 0),
       expenses: Number(summary.totals.expenses || 0),
       tax: Number(summary.totals.tax_total || 0),
       net: Number(summary.totals.net || 0),
@@ -262,11 +264,13 @@ function getGlobalFinance(req, range) {
     (acc, row) => ({
       revenue: acc.revenue + row.revenue,
       expected: acc.expected + row.expected,
+      rent_paid: acc.rent_paid + row.rent_paid,
+      media_paid: acc.media_paid + row.media_paid,
       expenses: acc.expenses + row.expenses,
       tax: acc.tax + row.tax,
       net: acc.net + row.net,
     }),
-    { revenue: 0, expected: 0, expenses: 0, tax: 0, net: 0 },
+    { revenue: 0, expected: 0, rent_paid: 0, media_paid: 0, expenses: 0, tax: 0, net: 0 },
   );
   totals.margin = totals.revenue ? totals.net / totals.revenue : 0;
   return {
@@ -478,7 +482,9 @@ function semanticAnswer(req, question, currentPeriod) {
   const text = normalizeText(question);
   const toolsCalled = [];
   const propertySubject = extractPropertySubject(question);
-  const hasPropertySubject = Boolean(propertySubject && matchTokens(propertySubject).length);
+  const hasPropertySubject =
+    !['revenue_shortfall', 'rent_and_media_paid'].includes(metricHit && metricHit.key) &&
+    Boolean(propertySubject && matchTokens(propertySubject).length);
 
   function finish(result, metricUsed, params = {}) {
     const enriched = {
@@ -650,7 +656,15 @@ function semanticAnswer(req, question, currentPeriod) {
 
   const isGlobalFinance =
     metricHit &&
-    ['net_income', 'revenue_paid', 'revenue_expected', 'expenses', 'margin'].includes(metricHit.key) &&
+    [
+      'net_income',
+      'revenue_paid',
+      'revenue_expected',
+      'revenue_shortfall',
+      'rent_and_media_paid',
+      'expenses',
+      'margin',
+    ].includes(metricHit.key) &&
     !hasPropertySubject;
   if (isGlobalFinance) {
     toolsCalled.push('get_global_finance');
@@ -665,7 +679,11 @@ function semanticAnswer(req, question, currentPeriod) {
         : shouldShowMethodology(question, finance)
           ? ` ${metricHit.metric.methodology_pl}`
           : '';
-    const message = `${metricLabel} za ${range.label}: ${valueText}. Wpłaty: ${formatMoney(finance.totals.revenue)}, oczekiwano: ${formatMoney(finance.totals.expected)}, koszty: ${formatMoney(finance.totals.expenses)}, podatek: ${formatMoney(finance.totals.tax)}, netto: ${formatMoney(finance.totals.net)}.${maybeNegativeNetNote(finance.totals)}${maybeQualityNote(finance.data_quality)}${methodology}`;
+    const detail =
+      metric === 'rent_and_media_paid'
+        ? ` Czynsz: ${formatMoney(finance.totals.rent_paid)}, media: ${formatMoney(finance.totals.media_paid)}.`
+        : '';
+    const message = `${metricLabel} za ${range.label}: ${valueText}.${detail} Wpłaty: ${formatMoney(finance.totals.revenue)}, oczekiwano: ${formatMoney(finance.totals.expected)}, koszty: ${formatMoney(finance.totals.expenses)}, podatek: ${formatMoney(finance.totals.tax)}, netto: ${formatMoney(finance.totals.net)}.${maybeNegativeNetNote(finance.totals)}${maybeQualityNote(finance.data_quality)}${methodology}`;
     return finish(
       resultList(
         'report_answer',

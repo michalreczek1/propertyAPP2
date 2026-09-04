@@ -46,6 +46,33 @@ const METRICS = {
     formula: 'SUM(expected rent + media + other)',
     methodology_pl: 'Przychód oczekiwany to suma należnych płatności bez względu na status zapłaty.',
   },
+  revenue_shortfall: {
+    label_pl: 'Brakujące wpłaty',
+    aliases: [
+      'ile brakuje wpłat',
+      'ile brakuje wplat',
+      'brakuje wpłat',
+      'brakuje wplat',
+      'brakujące wpłaty',
+      'brakujace wplaty',
+    ],
+    formula: 'revenue_expected - revenue_paid',
+    methodology_pl:
+      'Brakujące wpłaty to różnica między należnościami za wskazany okres a faktycznie odnotowanymi wpłatami.',
+  },
+  rent_and_media_paid: {
+    label_pl: 'Zapłacony czynsz i media',
+    aliases: [
+      'czynsz i media',
+      'czynszu i mediów',
+      'czynszu i mediow',
+      'zapłacony czynsz',
+      'zaplacony czynsz',
+    ],
+    formula: 'rent_paid + media_paid',
+    methodology_pl:
+      'Suma obejmuje faktycznie wpłaconą część czynszu oraz mediów. Przy wpłacie częściowej obie części są rozliczane proporcjonalnie.',
+  },
   expenses: {
     label_pl: 'Koszty',
     aliases: ['koszt', 'koszty', 'wydatki', 'obciążenia', 'obciazenia'],
@@ -100,6 +127,17 @@ function metricListForPrompt() {
 
 function inferMetric(question) {
   const text = normalizeText(question);
+  if (includesAny(text, ['ile brakuje wplat', 'brakuje wplat', 'brakujace wplaty'])) {
+    return { key: 'revenue_shortfall', metric: METRICS.revenue_shortfall, ambiguous: false, source: 'rule' };
+  }
+  if (text.includes('czynsz') && text.includes('medi')) {
+    return {
+      key: 'rent_and_media_paid',
+      metric: METRICS.rent_and_media_paid,
+      ambiguous: false,
+      source: 'rule',
+    };
+  }
   const hits = [];
   for (const [key, metric] of Object.entries(METRICS)) {
     const matched = metric.aliases.filter((alias) => text.includes(normalizeText(alias)));
@@ -149,6 +187,10 @@ function valueFromPropertyTotals(metricKey, totals) {
   if (metricKey === 'expenses') return totals.expenses;
   if (metricKey === 'tax_total') return totals.tax;
   if (metricKey === 'margin') return totals.revenue ? totals.net / totals.revenue : 0;
+  if (metricKey === 'revenue_shortfall')
+    return Math.max(0, Number(totals.expected || 0) - Number(totals.revenue || 0));
+  if (metricKey === 'rent_and_media_paid')
+    return Number(totals.rent_paid || 0) + Number(totals.media_paid || 0);
   return totals.revenue;
 }
 
