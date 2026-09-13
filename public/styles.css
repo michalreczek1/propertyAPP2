@@ -1215,31 +1215,22 @@ html {
   accent-color: var(--violet);
   cursor: pointer;
 }
-.system-edit-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 30px;
-  padding: 0 9px;
-  border: 1px solid rgba(167, 139, 250, 0.5);
-  border-radius: 7px;
-  color: #eeeaff;
-  background: rgba(139, 92, 246, 0.2);
-  font-size: 11px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.12s;
+.system-cost-actions .icon-btn {
+  color: var(--t2);
+  background: var(--surface-hover);
+  border-color: var(--border-bright);
 }
-.system-edit-btn:hover {
-  border-color: #a78bfa;
-  background: rgba(139, 92, 246, 0.34);
+.system-cost-actions .icon-btn.danger {
+  color: var(--rose);
+  background: rgba(244, 63, 94, 0.1);
+  border-color: rgba(244, 63, 94, 0.3);
 }
-.system-edit-btn svg {
-  width: 14px;
-  height: 14px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
+.system-cost-actions .icon-btn:hover {
+  color: var(--t1);
+}
+.system-cost-actions .icon-btn.danger:hover {
+  background: rgba(244, 63, 94, 0.16);
+  border-color: rgba(244, 63, 94, 0.48);
 }
 .system-cost-inactive {
   opacity: 0.58;

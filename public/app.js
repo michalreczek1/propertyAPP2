@@ -204,6 +204,7 @@ const LEGACY_CLICK_ACTIONS = new Set([
   'deleteContractDocument',
   'editOwnerMortgageCost',
   'editOwnerManagementCost',
+  'deleteOwnerCostForMonth',
   'editExpense',
   'deleteExpense',
   'toggleTask',
@@ -257,7 +258,9 @@ function parseLegacyActionArgs(raw) {
     if (value === 'null') return null;
     if (/^\d+$/.test(value)) return Number(value);
     const quoted = value.match(/^'([^']*)'$/);
-    if (quoted && /^[0-9-]+$/.test(quoted[1])) return quoted[1];
+    if (quoted && (/^[0-9-]+$/.test(quoted[1]) || ['zarzadzanie', 'kredyt'].includes(quoted[1]))) {
+      return quoted[1];
+    }
     throw new Error('Unsupported legacy action argument');
   });
 }
@@ -4748,7 +4751,8 @@ function expenseActionsHtml(e) {
         <input class="system-cost-checkbox" type="checkbox" ${e.present !== false ? 'checked' : ''} data-system-category="${escapeHtml(e.category)}" data-system-period="${escapeHtml(period)}" data-system-property-id="${propertyId}">
         <span>W tym miesiącu</span>
       </label>
-      <button class="system-edit-btn" onclick="${editAction}" title="${editTitle}">${editIcon}<span>Edytuj</span></button>
+      <button class="icon-btn system-cost-icon-btn" onclick="${editAction}" title="${editTitle}" aria-label="${editTitle}">${editIcon}</button>
+      <button class="icon-btn danger system-cost-icon-btn" onclick="deleteOwnerCostForMonth('${escapeHtml(e.category)}', '${escapeHtml(period)}', ${propertyId})" title="Usuń koszt z tego miesiąca" aria-label="Usuń koszt z tego miesiąca">${deleteIcon}</button>
     </div>`;
   }
   const expenseId = Number(e.id);
@@ -4940,6 +4944,25 @@ window.toggleOwnerCostMonth = async function (category, period, propertyId, exis
   } finally {
     if (checkbox) checkbox.disabled = false;
   }
+};
+
+window.deleteOwnerCostForMonth = function (category, period, propertyId) {
+  const checkbox = [...document.querySelectorAll('.system-cost-checkbox')].find(
+    (input) =>
+      input.dataset.systemCategory === String(category) &&
+      input.dataset.systemPeriod === String(period) &&
+      input.dataset.systemPropertyId === String(propertyId),
+  );
+  if (!checkbox || !checkbox.checked) return;
+  confirmDialog({
+    title: 'Usuń koszt z tego miesiąca',
+    message: `Usunąć ten systemowy koszt tylko z ${periodLabel(period)}? Ustawienie dla kolejnych miesięcy pozostanie bez zmian.`,
+    danger: true,
+    onYes: async () => {
+      checkbox.checked = false;
+      await window.toggleOwnerCostMonth(category, period, propertyId, false, checkbox);
+    },
+  });
 };
 
 window.deleteExpense = function (id) {

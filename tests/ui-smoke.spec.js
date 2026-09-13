@@ -516,6 +516,8 @@ test('system management cost can be edited and excluded for one month', async ({
       .first();
     await expect(row).toBeVisible();
     await expect(row.getByText('Systemowy')).toBeVisible();
+    await expect(row.getByTitle('Edytuj koszt zarządzania')).toHaveClass(/icon-btn/);
+    await expect(row.getByTitle('Usuń koszt z tego miesiąca')).toHaveClass(/icon-btn/);
     await row.getByTitle('Edytuj koszt zarządzania').click();
     await expect(page.getByText('Edytuj koszt zarządzania')).toBeVisible();
     await page.locator('#modal-root input[name="amount"]').fill('202.02');
@@ -541,6 +543,12 @@ test('system management cost can be edited and excluded for one month', async ({
     await checkbox.check();
     await expect(checkbox).toBeEnabled();
     await expect(row).not.toHaveClass(/system-cost-inactive/);
+
+    await row.getByTitle('Usuń koszt z tego miesiąca').click();
+    await expect(page.getByText('Usuń koszt z tego miesiąca')).toBeVisible();
+    await page.getByRole('button', { name: 'Tak, kontynuuj' }).click();
+    await expect(checkbox).not.toBeChecked();
+    await expect(row).toHaveClass(/system-cost-inactive/);
   } finally {
     if (propertyId) await request.delete(`/api/properties/${propertyId}`).catch(() => {});
   }
