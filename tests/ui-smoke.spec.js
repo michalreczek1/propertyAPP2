@@ -855,8 +855,8 @@ test('mobile topbar keeps AI command bar visible and usable', async ({ page }) =
   const box = await topbar.boundingBox();
   expect(box).not.toBeNull();
   expect(box.y).toBeGreaterThanOrEqual(0);
-  expect(box.height).toBeGreaterThan(50);
-  expect(box.height).toBeLessThanOrEqual(78);
+  expect(box.height).toBeGreaterThan(100);
+  expect(box.height).toBeLessThanOrEqual(130);
   const searchWrap = page.locator('.topbar-search');
   const searchBox = await searchWrap.boundingBox();
   expect(searchBox).not.toBeNull();
@@ -877,6 +877,14 @@ test('mobile topbar keeps AI command bar visible and usable', async ({ page }) =
     expect(actionBox.left).toBeGreaterThanOrEqual(0);
     expect(actionBox.right).toBeLessThanOrEqual(390);
   }
+  const mobilePeriodControls = page.locator('#mobile-period-controls');
+  await expect(mobilePeriodControls).toBeVisible();
+  const mobilePeriodButton = mobilePeriodControls.getByRole('button', { name: 'Wybierz miesiąc' });
+  const currentPeriod = await mobilePeriodButton.textContent();
+  await mobilePeriodControls.getByRole('button', { name: 'Poprzedni miesiąc' }).click();
+  await expect(mobilePeriodButton).not.toHaveText(currentPeriod || '');
+  await mobilePeriodControls.getByRole('button', { name: 'Następny miesiąc' }).click();
+  await expect(mobilePeriodButton).toHaveText(currentPeriod || '');
   const search = page.locator('#global-search');
   await expect(search).toBeVisible();
   await expect(search).toHaveJSProperty('tagName', 'TEXTAREA');
@@ -1094,7 +1102,7 @@ test('mobile navigation and automation center prioritize frequent actions', asyn
     topbarHeight: document.querySelector('#topbar')?.getBoundingClientRect().height || 0,
   }));
   expect(metrics.documentWidth).toBeLessThanOrEqual(metrics.viewportWidth + 1);
-  expect(metrics.topbarHeight).toBeLessThanOrEqual(78);
+  expect(metrics.topbarHeight).toBeLessThanOrEqual(130);
 });
 
 test('payment checkbox keeps the current scroll position', async ({ page, request }) => {

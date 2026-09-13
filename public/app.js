@@ -558,6 +558,15 @@ function setTopbar(title, sub, actions) {
   document.getElementById('topbar-title').textContent = title;
   document.getElementById('topbar-sub').textContent = sub || '';
   const right = document.getElementById('topbar-actions');
+  const topbar = document.getElementById('topbar');
+  let mobilePeriodControls = document.getElementById('mobile-period-controls');
+  if (!mobilePeriodControls) {
+    mobilePeriodControls = document.createElement('div');
+    mobilePeriodControls.id = 'mobile-period-controls';
+    mobilePeriodControls.className = 'mobile-period-controls';
+    mobilePeriodControls.setAttribute('aria-label', 'Zmiana miesiąca');
+    topbar.appendChild(mobilePeriodControls);
+  }
   right.innerHTML = `
     <button class="tb-btn tb-ghost" data-period="-1" title="Poprzedni miesiąc">‹</button>
     <button class="tb-btn tb-ghost" id="period-btn">
@@ -574,6 +583,13 @@ function setTopbar(title, sub, actions) {
       <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
       Wyloguj
     </button>`;
+  mobilePeriodControls.innerHTML = `
+    <button class="tb-btn tb-ghost" type="button" data-mobile-period="-1" aria-label="Poprzedni miesiąc">‹</button>
+    <button class="tb-btn tb-ghost mobile-period-btn" type="button" id="mobile-period-btn" aria-label="Wybierz miesiąc">
+      <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      ${escapeHtml(periodTitleCase(State.period))}
+    </button>
+    <button class="tb-btn tb-ghost" type="button" data-mobile-period="+1" aria-label="Następny miesiąc">›</button>`;
   right.querySelectorAll('[data-period]').forEach((b) => {
     b.onclick = () => {
       State.period = shiftPeriod(State.period, +b.dataset.period);
@@ -583,6 +599,13 @@ function setTopbar(title, sub, actions) {
   right.querySelector('#period-btn').onclick = () => openPeriodPicker();
   right.querySelector('#account-btn').onclick = () => openAccountPanel();
   right.querySelector('#logout-btn').onclick = () => logout();
+  mobilePeriodControls.querySelectorAll('[data-mobile-period]').forEach((button) => {
+    button.onclick = () => {
+      State.period = shiftPeriod(State.period, Number(button.dataset.mobilePeriod));
+      render();
+    };
+  });
+  mobilePeriodControls.querySelector('#mobile-period-btn').onclick = () => openPeriodPicker();
 }
 
 async function logout() {

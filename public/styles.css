@@ -506,6 +506,9 @@ html {
   gap: 8px;
   flex-shrink: 0;
 }
+.mobile-period-controls {
+  display: none;
+}
 
 /* ── BUTTONS ── */
 .tb-btn {
@@ -2730,7 +2733,7 @@ select.slim {
   color: var(--t1);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
   min-width: 240px;
-  pointer-events: auto;
+  pointer-events: none;
   animation: tin 0.18s ease-out;
 }
 .toast.ok {
@@ -4052,7 +4055,7 @@ select.slim {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     height: auto;
-    min-height: 62px;
+    min-height: 106px;
     padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
     align-items: center;
     gap: 7px;
@@ -4107,6 +4110,37 @@ select.slim {
   }
   .topbar-right #logout-btn {
     display: none;
+  }
+  .mobile-period-controls {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr) 42px;
+    gap: 7px;
+    width: 100%;
+  }
+  .mobile-period-controls .tb-btn {
+    width: 42px;
+    min-width: 42px;
+    height: 36px;
+    padding: 0;
+    justify-content: center;
+    font-size: 24px;
+    line-height: 1;
+  }
+  .mobile-period-controls .mobile-period-btn {
+    width: 100%;
+    min-width: 0;
+    gap: 7px;
+    font-size: 13px;
+    font-weight: 650;
+  }
+  .mobile-period-controls .mobile-period-btn svg {
+    width: 15px;
+    height: 15px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 1.8;
   }
   .content {
     padding: 12px 12px calc(80px + env(safe-area-inset-bottom));
