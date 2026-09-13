@@ -524,10 +524,14 @@ test('system management cost can be edited and excluded for one month', async ({
     const ownerCosts = await request.get(`/api/settings/owner-costs?period=${period}`);
     expect(ownerCosts.ok()).toBeTruthy();
     expect(Number((await ownerCosts.json()).management_monthly)).toBe(202.02);
+    await expect(row).toContainText('67,34 zł');
 
     const checkbox = row.locator('input[type="checkbox"]');
     await expect(checkbox).toBeChecked();
+    const rowHandle = await row.elementHandle();
     await checkbox.uncheck();
+    await expect(checkbox).toBeEnabled();
+    expect(await rowHandle.evaluate((node) => node.isConnected)).toBeTruthy();
     await expect(row).toHaveClass(/system-cost-inactive/);
     const excluded = await request.get(
       `/api/expenses?period=${period}&include_owner=1&property_id=${propertyId}`,
@@ -535,6 +539,7 @@ test('system management cost can be edited and excluded for one month', async ({
     const management = (await excluded.json()).find((item) => item.category === 'zarzadzanie');
     expect(management.present).toBeFalsy();
     await checkbox.check();
+    await expect(checkbox).toBeEnabled();
     await expect(row).not.toHaveClass(/system-cost-inactive/);
   } finally {
     if (propertyId) await request.delete(`/api/properties/${propertyId}`).catch(() => {});

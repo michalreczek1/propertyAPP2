@@ -4552,6 +4552,16 @@ async function renderExpenses(root) {
     if (m >= 0 && m < 12) byMonthCat[m][e.category] = (byMonthCat[m][e.category] || 0) + (e.amount || 0);
   }
   const yearTotal = yearExpenses.filter((e) => e.present !== false).reduce((s, e) => s + (e.amount || 0), 0);
+  State.expensesView = {
+    period: State.period,
+    count: expenses.length,
+    total,
+    yearTotal,
+    revenue,
+    tax,
+    net,
+    categoryLabels: CAT_LABELS,
+  };
 
   setTopbar(
     VIEW_TITLES.koszty,
@@ -4565,15 +4575,15 @@ async function renderExpenses(root) {
       <div class="ch"><div><div class="ch-title">Obciążenia miesiąca</div><div class="ch-sub">${escapeHtml(periodLabel(State.period))} · koszty + podatek</div></div></div>
       <div class="sum-grid sum-grid-5">
         <div class="sum-cell"><div class="sc-lbl">Przychód</div><div class="sc-val">${fmtPLN(revenue)}<span class="sc-unit"> PLN</span></div><div class="sc-delta delta-n">zatwierdzone wpłaty</div></div>
-        <div class="sum-cell"><div class="sc-lbl">Koszty</div><div class="sc-val">${fmtPLN(total)}<span class="sc-unit"> PLN</span></div><div class="sc-delta delta-n">bez podatku</div></div>
+        <div class="sum-cell"><div class="sc-lbl">Koszty</div><div class="sc-val" id="expenses-total" data-value="${total}">${fmtPLN(total)}<span class="sc-unit"> PLN</span></div><div class="sc-delta delta-n">bez podatku</div></div>
         <div class="sum-cell"><div class="sc-lbl">Podatek</div><div class="sc-val">${fmtPLN(tax)}<span class="sc-unit"> PLN</span></div><div class="sc-delta delta-n">wyliczony z czynszu</div></div>
-        <div class="sum-cell"><div class="sc-lbl">Razem obciążenia</div><div class="sc-val">${fmtPLN(burdenTotal)}<span class="sc-unit"> PLN</span></div><div class="sc-delta delta-n">koszty + podatek</div></div>
-        <div class="sum-cell"><div class="sc-lbl">Netto</div><div class="sc-val">${fmtPLN(net)}<span class="sc-unit"> PLN</span></div><div class="sc-delta ${net >= 0 ? 'delta-up' : 'delta-dn'}">po wszystkim</div></div>
+        <div class="sum-cell"><div class="sc-lbl">Razem obciążenia</div><div class="sc-val" id="expenses-burden-total" data-value="${burdenTotal}">${fmtPLN(burdenTotal)}<span class="sc-unit"> PLN</span></div><div class="sc-delta delta-n">koszty + podatek</div></div>
+        <div class="sum-cell"><div class="sc-lbl">Netto</div><div class="sc-val" id="expenses-net-total" data-value="${net}">${fmtPLN(net)}<span class="sc-unit"> PLN</span></div><div class="sc-delta ${net >= 0 ? 'delta-up' : 'delta-dn'}">po wszystkim</div></div>
       </div>
     </div>
 
     <div class="gc">
-      <div class="ch"><div><div class="ch-title">Koszty miesięczne — ${escapeHtml(year)}</div><div class="ch-sub">Suma roczna: ${fmtPLN(yearTotal)} zł · ${yearExpenses.length} wpisów</div></div>
+      <div class="ch"><div><div class="ch-title">Koszty miesięczne — ${escapeHtml(year)}</div><div class="ch-sub">Suma roczna: <span id="expenses-year-total" data-value="${yearTotal}">${fmtPLN(yearTotal)}</span> zł · ${yearExpenses.length} wpisów</div></div>
         <div class="legend">
           ${CATS.filter((c) => c !== 'all')
             .map(
@@ -4606,7 +4616,9 @@ async function renderExpenses(root) {
         <thead><tr><th>Data</th><th>Kategoria</th><th>Nieruchomość</th><th>Lokal</th><th>Opis</th><th>Kwota</th><th></th></tr></thead>
         <tbody>${expenses
           .map(
-            (e) => `<tr class="${e.system && e.present === false ? 'system-cost-inactive' : ''}">
+            (
+              e,
+            ) => `<tr class="${e.system && e.present === false ? 'system-cost-inactive' : ''}"${e.system ? ` data-system-cost-amount="${Number(e.amount) || 0}"` : ''}>
           <td class="mono">${fmtDate(e.date)}</td>
           <td>${chip('chip-v', CAT_LABELS[e.category] || e.category)}</td>
           <td style="font-size:12px">${escapeHtml(e.property_name || '—')}</td>
@@ -4656,6 +4668,7 @@ async function renderExpenses(root) {
         checkbox.dataset.systemPeriod,
         Number(checkbox.dataset.systemPropertyId),
         checkbox.checked,
+        checkbox,
       );
   });
 
@@ -4832,12 +4845,61 @@ window.editOwnerManagementCost = async function (period) {
       });
       toast('Zaktualizowano koszt zarządzania');
       State.period = b.valid_from_period;
-      render();
+      await render();
     },
   });
 };
 
-window.toggleOwnerCostMonth = async function (category, period, propertyId, existsInMonth) {
+function updateSystemCostTotals(checkbox, existsInMonth) {
+  const view = State.expensesView;
+  const row = checkbox && checkbox.closest('tr');
+  if (!view || !row || view.period !== State.period) return;
+
+  const amount = Number(row.dataset.systemCostAmount || 0);
+  const delta = existsInMonth ? amount : -amount;
+  view.total = +(view.total + delta).toFixed(2);
+  view.yearTotal = +(view.yearTotal + delta).toFixed(2);
+  view.net = +(view.net - delta).toFixed(2);
+  row.classList.toggle('system-cost-inactive', !existsInMonth);
+
+  const setCurrency = (id, value) => {
+    const element = document.getElementById(id);
+    if (!element) return;
+    element.dataset.value = String(value);
+    element.innerHTML = `${fmtPLN(value)}<span class="sc-unit"> PLN</span>`;
+  };
+  setCurrency('expenses-total', view.total);
+  setCurrency('expenses-burden-total', +(view.total + view.tax).toFixed(2));
+  setCurrency('expenses-net-total', view.net);
+
+  const yearTotal = document.getElementById('expenses-year-total');
+  if (yearTotal) {
+    yearTotal.dataset.value = String(view.yearTotal);
+    yearTotal.textContent = fmtPLN(view.yearTotal);
+  }
+  const topbarSub = document.getElementById('topbar-sub');
+  if (topbarSub) {
+    topbarSub.textContent = `${view.count} pozycji · ${fmtPLN(view.total)} zł w ${periodLabel(State.period)}`;
+  }
+
+  const monthIndex =
+    Number(String(row.querySelector('.system-cost-checkbox')?.dataset.systemPeriod || '').slice(5, 7)) - 1;
+  const category = row.querySelector('.system-cost-checkbox')?.dataset.systemCategory;
+  const dataset = State.charts.expYear?.data?.datasets?.find(
+    (item) => item.label === view.categoryLabels[category],
+  );
+  if (dataset && monthIndex >= 0 && monthIndex < 12) {
+    dataset.data[monthIndex] = +(Number(dataset.data[monthIndex] || 0) + delta).toFixed(2);
+    State.charts.expYear.update('none');
+  }
+}
+
+window.toggleOwnerCostMonth = async function (category, period, propertyId, existsInMonth, checkbox) {
+  const previousValue = !existsInMonth;
+  if (checkbox) {
+    checkbox.disabled = true;
+    updateSystemCostTotals(checkbox, existsInMonth);
+  }
   try {
     await Api.put('/settings/owner-costs/month-status', {
       category,
@@ -4846,10 +4908,14 @@ window.toggleOwnerCostMonth = async function (category, period, propertyId, exis
       exists_in_month: existsInMonth,
     });
     toast(existsInMonth ? 'Koszt uwzględniony w tym miesiącu' : 'Koszt pominięty w tym miesiącu', 'ok');
-    render();
   } catch (err) {
+    if (checkbox) {
+      checkbox.checked = previousValue;
+      updateSystemCostTotals(checkbox, previousValue);
+    }
     toast(err.message || 'Nie udało się zmienić statusu kosztu', 'err');
-    render();
+  } finally {
+    if (checkbox) checkbox.disabled = false;
   }
 };
 
