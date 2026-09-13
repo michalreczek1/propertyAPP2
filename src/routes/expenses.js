@@ -16,6 +16,9 @@ const ExpenseSchema = z.object({
   description: z.string().nullable().optional(),
   document_path: z.string().nullable().optional(),
 });
+const ExpenseMonthStatusSchema = z.object({
+  exists_in_month: z.boolean(),
+});
 
 router.get('/', (req, res) => {
   const where = [];
@@ -74,7 +77,9 @@ router.get('/', (req, res) => {
     );
   }
 
-  res.json(rows);
+  res.json(
+    rows.map((row) => ({ ...row, present: row.system ? row.present !== false : row.exists_in_month !== 0 })),
+  );
 });
 
 router.get('/by-category', (req, res) => {
@@ -89,6 +94,7 @@ router.get('/by-category', (req, res) => {
     LEFT JOIN units u ON u.id = e.unit_id
     LEFT JOIN properties up ON up.id = u.property_id
     WHERE strftime('%Y-%m', e.date) = ?
+      AND COALESCE(e.exists_in_month, 1) = 1
       ${req.user && req.user.id && req.user.role !== 'admin' ? 'AND (e.owner_user_id = ? OR p.owner_user_id = ? OR up.owner_user_id = ?)' : ''}
     GROUP BY category
     ORDER BY total DESC
@@ -165,6 +171,16 @@ router.put('/:id', validate(ExpenseSchema.partial()), (req, res) => {
     .run(...fields.map((f) => (req.body[f] === '' ? null : req.body[f])), req.params.id);
   if (!r.changes) return res.status(404).json({ error: 'not_found' });
   res.json(db.prepare('SELECT * FROM expenses WHERE id = ?').get(req.params.id));
+});
+
+router.put('/:id/month-status', validate(ExpenseMonthStatusSchema), (req, res) => {
+  if (!canAccessExpense(db, req, req.params.id)) return res.status(404).json({ error: 'not_found' });
+  const existsInMonth = req.body.exists_in_month;
+  const r = db
+    .prepare('UPDATE expenses SET exists_in_month = ? WHERE id = ?')
+    .run(existsInMonth ? 1 : 0, req.params.id);
+  if (!r.changes) return res.status(404).json({ error: 'not_found' });
+  res.json({ ok: true, id: Number(req.params.id), exists_in_month: existsInMonth });
 });
 
 router.delete('/:id', (req, res) => {

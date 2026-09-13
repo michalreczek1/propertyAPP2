@@ -554,6 +554,61 @@ test('system management cost can be edited and excluded for one month', async ({
   }
 });
 
+test('regular expense has aligned actions and can be excluded for one month', async ({ page, request }) => {
+  const period = currentPeriodISO();
+  const propertyName = `__ui_regular_expense_${Date.now()}`;
+  let propertyId = null;
+  let expenseId = null;
+  try {
+    const property = await request.post('/api/properties', {
+      data: { name: propertyName, district: 'Test', type: 'mieszkanie' },
+    });
+    expect(property.ok()).toBeTruthy();
+    propertyId = (await property.json()).id;
+
+    const expense = await request.post('/api/expenses', {
+      data: {
+        property_id: propertyId,
+        category: 'prad',
+        amount: 77.77,
+        date: `${period}-01`,
+        description: 'Prąd testowy',
+      },
+    });
+    expect(expense.ok()).toBeTruthy();
+    expenseId = (await expense.json()).id;
+
+    await page.goto('/#koszty');
+    const row = page
+      .locator('tbody tr')
+      .filter({ hasText: propertyName })
+      .filter({ hasText: 'Prąd testowy' });
+    await expect(row).toBeVisible();
+    await expect(row.getByTitle('Edytuj')).toHaveClass(/icon-btn/);
+    await expect(row.getByTitle('Usuń koszt na stałe')).toHaveClass(/icon-btn/);
+    const actionColumnLefts = await page
+      .locator('tbody tr .expense-actions-cell')
+      .evaluateAll((cells) => cells.map((cell) => Math.round(cell.getBoundingClientRect().left)));
+    expect(Math.max(...actionColumnLefts) - Math.min(...actionColumnLefts)).toBeLessThanOrEqual(1);
+    const checkbox = row.getByRole('checkbox', { name: 'Uwzględnij koszt w tym miesiącu' });
+    await expect(checkbox).toBeChecked();
+
+    await checkbox.uncheck();
+    await expect(checkbox).toBeEnabled();
+    await expect(row).toHaveClass(/expense-inactive/);
+    const excluded = await request.get(`/api/expenses/${expenseId}`);
+    expect(excluded.ok()).toBeTruthy();
+    expect((await excluded.json()).exists_in_month).toBe(0);
+
+    await checkbox.check();
+    await expect(checkbox).toBeEnabled();
+    await expect(row).not.toHaveClass(/expense-inactive/);
+  } finally {
+    if (expenseId) await request.delete(`/api/expenses/${expenseId}`).catch(() => {});
+    if (propertyId) await request.delete(`/api/properties/${propertyId}`).catch(() => {});
+  }
+});
+
 test('AI assistant explains tax from the topbar', async ({ page }) => {
   await page.goto('/#dashboard');
   await expect(page.getByRole('button', { name: 'AI', exact: true })).toHaveCount(0);

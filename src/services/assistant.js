@@ -1336,6 +1336,7 @@ function scopedExpenses(req, period) {
     LEFT JOIN units u ON u.id = e.unit_id
     LEFT JOIN properties up ON up.id = u.property_id
     WHERE strftime('%Y-%m', e.date) = ?
+      AND COALESCE(e.exists_in_month, 1) = 1
       ${req.user && req.user.id && req.user.role !== 'admin' ? 'AND (e.owner_user_id = ? OR p.owner_user_id = ? OR up.owner_user_id = ?)' : ''}
     ORDER BY e.amount DESC, e.date DESC
   `,

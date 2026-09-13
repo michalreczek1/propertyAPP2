@@ -194,6 +194,7 @@ CREATE TABLE IF NOT EXISTS expenses (
   category TEXT NOT NULL,          -- media|podatek|ubezpieczenie|remont|zarzadzanie|inne
   amount REAL NOT NULL,
   date DATE NOT NULL,
+  exists_in_month INTEGER NOT NULL DEFAULT 1,
   description TEXT,
   document_path TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -973,6 +974,11 @@ applyMigration('2026-09-13-013-recurring-cost-month-status', () => {
     CREATE INDEX IF NOT EXISTS idx_recurring_cost_month_status_period
       ON recurring_cost_month_status(period, category, property_id);
   `);
+});
+applyMigration('2026-09-13-014-expense-month-status', () => {
+  if (!columnExists('expenses', 'exists_in_month')) {
+    db.prepare('ALTER TABLE expenses ADD COLUMN exists_in_month INTEGER NOT NULL DEFAULT 1').run();
+  }
 });
 console.log('✓ Schemat bazy gotowy:', db.name);
 console.log(

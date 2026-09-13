@@ -64,6 +64,7 @@ db.exec(`
     category TEXT NOT NULL,
     amount REAL NOT NULL,
     date DATE NOT NULL,
+    exists_in_month INTEGER NOT NULL DEFAULT 1,
     description TEXT
   );
   CREATE TABLE settings (

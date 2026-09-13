@@ -147,6 +147,7 @@ function costsForPeriod(db, period, req = null) {
     LEFT JOIN units u ON u.id = e.unit_id
     LEFT JOIN properties up ON up.id = u.property_id
     WHERE strftime('%Y-%m', e.date) = ?
+      AND COALESCE(e.exists_in_month, 1) = 1
       ${expenseScope.sql}
     GROUP BY category
   `,
@@ -193,6 +194,7 @@ function propertiesForPeriod(db, period, tax, ownerCosts, req = null) {
           SELECT u3.id FROM units u3 WHERE u3.property_id = p.id
         ))
           AND strftime('%Y-%m', e.date) = ?
+          AND COALESCE(e.exists_in_month, 1) = 1
       ), 0) AS direct_expenses
     FROM properties p
     ${scope.sql ? 'WHERE ' + scope.sql : ''}
@@ -240,12 +242,12 @@ function perUnitForPeriod(db, period, ownerCosts, req = null) {
            COALESCE((
              SELECT SUM(e.amount)
              FROM expenses e
-             WHERE e.unit_id = u.id AND strftime('%Y-%m', e.date) = ?
+             WHERE e.unit_id = u.id AND strftime('%Y-%m', e.date) = ? AND COALESCE(e.exists_in_month, 1) = 1
            ), 0) AS direct_expenses,
            COALESCE((
              SELECT SUM(e.amount)
              FROM expenses e
-             WHERE e.property_id = p.id AND e.unit_id IS NULL AND strftime('%Y-%m', e.date) = ?
+             WHERE e.property_id = p.id AND e.unit_id IS NULL AND strftime('%Y-%m', e.date) = ? AND COALESCE(e.exists_in_month, 1) = 1
            ), 0) AS property_expenses,
            (SELECT COUNT(*) FROM units ux WHERE ux.property_id = p.id) AS property_units
     FROM units u

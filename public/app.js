@@ -4639,23 +4639,24 @@ async function renderExpenses(root) {
           ? `<div style="padding:32px">${emptyState('Brak kosztów w wybranym okresie.', 'Zmień filtry, dodaj nowy wpis lub kliknij „Importuj historyczne" w prawym górnym rogu, aby pobrać dane z arkusza Excel.')}</div>`
           : `
       <div style="overflow-x:auto"><table class="t">
-        <thead><tr><th>Data</th><th>Kategoria</th><th>Nieruchomość</th><th>Lokal</th><th>Opis</th><th>Kwota</th><th></th></tr></thead>
+        <thead><tr><th>Data</th><th>Kategoria</th><th>Nieruchomość</th><th>Lokal</th><th>Opis</th><th>Kwota</th><th>Miesiąc</th><th>Akcje</th></tr></thead>
         <tbody>${expenses
           .map(
             (
               e,
-            ) => `<tr class="${e.system && e.present === false ? 'system-cost-inactive' : ''}"${e.system ? ` data-system-cost-amount="${Number(e.amount) || 0}"` : ''}>
+            ) => `<tr class="${e.present === false ? 'expense-inactive' : ''}${e.system && e.present === false ? ' system-cost-inactive' : ''}" data-expense-amount="${Number(e.amount) || 0}">
           <td class="mono">${fmtDate(e.date)}</td>
           <td>${chip('chip-v', CAT_LABELS[e.category] || e.category)}</td>
           <td style="font-size:12px">${escapeHtml(e.property_name || '—')}</td>
           <td class="mono">${escapeHtml(e.unit_code || e.unit_name || '—')}</td>
           <td style="font-size:12px;color:var(--t2)" title="${escapeHtml(e.description || '')}">${escapeHtml(expenseDescriptionLabel(e))}</td>
           <td class="mono-r">${fmtPLN(e.amount)} zł</td>
-          <td>${expenseActionsHtml(e)}</td>
+          <td class="expense-status-cell">${expenseStatusHtml(e)}</td>
+          <td class="expense-actions-cell">${expenseActionsHtml(e)}</td>
         </tr>`,
           )
           .join('')}</tbody>
-        <tfoot><tr><td colspan="5" style="text-align:right;padding-right:12px">Razem:</td><td class="mono-r" style="font-size:13px">${fmtPLN(total)} zł</td><td></td></tr></tfoot>
+        <tfoot><tr><td colspan="5" style="text-align:right;padding-right:12px">Razem:</td><td class="mono-r" style="font-size:13px">${fmtPLN(total)} zł</td><td colspan="2"></td></tr></tfoot>
       </table></div>`
       }
     </div>`;
@@ -4697,6 +4698,10 @@ async function renderExpenses(root) {
         checkbox,
       );
   });
+  document.querySelectorAll('.expense-month-checkbox').forEach((checkbox) => {
+    checkbox.onchange = () =>
+      toggleExpenseMonth(Number(checkbox.dataset.expenseId), checkbox.checked, checkbox);
+  });
 
   const ctx = document.getElementById('exp-year-chart');
   if (ctx) {
@@ -4732,6 +4737,24 @@ async function renderExpenses(root) {
   }
 }
 
+function expenseStatusHtml(e) {
+  const checked = e.present !== false ? 'checked' : '';
+  const checkboxTitle = 'Uwzględnij koszt w tym miesiącu';
+  if (e.system) {
+    const period = String(e.date || State.period).slice(0, 7);
+    const propertyId = Number(e.property_id || 0);
+    return `<div class="expense-status">
+      <span class="system-cost-badge">Systemowy</span>
+      <label class="expense-month-toggle" title="${checkboxTitle}">
+        <input class="system-cost-checkbox" type="checkbox" ${checked} aria-label="${checkboxTitle}" data-expense-category="${escapeHtml(e.category)}" data-expense-period="${escapeHtml(period)}" data-system-category="${escapeHtml(e.category)}" data-system-period="${escapeHtml(period)}" data-system-property-id="${propertyId}">
+      </label>
+    </div>`;
+  }
+  return `<label class="expense-month-toggle" title="${checkboxTitle}">
+    <input class="expense-month-checkbox" type="checkbox" ${checked} aria-label="${checkboxTitle}" data-expense-id="${Number(e.id)}" data-expense-category="${escapeHtml(e.category)}" data-expense-period="${escapeHtml(String(e.date || State.period).slice(0, 7))}">
+  </label>`;
+}
+
 function expenseActionsHtml(e) {
   const editIcon =
     '<svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
@@ -4745,20 +4768,15 @@ function expenseActionsHtml(e) {
         ? `editOwnerMortgageCost('${escapeHtml(period)}', ${propertyId})`
         : `editOwnerManagementCost('${escapeHtml(period)}')`;
     const editTitle = e.category === 'kredyt' ? 'Edytuj ratę kredytu' : 'Edytuj koszt zarządzania';
-    return `<div class="system-cost-actions">
-      <span class="system-cost-badge">Systemowy</span>
-      <label class="system-cost-toggle" title="Czy ten koszt występuje w wybranym miesiącu">
-        <input class="system-cost-checkbox" type="checkbox" ${e.present !== false ? 'checked' : ''} data-system-category="${escapeHtml(e.category)}" data-system-period="${escapeHtml(period)}" data-system-property-id="${propertyId}">
-        <span>W tym miesiącu</span>
-      </label>
-      <button class="icon-btn system-cost-icon-btn" onclick="${editAction}" title="${editTitle}" aria-label="${editTitle}">${editIcon}</button>
-      <button class="icon-btn danger system-cost-icon-btn" onclick="deleteOwnerCostForMonth('${escapeHtml(e.category)}', '${escapeHtml(period)}', ${propertyId})" title="Usuń koszt z tego miesiąca" aria-label="Usuń koszt z tego miesiąca">${deleteIcon}</button>
+    return `<div class="expense-actions">
+      <button class="icon-btn" onclick="${editAction}" title="${editTitle}" aria-label="${editTitle}">${editIcon}</button>
+      <button class="icon-btn danger" onclick="deleteOwnerCostForMonth('${escapeHtml(e.category)}', '${escapeHtml(period)}', ${propertyId})" title="Usuń koszt z tego miesiąca" aria-label="Usuń koszt z tego miesiąca">${deleteIcon}</button>
     </div>`;
   }
   const expenseId = Number(e.id);
-  return `<div style="display:flex;gap:4px">
+  return `<div class="expense-actions">
     <button class="icon-btn" onclick="editExpense(${expenseId})" title="Edytuj">${editIcon}</button>
-    <button class="icon-btn danger" onclick="deleteExpense(${expenseId})" title="Usuń">${deleteIcon}</button>
+    <button class="icon-btn danger" onclick="deleteExpense(${expenseId})" title="Usuń koszt na stałe">${deleteIcon}</button>
   </div>`;
 }
 
@@ -4877,17 +4895,18 @@ window.editOwnerManagementCost = async function (period) {
   });
 };
 
-function updateSystemCostTotals(checkbox, existsInMonth) {
+function updateExpenseTotals(checkbox, existsInMonth) {
   const view = State.expensesView;
   const row = checkbox && checkbox.closest('tr');
   if (!view || !row || view.period !== State.period) return;
 
-  const amount = Number(row.dataset.systemCostAmount || 0);
+  const amount = Number(row.dataset.expenseAmount || 0);
   const delta = existsInMonth ? amount : -amount;
   view.total = +(view.total + delta).toFixed(2);
   view.yearTotal = +(view.yearTotal + delta).toFixed(2);
   view.net = +(view.net - delta).toFixed(2);
-  row.classList.toggle('system-cost-inactive', !existsInMonth);
+  row.classList.toggle('expense-inactive', !existsInMonth);
+  row.classList.toggle('system-cost-inactive', row.querySelector('.system-cost-checkbox') && !existsInMonth);
 
   const setCurrency = (id, value) => {
     const element = document.getElementById(id);
@@ -4909,9 +4928,8 @@ function updateSystemCostTotals(checkbox, existsInMonth) {
     topbarSub.textContent = `${view.count} pozycji · ${fmtPLN(view.total)} zł w ${periodLabel(State.period)}`;
   }
 
-  const monthIndex =
-    Number(String(row.querySelector('.system-cost-checkbox')?.dataset.systemPeriod || '').slice(5, 7)) - 1;
-  const category = row.querySelector('.system-cost-checkbox')?.dataset.systemCategory;
+  const monthIndex = Number(String(checkbox.dataset.expensePeriod || '').slice(5, 7)) - 1;
+  const category = checkbox.dataset.expenseCategory;
   const dataset = State.charts.expYear?.data?.datasets?.find(
     (item) => item.label === view.categoryLabels[category],
   );
@@ -4925,7 +4943,7 @@ window.toggleOwnerCostMonth = async function (category, period, propertyId, exis
   const previousValue = !existsInMonth;
   if (checkbox) {
     checkbox.disabled = true;
-    updateSystemCostTotals(checkbox, existsInMonth);
+    updateExpenseTotals(checkbox, existsInMonth);
   }
   try {
     await Api.put('/settings/owner-costs/month-status', {
@@ -4934,17 +4952,33 @@ window.toggleOwnerCostMonth = async function (category, period, propertyId, exis
       property_id: propertyId,
       exists_in_month: existsInMonth,
     });
-    toast(existsInMonth ? 'Koszt uwzględniony w tym miesiącu' : 'Koszt pominięty w tym miesiącu', 'ok');
+    toast(existsInMonth ? 'Przywrócono w tym miesiącu' : 'Usunięto z tego miesiąca', 'ok');
   } catch (err) {
     if (checkbox) {
       checkbox.checked = previousValue;
-      updateSystemCostTotals(checkbox, previousValue);
+      updateExpenseTotals(checkbox, previousValue);
     }
     toast(err.message || 'Nie udało się zmienić statusu kosztu', 'err');
   } finally {
     if (checkbox) checkbox.disabled = false;
   }
 };
+
+async function toggleExpenseMonth(id, existsInMonth, checkbox) {
+  const previousValue = !existsInMonth;
+  checkbox.disabled = true;
+  updateExpenseTotals(checkbox, existsInMonth);
+  try {
+    await Api.put(`/expenses/${id}/month-status`, { exists_in_month: existsInMonth });
+    toast(existsInMonth ? 'Przywrócono w tym miesiącu' : 'Usunięto z tego miesiąca', 'ok');
+  } catch (err) {
+    checkbox.checked = previousValue;
+    updateExpenseTotals(checkbox, previousValue);
+    toast(err.message || 'Nie udało się zmienić statusu kosztu', 'err');
+  } finally {
+    checkbox.disabled = false;
+  }
+}
 
 window.deleteOwnerCostForMonth = function (category, period, propertyId) {
   const checkbox = [...document.querySelectorAll('.system-cost-checkbox')].find(
@@ -4967,8 +5001,8 @@ window.deleteOwnerCostForMonth = function (category, period, propertyId) {
 
 window.deleteExpense = function (id) {
   confirmDialog({
-    title: 'Usuń koszt',
-    message: 'Usunąć ten wpis?',
+    title: 'Usuń koszt na stałe',
+    message: 'Usunąć ten wpis na stałe? Nie będzie go można przywrócić checkboxem.',
     danger: true,
     onYes: async () => {
       await Api.del(`/expenses/${id}`);
