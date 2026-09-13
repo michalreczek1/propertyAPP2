@@ -4744,10 +4744,10 @@ function expenseStatusHtml(e) {
     const period = String(e.date || State.period).slice(0, 7);
     const propertyId = Number(e.property_id || 0);
     return `<div class="expense-status">
-      <span class="system-cost-badge">Systemowy</span>
       <label class="expense-month-toggle" title="${checkboxTitle}">
         <input class="system-cost-checkbox" type="checkbox" ${checked} aria-label="${checkboxTitle}" data-expense-category="${escapeHtml(e.category)}" data-expense-period="${escapeHtml(period)}" data-system-category="${escapeHtml(e.category)}" data-system-period="${escapeHtml(period)}" data-system-property-id="${propertyId}">
       </label>
+      <span class="system-cost-badge">Systemowy</span>
     </div>`;
   }
   return `<label class="expense-month-toggle" title="${checkboxTitle}">

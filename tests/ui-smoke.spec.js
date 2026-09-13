@@ -590,6 +590,10 @@ test('regular expense has aligned actions and can be excluded for one month', as
       .locator('tbody tr .expense-actions-cell')
       .evaluateAll((cells) => cells.map((cell) => Math.round(cell.getBoundingClientRect().left)));
     expect(Math.max(...actionColumnLefts) - Math.min(...actionColumnLefts)).toBeLessThanOrEqual(1);
+    const checkboxColumnLefts = await page
+      .locator('tbody tr .expense-status-cell input[type="checkbox"]')
+      .evaluateAll((inputs) => inputs.map((input) => Math.round(input.getBoundingClientRect().left)));
+    expect(Math.max(...checkboxColumnLefts) - Math.min(...checkboxColumnLefts)).toBeLessThanOrEqual(1);
     const checkbox = row.getByRole('checkbox', { name: 'Uwzględnij koszt w tym miesiącu' });
     await expect(checkbox).toBeChecked();
 
