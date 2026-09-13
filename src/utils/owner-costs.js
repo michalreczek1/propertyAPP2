@@ -60,68 +60,123 @@ function getRecurringRows(db, period, req = null) {
     .all(...scopeParams, period, period, period, period);
 }
 
+function scopedProperties(db, req = null) {
+  const scopeSql = req && !canSeeAll(req) ? 'WHERE owner_user_id = ?' : '';
+  const params = req && !canSeeAll(req) ? [ownerId(req)] : [];
+  return db
+    .prepare(`SELECT id, name FROM properties ${scopeSql} ORDER BY name COLLATE NOCASE`)
+    .all(...params);
+}
+
+function monthlyStatus(db, period, req = null) {
+  if (!tableExists(db, 'recurring_cost_month_status')) return new Map();
+  const scoped = req && !canSeeAll(req);
+  const rows = db
+    .prepare(
+      `
+      SELECT s.category, s.property_id, s.exists_in_month
+      FROM recurring_cost_month_status s
+      LEFT JOIN properties p ON p.id = s.property_id
+      WHERE s.period = ?
+        ${scoped ? 'AND s.owner_user_id = ? AND p.owner_user_id = ?' : ''}
+    `,
+    )
+    .all(period, ...(scoped ? [ownerId(req), ownerId(req)] : []));
+  return new Map(
+    rows.map((row) => [`${row.category}:${Number(row.property_id || 0)}`, Number(row.exists_in_month) !== 0]),
+  );
+}
+
 function getOwnerCosts(db, period = currentPeriod(), req = null) {
   const rows = getRecurringRows(db, period, req);
-  if (rows.length) {
-    const byProperty = {};
-    let management = 0;
-    let mortgageTotal = 0;
-    let mortgageKoscielna = 0;
-    let mortgageChrobrego = 0;
+  const properties = scopedProperties(db, req);
+  const statuses = monthlyStatus(db, period, req);
+  const isPresent = (category, propertyId) =>
+    statuses.get(`${category}:${Number(propertyId || 0)}`) !== false;
+  const byProperty = Object.fromEntries(
+    properties.map((property) => [
+      property.id,
+      {
+        management: 0,
+        management_configured: 0,
+        management_present: true,
+        mortgage: 0,
+        mortgage_configured: 0,
+        mortgage_present: true,
+        total: 0,
+      },
+    ]),
+  );
+  let managementConfigured = rows.length
+    ? rows.filter((row) => row.category === 'zarzadzanie').reduce((sum, row) => sum + toNumber(row.amount), 0)
+    : getSetting(db, 'cost.management.monthly', 0);
+  let mortgageConfiguredTotal = 0;
+  let mortgageKoscielna = 0;
+  let mortgageChrobrego = 0;
 
-    for (const row of rows) {
-      const amount = toNumber(row.amount, 0);
-      if (row.category === 'zarzadzanie') {
-        management += amount;
-      } else if (row.category === 'kredyt') {
-        mortgageTotal += amount;
-        if (row.property_id) {
-          byProperty[row.property_id] = byProperty[row.property_id] || {
-            management: 0,
-            mortgage: 0,
-            total: 0,
-          };
-          byProperty[row.property_id].mortgage += amount;
-          byProperty[row.property_id].total += amount;
-        }
-        const name = String(row.property_name || '').toLowerCase();
-        if (name.includes('kościelna') || name.includes('koscielna')) mortgageKoscielna += amount;
-        else if (name.includes('chrobrego')) mortgageChrobrego += amount;
-      }
+  const mortgageRows = rows.length
+    ? rows.filter((row) => row.category === 'kredyt')
+    : properties.map((property) => {
+        const name = String(property.name || '').toLowerCase();
+        return {
+          property_id: property.id,
+          property_name: property.name,
+          amount:
+            name.includes('kościelna') || name.includes('koscielna')
+              ? getSetting(db, 'cost.mortgage.koscielna.monthly', 0)
+              : name.includes('chrobrego')
+                ? getSetting(db, 'cost.mortgage.chrobrego.monthly', 0)
+                : 0,
+        };
+      });
+
+  let management = 0;
+  const managementShare = managementConfigured / Math.max(1, properties.length || 1);
+  for (const property of properties) {
+    const item = byProperty[property.id];
+    item.management_configured = managementShare;
+    item.management_present = isPresent('zarzadzanie', property.id);
+    if (item.management_present) {
+      item.management = managementShare;
+      item.total += managementShare;
+      management += managementShare;
     }
-
-    return {
-      management,
-      mortgage_koscielna: mortgageKoscielna,
-      mortgage_chrobrego: mortgageChrobrego,
-      mortgage_total: mortgageTotal,
-      total: management + mortgageTotal,
-      by_property: byProperty,
-      period,
-      source: 'recurring_costs',
-    };
   }
 
-  const management = getSetting(db, 'cost.management.monthly', 0);
-  const mortgageKoscielna = getSetting(db, 'cost.mortgage.koscielna.monthly', 0);
-  const mortgageChrobrego = getSetting(db, 'cost.mortgage.chrobrego.monthly', 0);
+  let mortgageTotal = 0;
+  for (const row of mortgageRows) {
+    const amount = toNumber(row.amount, 0);
+    mortgageConfiguredTotal += amount;
+    const item = byProperty[row.property_id];
+    if (!item) continue;
+    item.mortgage_configured += amount;
+    item.mortgage_present = isPresent('kredyt', row.property_id);
+    if (!item.mortgage_present) continue;
+    item.mortgage += amount;
+    item.total += amount;
+    mortgageTotal += amount;
+    const name = String(row.property_name || '').toLowerCase();
+    if (name.includes('kościelna') || name.includes('koscielna')) mortgageKoscielna += amount;
+    else if (name.includes('chrobrego')) mortgageChrobrego += amount;
+  }
+
   return {
     management,
+    management_configured: managementConfigured,
     mortgage_koscielna: mortgageKoscielna,
     mortgage_chrobrego: mortgageChrobrego,
-    mortgage_total: mortgageKoscielna + mortgageChrobrego,
-    total: management + mortgageKoscielna + mortgageChrobrego,
-    by_property: {},
+    mortgage_total: mortgageTotal,
+    mortgage_configured_total: mortgageConfiguredTotal,
+    total: management + mortgageTotal,
+    by_property: byProperty,
     period,
-    source: 'settings',
+    source: rows.length ? 'recurring_costs' : 'settings',
   };
 }
 
 function ownerCostsForProperty(ownerCosts, propertyName, propertyCount = 2, propertyId = null) {
   if (propertyId && ownerCosts.by_property && ownerCosts.by_property[propertyId]) {
-    const direct = ownerCosts.by_property[propertyId].total || 0;
-    const shared = (ownerCosts.management || 0) / Math.max(1, propertyCount || 1);
-    return +(shared + direct).toFixed(2);
+    return +Number(ownerCosts.by_property[propertyId].total || 0).toFixed(2);
   }
   const name = String(propertyName || '').toLowerCase();
   const managementShare = (ownerCosts.management || 0) / Math.max(1, propertyCount || 1);
@@ -159,7 +214,6 @@ function ownerExpenseRows(db, filters = {}) {
   const properties = db
     .prepare(`SELECT id, name FROM properties ${scopeSql} ORDER BY name`)
     .all(...scopeParams);
-  const propertyCount = properties.length || 1;
   const months = monthRangeFromDates(filters.from || filters.period, filters.to || filters.period);
   const rows = [];
 
@@ -167,13 +221,9 @@ function ownerExpenseRows(db, filters = {}) {
     const ownerCosts = getOwnerCosts(db, period, filters.user || null);
     const date = `${period}-01`;
     for (const property of properties) {
-      const managementShare = +(ownerCosts.management / propertyCount).toFixed(2);
-      const mortgage = ownerCostsForProperty(
-        { ...ownerCosts, management: 0 },
-        property.name,
-        propertyCount,
-        property.id,
-      );
+      const propertyCosts = ownerCosts.by_property[property.id] || {};
+      const managementShare = +(propertyCosts.management_configured || 0).toFixed(2);
+      const mortgage = +(propertyCosts.mortgage_configured || 0).toFixed(2);
 
       if (managementShare) {
         rows.push({
@@ -184,6 +234,7 @@ function ownerExpenseRows(db, filters = {}) {
           unit_id: null,
           category: 'zarzadzanie',
           amount: managementShare,
+          present: propertyCosts.management_present !== false,
           date,
           description: 'Zarządzanie nieruchomościami',
           document_path: null,
@@ -203,6 +254,7 @@ function ownerExpenseRows(db, filters = {}) {
           unit_id: null,
           category: 'kredyt',
           amount: mortgage,
+          present: propertyCosts.mortgage_present !== false,
           date,
           description: 'Rata kredytu hipotecznego',
           document_path: null,

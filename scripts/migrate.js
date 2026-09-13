@@ -308,6 +308,24 @@ CREATE UNIQUE INDEX IF NOT EXISTS uniq_recurring_costs_open
   ON recurring_costs(category, COALESCE(owner_user_id, 0), COALESCE(property_id, 0), valid_from_period)
   WHERE active = 1;
 
+-- Miesięczne włączenie/wyłączenie pozycji kosztu systemowego.
+-- Brak rekordu oznacza, że koszt występuje (wartość domyślna).
+CREATE TABLE IF NOT EXISTS recurring_cost_month_status (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_user_id INTEGER,
+  category TEXT NOT NULL,
+  property_id INTEGER NOT NULL,
+  period TEXT NOT NULL,
+  exists_in_month INTEGER NOT NULL DEFAULT 1 CHECK (exists_in_month IN (0, 1)),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL,
+  FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE,
+  UNIQUE(owner_user_id, category, property_id, period)
+);
+CREATE INDEX IF NOT EXISTS idx_recurring_cost_month_status_period
+  ON recurring_cost_month_status(period, category, property_id);
+
 -- ── AI QUERY LOGS AND USER LANGUAGE ─────────────────
 CREATE TABLE IF NOT EXISTS ai_queries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -935,6 +953,25 @@ applyMigration('2026-09-04-012-contract-amendment-corrections', () => {
       SELECT d.name FROM documents d WHERE d.id = contract_amendments.document_id
     )
     WHERE document_id IS NOT NULL;
+  `);
+});
+applyMigration('2026-09-13-013-recurring-cost-month-status', () => {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS recurring_cost_month_status (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      owner_user_id INTEGER,
+      category TEXT NOT NULL,
+      property_id INTEGER NOT NULL,
+      period TEXT NOT NULL,
+      exists_in_month INTEGER NOT NULL DEFAULT 1 CHECK (exists_in_month IN (0, 1)),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL,
+      FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE,
+      UNIQUE(owner_user_id, category, property_id, period)
+    );
+    CREATE INDEX IF NOT EXISTS idx_recurring_cost_month_status_period
+      ON recurring_cost_month_status(period, category, property_id);
   `);
 });
 console.log('✓ Schemat bazy gotowy:', db.name);

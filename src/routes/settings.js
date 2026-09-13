@@ -368,6 +368,81 @@ router.put('/owner-costs/mortgage', (req, res) => {
   res.json({ ok: true, property_id: propertyId, amount, valid_from_period: validFrom });
 });
 
+router.put('/owner-costs/management', (req, res) => {
+  const body = req.body || {};
+  const validFrom = String(body.valid_from_period || '2026-01').trim();
+  if (!isValidPeriod(validFrom)) return res.status(400).json({ error: 'invalid_period' });
+
+  let amount;
+  try {
+    amount = normalizeAmount(body.amount, 'amount');
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message || 'invalid_owner_management' });
+  }
+
+  const uid = ownerId(req);
+  const upsert = canSeeAll(req)
+    ? db.prepare(`
+        INSERT INTO settings(key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP
+      `)
+    : db.prepare(`
+        INSERT INTO user_settings(owner_user_id, key, value, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(owner_user_id, key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP
+      `);
+  const tx = db.transaction(() => {
+    if (canSeeAll(req)) upsert.run('cost.management.monthly', String(amount));
+    else upsert.run(uid, 'cost.management.monthly', String(amount));
+    upsertRecurringCost(
+      'zarzadzanie',
+      null,
+      amount,
+      validFrom,
+      'Owner management cost from expenses edit',
+      uid,
+    );
+  });
+  tx();
+  res.json({ ok: true, amount, valid_from_period: validFrom });
+});
+
+router.put('/owner-costs/month-status', (req, res) => {
+  const body = req.body || {};
+  const category = String(body.category || '');
+  const period = String(body.period || '').trim();
+  const propertyId = Number(body.property_id);
+  const existsInMonth = body.exists_in_month !== false;
+  if (!['zarzadzanie', 'kredyt'].includes(category))
+    return res.status(400).json({ error: 'invalid_category' });
+  if (!isValidPeriod(period)) return res.status(400).json({ error: 'invalid_period' });
+
+  const scope = propertyScope(req, 'p');
+  const property = db
+    .prepare(`SELECT id FROM properties p WHERE p.id = ? ${scope.sql ? 'AND ' + scope.sql : ''}`)
+    .get(propertyId, ...scope.params);
+  if (!Number.isInteger(propertyId) || !property)
+    return res.status(400).json({ error: `unknown_property:${body.property_id}` });
+
+  const uid = ownerId(req);
+  const sameOwner = 'COALESCE(owner_user_id, 0) = COALESCE(?, 0)';
+  if (existsInMonth) {
+    db.prepare(
+      `DELETE FROM recurring_cost_month_status
+       WHERE ${sameOwner} AND category = ? AND property_id = ? AND period = ?`,
+    ).run(uid, category, propertyId, period);
+  } else {
+    db.prepare(
+      `
+      INSERT INTO recurring_cost_month_status(owner_user_id, category, property_id, period, exists_in_month, updated_at)
+      VALUES (?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
+      ON CONFLICT(owner_user_id, category, property_id, period)
+      DO UPDATE SET exists_in_month = 0, updated_at = CURRENT_TIMESTAMP
+    `,
+    ).run(uid, category, propertyId, period);
+  }
+  res.json({ ok: true, category, property_id: propertyId, period, exists_in_month: existsInMonth });
+});
+
 router.put('/', (req, res) => {
   const upsertGlobal = db.prepare(`
     INSERT INTO settings(key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)

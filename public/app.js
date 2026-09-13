@@ -203,6 +203,7 @@ const LEGACY_CLICK_ACTIONS = new Set([
   'deleteContract',
   'deleteContractDocument',
   'editOwnerMortgageCost',
+  'editOwnerManagementCost',
   'editExpense',
   'deleteExpense',
   'toggleTask',
@@ -4509,7 +4510,8 @@ async function renderExpenses(root) {
     Api.get('/properties'),
   ]);
 
-  const total = expenses.reduce((s, e) => s + (e.amount || 0), 0);
+  const includedExpenses = expenses.filter((e) => e.present !== false);
+  const total = includedExpenses.reduce((s, e) => s + (e.amount || 0), 0);
   const dash = await Api.get(`/dashboard?period=${State.period}`).catch(() => null);
   const revenue = dash && dash.revenue ? dash.revenue.gross || 0 : 0;
   const tax = dash && dash.tax ? dash.tax.podatek_suma || 0 : 0;
@@ -4545,11 +4547,11 @@ async function renderExpenses(root) {
     () => [],
   );
   const byMonthCat = Array.from({ length: 12 }, () => ({}));
-  for (const e of yearExpenses) {
+  for (const e of yearExpenses.filter((item) => item.present !== false)) {
     const m = parseInt((e.date || '').slice(5, 7), 10) - 1;
     if (m >= 0 && m < 12) byMonthCat[m][e.category] = (byMonthCat[m][e.category] || 0) + (e.amount || 0);
   }
-  const yearTotal = yearExpenses.reduce((s, e) => s + (e.amount || 0), 0);
+  const yearTotal = yearExpenses.filter((e) => e.present !== false).reduce((s, e) => s + (e.amount || 0), 0);
 
   setTopbar(
     VIEW_TITLES.koszty,
@@ -4604,7 +4606,7 @@ async function renderExpenses(root) {
         <thead><tr><th>Data</th><th>Kategoria</th><th>Nieruchomość</th><th>Lokal</th><th>Opis</th><th>Kwota</th><th></th></tr></thead>
         <tbody>${expenses
           .map(
-            (e) => `<tr>
+            (e) => `<tr class="${e.system && e.present === false ? 'system-cost-inactive' : ''}">
           <td class="mono">${fmtDate(e.date)}</td>
           <td>${chip('chip-v', CAT_LABELS[e.category] || e.category)}</td>
           <td style="font-size:12px">${escapeHtml(e.property_name || '—')}</td>
@@ -4647,6 +4649,15 @@ async function renderExpenses(root) {
         render();
       }),
   );
+  document.querySelectorAll('.system-cost-checkbox').forEach((checkbox) => {
+    checkbox.onchange = () =>
+      toggleOwnerCostMonth(
+        checkbox.dataset.systemCategory,
+        checkbox.dataset.systemPeriod,
+        Number(checkbox.dataset.systemPropertyId),
+        checkbox.checked,
+      );
+  });
 
   const ctx = document.getElementById('exp-year-chart');
   if (ctx) {
@@ -4690,9 +4701,18 @@ function expenseActionsHtml(e) {
   if (e.system) {
     const period = String(e.date || State.period).slice(0, 7);
     const propertyId = Number(e.property_id || 0);
-    return `<div style="display:flex;gap:4px;align-items:center">
-      <span class="mono-m">systemowy</span>
-      ${e.category === 'kredyt' && propertyId ? `<button class="icon-btn" onclick="editOwnerMortgageCost('${escapeHtml(period)}', ${propertyId})" title="Edytuj ratę kredytu">${editIcon}</button>` : ''}
+    const editAction =
+      e.category === 'kredyt'
+        ? `editOwnerMortgageCost('${escapeHtml(period)}', ${propertyId})`
+        : `editOwnerManagementCost('${escapeHtml(period)}')`;
+    const editTitle = e.category === 'kredyt' ? 'Edytuj ratę kredytu' : 'Edytuj koszt zarządzania';
+    return `<div class="system-cost-actions">
+      <span class="system-cost-badge">Systemowy</span>
+      <label class="system-cost-toggle" title="Czy ten koszt występuje w wybranym miesiącu">
+        <input class="system-cost-checkbox" type="checkbox" ${e.present !== false ? 'checked' : ''} data-system-category="${escapeHtml(e.category)}" data-system-period="${escapeHtml(period)}" data-system-property-id="${propertyId}">
+        <span>W tym miesiącu</span>
+      </label>
+      <button class="system-edit-btn" onclick="${editAction}" title="${editTitle}">${editIcon}<span>Edytuj</span></button>
     </div>`;
   }
   const expenseId = Number(e.id);
@@ -4787,6 +4807,50 @@ window.editOwnerMortgageCost = async function (period, propertyId) {
       render();
     },
   });
+};
+
+window.editOwnerManagementCost = async function (period) {
+  const ownerCosts = await Api.get(`/settings/owner-costs?period=${encodeURIComponent(period)}`);
+  formModal({
+    title: 'Edytuj koszt zarządzania',
+    fields: [
+      {
+        name: 'valid_from_period',
+        label: 'Obowiązuje od miesiąca',
+        type: 'text',
+        required: true,
+        hint: 'Format YYYY-MM. Nowa kwota będzie liczona od tego miesiąca.',
+      },
+      { name: 'amount', label: 'Łączna kwota [PLN]', type: 'number', step: '0.01', required: true },
+    ],
+    initial: { valid_from_period: period, amount: ownerCosts.management_monthly || 0 },
+    onSubmit: async (b) => {
+      if (!/^\d{4}-\d{2}$/.test(b.valid_from_period || '')) throw new Error('Format YYYY-MM');
+      await Api.put('/settings/owner-costs/management', {
+        valid_from_period: b.valid_from_period,
+        amount: b.amount,
+      });
+      toast('Zaktualizowano koszt zarządzania');
+      State.period = b.valid_from_period;
+      render();
+    },
+  });
+};
+
+window.toggleOwnerCostMonth = async function (category, period, propertyId, existsInMonth) {
+  try {
+    await Api.put('/settings/owner-costs/month-status', {
+      category,
+      period,
+      property_id: propertyId,
+      exists_in_month: existsInMonth,
+    });
+    toast(existsInMonth ? 'Koszt uwzględniony w tym miesiącu' : 'Koszt pominięty w tym miesiącu', 'ok');
+    render();
+  } catch (err) {
+    toast(err.message || 'Nie udało się zmienić statusu kosztu', 'err');
+    render();
+  }
 };
 
 window.deleteExpense = function (id) {

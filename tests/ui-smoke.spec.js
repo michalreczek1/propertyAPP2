@@ -492,6 +492,55 @@ test('mortgage owner cost can be edited from expenses', async ({ page, request }
   }
 });
 
+test('system management cost can be edited and excluded for one month', async ({ page, request }) => {
+  const period = currentPeriodISO();
+  const propertyName = `__ui_management_${Date.now()}`;
+  let propertyId = null;
+  try {
+    const property = await request.post('/api/properties', {
+      data: { name: propertyName, district: 'Test', type: 'mieszkanie' },
+    });
+    expect(property.ok()).toBeTruthy();
+    propertyId = (await property.json()).id;
+
+    const seed = await request.put('/api/settings/owner-costs/management', {
+      data: { valid_from_period: period, amount: 101.01 },
+    });
+    expect(seed.ok()).toBeTruthy();
+
+    await page.goto('/#koszty');
+    const row = page
+      .locator('tbody tr')
+      .filter({ hasText: propertyName })
+      .filter({ hasText: 'Zarządzanie nieruchomościami' })
+      .first();
+    await expect(row).toBeVisible();
+    await expect(row.getByText('Systemowy')).toBeVisible();
+    await row.getByTitle('Edytuj koszt zarządzania').click();
+    await expect(page.getByText('Edytuj koszt zarządzania')).toBeVisible();
+    await page.locator('#modal-root input[name="amount"]').fill('202.02');
+    await page.locator('#m-submit').click();
+
+    const ownerCosts = await request.get(`/api/settings/owner-costs?period=${period}`);
+    expect(ownerCosts.ok()).toBeTruthy();
+    expect(Number((await ownerCosts.json()).management_monthly)).toBe(202.02);
+
+    const checkbox = row.locator('input[type="checkbox"]');
+    await expect(checkbox).toBeChecked();
+    await checkbox.uncheck();
+    await expect(row).toHaveClass(/system-cost-inactive/);
+    const excluded = await request.get(
+      `/api/expenses?period=${period}&include_owner=1&property_id=${propertyId}`,
+    );
+    const management = (await excluded.json()).find((item) => item.category === 'zarzadzanie');
+    expect(management.present).toBeFalsy();
+    await checkbox.check();
+    await expect(row).not.toHaveClass(/system-cost-inactive/);
+  } finally {
+    if (propertyId) await request.delete(`/api/properties/${propertyId}`).catch(() => {});
+  }
+});
+
 test('AI assistant explains tax from the topbar', async ({ page }) => {
   await page.goto('/#dashboard');
   await expect(page.getByRole('button', { name: 'AI', exact: true })).toHaveCount(0);
