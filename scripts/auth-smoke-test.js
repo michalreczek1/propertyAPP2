@@ -61,6 +61,7 @@ async function startServer() {
       HOST: '127.0.0.1',
       NODE_ENV: 'test',
       APP_AUTH_ENABLED: '1',
+      APP_REGISTRATION_ENABLED: '1',
       APP_AUTH_USER: 'admin',
       APP_AUTH_PASSWORD_HASH: authHash,
       APP_SESSION_SECRET: 'test-secret-for-auth-smoke-with-enough-length',
@@ -70,7 +71,7 @@ async function startServer() {
   serverProc.stdout.on('data', (d) => process.env.VERBOSE && process.stdout.write('[srv] ' + d));
   serverProc.stderr.on('data', (d) => process.stderr.write('[srv-err] ' + d));
 
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 80; i++) {
     try {
       const res = await fetch(base + '/health');
       if (res.ok) return;
@@ -127,6 +128,34 @@ async function main() {
 
   const blocked = await fetch(base + '/api/dashboard');
   expect(blocked.status === 401, `expected unauthorized API, got ${blocked.status}`);
+
+  const register = await fetch(base + '/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      username: 'self_registered',
+      display_name: 'New owner',
+      password: 'a-long-test-password',
+    }),
+  });
+  expect(register.status === 201, `registration failed: ${register.status}`);
+  const registered = await register.json();
+  expect(registered.user.role === 'user' && registered.user.id, 'registration must create a regular DB user');
+  const registerCookie = register.headers.get('set-cookie');
+  const registerMe = await fetch(base + '/api/auth/me', { headers: { Cookie: registerCookie } });
+  expect((await registerMe.json()).user.id === registered.user.id, 'new session is invalid');
+  const duplicate = await fetch(base + '/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      username: 'SELF_REGISTERED',
+      display_name: 'Duplicate',
+      password: 'a-long-test-password',
+    }),
+  });
+  expect(duplicate.status === 409, 'case-insensitive duplicate registration was allowed');
+  const deniedAdmin = await fetch(base + '/api/admin/users', { headers: { Cookie: registerCookie } });
+  expect(deniedAdmin.status === 403, 'registered user can access admin API');
 
   const bad = await fetch(base + '/api/auth/login', {
     method: 'POST',

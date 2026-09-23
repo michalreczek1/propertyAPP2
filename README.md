@@ -16,6 +16,18 @@ server credentials, deployment notes, local plans, generated files, and uploaded
 documents. Keep operational/infrastructure documentation outside git or in an
 ignored private note.
 
+## User accounts
+
+An administrator can already create users in the app. Self-registration is available when
+`APP_REGISTRATION_ENABLED=1` is set on the server. It is disabled by default. New accounts
+receive the regular `user` role and their own session; passwords must have at least 12
+characters. The login page then shows **Utwórz konto**.
+
+Do not enable public registration until the tenant-isolation and abuse review is complete.
+The current administrator role can see all users' data. SMS and AI operations use shared
+server credentials, so unrestricted signups could incur costs. There is no email
+verification, password reset, account deletion or invitation workflow yet.
+
 ## Development
 
 ```bash

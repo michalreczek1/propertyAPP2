@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const { z } = require('zod');
 const db = require('../db');
 
 const COOKIE_NAME = 'propertyapp_session';
@@ -27,8 +28,22 @@ function getConfig() {
   const enabled = explicitlyDisabled(envFlag)
     ? false
     : truthy(envFlag) || process.env.NODE_ENV === 'production' || configured;
-  return { enabled, configured, username, passwordHash, sessionSecret };
+  const registrationEnabled = enabled && configured && truthy(process.env.APP_REGISTRATION_ENABLED);
+  return { enabled, configured, username, passwordHash, sessionSecret, registrationEnabled };
 }
+
+const RegistrationSchema = z
+  .object({
+    username: z
+      .string()
+      .trim()
+      .min(3)
+      .max(64)
+      .regex(/^[a-zA-Z0-9._-]+$/),
+    display_name: z.string().trim().min(1).max(120),
+    password: z.string().min(12).max(200),
+  })
+  .strict();
 
 function tableExists(name) {
   return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?").get(name);
@@ -292,10 +307,12 @@ function loginPage(req, res) {
 .head{padding:28px 28px 18px}.logo{width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg,var(--violet),var(--cyan));display:grid;place-items:center;margin-bottom:18px}
 .logo svg{width:22px;height:22px;stroke:#fff;fill:none;stroke-width:2}.title{font-size:24px;font-weight:800;letter-spacing:-.02em}.sub{margin-top:6px;color:var(--t3);font-size:14px}
 form{padding:8px 28px 28px;display:flex;flex-direction:column;gap:14px}label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--t3);font-weight:700}
+form[hidden]{display:none}
 input{width:100%;margin-top:6px;padding:13px 14px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.06);color:var(--t1);font-size:15px;outline:none}
 input:focus{border-color:var(--violet);box-shadow:0 0 0 3px rgba(139,92,246,.22)}button{height:44px;border:0;border-radius:12px;background:linear-gradient(135deg,var(--violet),#6d28d9);color:white;font-weight:800;font-size:14px;cursor:pointer;box-shadow:0 12px 30px rgba(139,92,246,.28)}
 button:disabled{opacity:.55;cursor:not-allowed}.err{display:none;color:#fecdd3;background:rgba(244,63,94,.13);border:1px solid rgba(244,63,94,.28);border-radius:12px;padding:10px 12px;font-size:13px}.err.on{display:block}
 .foot{padding:14px 28px 24px;color:var(--t3);font-size:12px;border-top:1px solid rgba(255,255,255,.06)}
+.foot button{height:auto;padding:0;background:none;box-shadow:none;color:var(--cyan);font-size:13px}
 </style>
 </head>
 <body>
@@ -311,6 +328,17 @@ button:disabled{opacity:.55;cursor:not-allowed}.err{display:none;color:#fecdd3;b
     <div><label>Hasło<input name="password" type="password" autocomplete="current-password" ${configMissing ? 'disabled' : ''}></label></div>
     <button type="submit" ${configMissing ? 'disabled' : ''}>Zaloguj</button>
   </form>
+  ${
+    getConfig().registrationEnabled
+      ? `<form id="register-form" hidden>
+    <div class="err" id="register-error"></div>
+    <div><label>Login<input name="username" autocomplete="username" required minlength="3" maxlength="64"></label></div>
+    <div><label>Imię lub nazwa<input name="display_name" autocomplete="name" required maxlength="120"></label></div>
+    <div><label>Hasło (min. 12 znaków)<input name="password" type="password" autocomplete="new-password" required minlength="12"></label></div>
+    <button type="submit">Utwórz konto</button>
+  </form><div class="foot"><button id="auth-mode" type="button">Utwórz konto</button></div>`
+      : ''
+  }
   <div class="foot">Sesja jest zapisywana w bezpiecznym ciasteczku httpOnly.</div>
 </main>
 <script src="/login.js"></script>
@@ -321,6 +349,35 @@ button:disabled{opacity:.55;cursor:not-allowed}.err{display:none;color:#fecdd3;b
 function installAuth(app) {
   app.get('/login', loginPage);
   app.get('/api/auth/me', (req, res) => res.json(authStatus(req)));
+  app.post('/api/auth/register', (req, res) => {
+    const config = getConfig();
+    if (!config.registrationEnabled) return res.status(404).json({ error: 'registration_disabled' });
+    if (!tableExists('users')) return res.status(503).json({ error: 'migration_required' });
+    if (!checkRateLimit(req, '__registration__')) return res.status(429).json({ error: 'too_many_attempts' });
+    const parsed = RegistrationSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'invalid_registration' });
+    const { username, display_name, password } = parsed.data;
+    if (getDbUserByUsername(username) || username.toLowerCase() === config.username.toLowerCase()) {
+      return res.status(409).json({ error: 'username_exists' });
+    }
+    let id;
+    try {
+      const hash = bcrypt.hashSync(password, 12);
+      id = db
+        .prepare(
+          `INSERT INTO users(username, display_name, role, password_hash, active)
+        VALUES (?, ?, 'user', ?, 1)`,
+        )
+        .run(username, display_name, hash).lastInsertRowid;
+    } catch (error) {
+      if (error.code === 'SQLITE_CONSTRAINT_UNIQUE')
+        return res.status(409).json({ error: 'username_exists' });
+      throw error;
+    }
+    const user = publicUser(getDbUserByUsername(username));
+    setSessionCookie(req, res, createToken(user, config.sessionSecret));
+    res.status(201).json({ ok: true, user });
+  });
   app.post('/api/auth/login', async (req, res) => {
     const config = getConfig();
     if (!config.enabled) return res.json({ ok: true, disabled: true });
