@@ -15,7 +15,7 @@ if (registerForm && registerError && modeButton && form) {
   });
   registerForm.addEventListener('submit', async (event) => {
     event.preventDefault();
-    registerError.className = 'err';
+    registerError.className = 'error';
     const button = registerForm.querySelector('button');
     button.disabled = true;
     try {
@@ -38,7 +38,7 @@ if (registerForm && registerError && modeButton && form) {
       location.href = '/';
     } catch (error) {
       registerError.textContent = error.message;
-      registerError.className = 'err on';
+      registerError.className = 'error on';
       button.disabled = false;
     }
   });
@@ -47,7 +47,7 @@ if (registerForm && registerError && modeButton && form) {
 if (form && err) {
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
-    err.className = 'err';
+    err.className = 'error';
     err.textContent = '';
     const button = form.querySelector('button');
     button.disabled = true;
@@ -73,7 +73,7 @@ if (form && err) {
       location.href = next;
     } catch (error) {
       err.textContent = error.message;
-      err.className = 'err on';
+      err.className = 'error on';
       button.disabled = false;
     }
   });

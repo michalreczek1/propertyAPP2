@@ -289,61 +289,18 @@ function requireAdmin(req, res, next) {
 function loginPage(req, res) {
   const status = authStatus(req);
   if (status.user) return res.redirect('/');
-  const configMissing = status.enabled && !status.configured;
-  const safeNext = safeNextPath(req.query.next);
-  const encodedNext = encodeURIComponent(safeNext);
+  const config = getConfig();
+  const { renderLanding } = require('../views/landing');
   res.setHeader('Cache-Control', 'no-store, must-revalidate');
   res.setHeader('Content-Type', 'text/html; charset=UTF-8');
-  res.send(`<!DOCTYPE html>
-<html lang="pl">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Logowanie - PropertyApp</title>
-<style nonce="${res.locals.cspStyleNonce}">
-:root{--bg:#070714;--surface:rgba(255,255,255,.055);--border:rgba(255,255,255,.12);--t1:#eeeeff;--t2:#aaaad8;--t3:#6c6c98;--violet:#8b5cf6;--cyan:#06b6d4;--rose:#f43f5e}
-*{box-sizing:border-box}body{margin:0;min-height:100vh;min-height:100dvh;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--t1);background:radial-gradient(circle at 18% 12%,rgba(139,92,246,.22),transparent 34%),radial-gradient(circle at 82% 78%,rgba(6,182,212,.14),transparent 32%),var(--bg);display:grid;place-items:center;padding:22px}
-.card{width:min(420px,100%);background:var(--surface);border:1px solid var(--border);border-radius:18px;box-shadow:0 28px 80px rgba(0,0,0,.45);backdrop-filter:blur(18px);overflow:hidden}
-.head{padding:28px 28px 18px}.logo{width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg,var(--violet),var(--cyan));display:grid;place-items:center;margin-bottom:18px}
-.logo svg{width:22px;height:22px;stroke:#fff;fill:none;stroke-width:2}.title{font-size:24px;font-weight:800;letter-spacing:-.02em}.sub{margin-top:6px;color:var(--t3);font-size:14px}
-form{padding:8px 28px 28px;display:flex;flex-direction:column;gap:14px}label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--t3);font-weight:700}
-form[hidden]{display:none}
-input{width:100%;margin-top:6px;padding:13px 14px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.06);color:var(--t1);font-size:15px;outline:none}
-input:focus{border-color:var(--violet);box-shadow:0 0 0 3px rgba(139,92,246,.22)}button{height:44px;border:0;border-radius:12px;background:linear-gradient(135deg,var(--violet),#6d28d9);color:white;font-weight:800;font-size:14px;cursor:pointer;box-shadow:0 12px 30px rgba(139,92,246,.28)}
-button:disabled{opacity:.55;cursor:not-allowed}.err{display:none;color:#fecdd3;background:rgba(244,63,94,.13);border:1px solid rgba(244,63,94,.28);border-radius:12px;padding:10px 12px;font-size:13px}.err.on{display:block}
-.foot{padding:14px 28px 24px;color:var(--t3);font-size:12px;border-top:1px solid rgba(255,255,255,.06)}
-.foot button{height:auto;padding:0;background:none;box-shadow:none;color:var(--cyan);font-size:13px}
-</style>
-</head>
-<body>
-<main class="card">
-  <div class="head">
-    <div class="logo"><svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>
-    <div class="title">PropertyApp</div>
-    <div class="sub">${configMissing ? 'Logowanie wymaga konfiguracji na serwerze.' : 'Zaloguj się do panelu zarządzania najmem.'}</div>
-  </div>
-  <form id="login-form" data-next="${encodedNext}">
-    <div class="err${configMissing ? ' on' : ''}" id="login-error">${configMissing ? 'Brakuje APP_AUTH_USER, APP_AUTH_PASSWORD_HASH albo APP_SESSION_SECRET.' : ''}</div>
-    <div><label>Login<input name="username" autocomplete="username" ${configMissing ? 'disabled' : ''}></label></div>
-    <div><label>Hasło<input name="password" type="password" autocomplete="current-password" ${configMissing ? 'disabled' : ''}></label></div>
-    <button type="submit" ${configMissing ? 'disabled' : ''}>Zaloguj</button>
-  </form>
-  ${
-    getConfig().registrationEnabled
-      ? `<form id="register-form" hidden>
-    <div class="err" id="register-error"></div>
-    <div><label>Login<input name="username" autocomplete="username" required minlength="3" maxlength="64"></label></div>
-    <div><label>Imię lub nazwa<input name="display_name" autocomplete="name" required maxlength="120"></label></div>
-    <div><label>Hasło (min. 12 znaków)<input name="password" type="password" autocomplete="new-password" required minlength="12"></label></div>
-    <button type="submit">Utwórz konto</button>
-  </form><div class="foot"><button id="auth-mode" type="button">Utwórz konto</button></div>`
-      : ''
-  }
-  <div class="foot">Sesja jest zapisywana w bezpiecznym ciasteczku httpOnly.</div>
-</main>
-<script src="/login.js"></script>
-</body>
-</html>`);
+  res.send(
+    renderLanding({
+      configMissing: status.enabled && !status.configured,
+      registrationEnabled: config.registrationEnabled,
+      encodedNext: encodeURIComponent(safeNextPath(req.query.next)),
+      isLoginPath: req.path === '/login',
+    }),
+  );
 }
 
 function installAuth(app) {

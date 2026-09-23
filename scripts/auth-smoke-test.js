@@ -7,6 +7,7 @@ const path = require('path');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const Database = require('better-sqlite3');
+const { chromium } = require('@playwright/test');
 const { spawn, spawnSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
@@ -103,8 +104,43 @@ async function main() {
   await startServer();
 
   const root = await fetch(base + '/', { redirect: 'manual' });
-  expect(root.status === 302, `expected redirect to login, got ${root.status}`);
-  expect((root.headers.get('location') || '').startsWith('/login'), 'missing login redirect');
+  const rootHtml = await root.text();
+  expect(root.status === 200, `expected public landing page, got ${root.status}`);
+  expect(
+    rootHtml.includes('<h1 id="hero-title">') && rootHtml.includes('Nieruchomości i lokale'),
+    'landing page is missing product information',
+  );
+  expect(
+    rootHtml.includes('<meta name="description"') && rootHtml.includes('content="index,follow"'),
+    'landing page SEO metadata missing',
+  );
+  const robots = await fetch(base + '/robots.txt');
+  expect(robots.ok && (await robots.text()).includes('Sitemap:'), 'robots.txt missing');
+  const sitemap = await fetch(base + '/sitemap.xml');
+  expect(sitemap.ok && (await sitemap.text()).includes('propertyapp.familyos.pl/'), 'sitemap missing');
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    await page.goto(base + '/');
+    await page.locator('#hero-title').waitFor();
+    expect(await page.locator('#hero-title').isVisible(), 'landing hero is not visible on mobile');
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      'landing page overflows mobile viewport',
+    );
+    await page.locator('#auth-mode').click();
+    expect(await page.locator('#register-form').isVisible(), 'registration form cannot be opened');
+    expect(
+      !(await page.locator('#login-form').isVisible()),
+      'login form remains visible in registration mode',
+    );
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const heroBox = await page.locator('.hero-copy').boundingBox();
+    const accountBox = await page.locator('.account-card').boundingBox();
+    expect(heroBox && accountBox && accountBox.x > heroBox.x, 'desktop landing layout is broken');
+  } finally {
+    await browser.close();
+  }
 
   for (const unsafe of [
     'https://evil.example',
@@ -122,6 +158,7 @@ async function main() {
       html.includes('<script src="/login.js"></script>') && !html.includes('<script>'),
       'login page still contains inline JavaScript',
     );
+    expect(html.includes('content="noindex,follow"'), 'duplicate login URL is indexable');
   }
   const loginScript = await fetch(base + '/login.js');
   expect(

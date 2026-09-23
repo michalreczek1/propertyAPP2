@@ -93,6 +93,18 @@ app.get('/favicon.svg', (_req, res) => {
   res.type('image/svg+xml');
   res.sendFile(path.join(PUBLIC_DIR, 'favicon.svg'));
 });
+app.get('/robots.txt', (_req, res) => {
+  res
+    .type('text/plain')
+    .send('User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: https://propertyapp.familyos.pl/sitemap.xml\n');
+});
+app.get('/sitemap.xml', (_req, res) => {
+  res
+    .type('application/xml')
+    .send(
+      '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://propertyapp.familyos.pl/</loc></url></urlset>',
+    );
+});
 app.get('/apple-touch-icon.png', (_req, res) => {
   immutableAsset(res);
   res.type('image/png');
@@ -118,7 +130,7 @@ app.use(
 );
 
 function requirePageAuth(req, res, next) {
-  if (req.path === '/login.js') return next();
+  if (req.path === '/login.js' || req.path === '/landing.css' || req.path === '/') return next();
   const status = authStatus(req);
   if (!status.enabled || status.user) return next();
   const nextUrl = encodeURIComponent(req.originalUrl || '/');
@@ -158,7 +170,11 @@ function serveIndex(_req, res) {
   res.setHeader('Content-Type', 'text/html; charset=UTF-8');
   res.send(html);
 }
-app.get('/', serveIndex);
+app.get('/', (req, res) => {
+  const status = authStatus(req);
+  if (!status.enabled || status.user) return serveIndex(req, res);
+  return require('./middleware/auth').loginPage(req, res);
+});
 
 // SPA fallback (zostawia /api/* nieruszone)
 app.get(/^\/(?!api\/|health$).*/, serveIndex);
