@@ -143,8 +143,8 @@ router.get('/', (req, res) => {
     params.push(q, q, q);
   }
   if (req.user && req.user.id && req.user.role !== 'admin') {
-    where.push('(p.owner_user_id = ? OR pr.owner_user_id = ? OR t.owner_user_id = ?)');
-    params.push(req.user.id, req.user.id, req.user.id);
+    where.push('p.owner_user_id = ?');
+    params.push(req.user.id);
   }
   const sql =
     paymentJoinSql(where.length ? 'WHERE ' + where.join(' AND ') : '') + ' ORDER BY p.period DESC, p.unit_id';
@@ -163,12 +163,12 @@ router.get('/periods', (req, res) => {
     LEFT JOIN units u ON u.id = p.unit_id
     LEFT JOIN properties pr ON pr.id = u.property_id
     LEFT JOIN tenants t ON t.id = p.tenant_id
-    ${scoped ? 'WHERE (p.owner_user_id = ? OR pr.owner_user_id = ? OR t.owner_user_id = ?)' : ''}
+    ${scoped ? 'WHERE p.owner_user_id = ?' : ''}
     GROUP BY period
     ORDER BY period DESC
   `,
     )
-    .all(...(scoped ? [req.user.id, req.user.id, req.user.id] : []));
+    .all(...(scoped ? [req.user.id] : []));
   res.json(rows);
 });
 
@@ -371,17 +371,10 @@ router.post('/approve-month', (req, res) => {
         END,
         total_paid=(rent_amount + media_amount + other_amount)
     WHERE period = ? AND status IN ('pending','overdue')
-      ${scoped ? 'AND id IN (SELECT pm.id FROM payments pm LEFT JOIN units u ON u.id = pm.unit_id LEFT JOIN properties pr ON pr.id = u.property_id LEFT JOIN tenants t ON t.id = pm.tenant_id WHERE pm.period = ? AND (pm.owner_user_id = ? OR pr.owner_user_id = ? OR t.owner_user_id = ?))' : ''}
+      ${scoped ? 'AND owner_user_id = ?' : ''}
   `,
     )
-    .run(
-      today,
-      today,
-      LATE_FEE_AMOUNT,
-      today,
-      period,
-      ...(scoped ? [period, req.user.id, req.user.id, req.user.id] : []),
-    );
+    .run(today, today, LATE_FEE_AMOUNT, today, period, ...(scoped ? [req.user.id] : []));
   res.json({ period, updated: r.changes });
 });
 
@@ -427,7 +420,7 @@ router.post('/generate-month', (req, res) => {
       JOIN properties p ON p.id = u.property_id
       WHERE t.status = 'active'
         AND t.current_unit_id IS NOT NULL
-        ${scoped ? 'AND (t.owner_user_id = ? OR p.owner_user_id = ?)' : ''}
+        ${scoped ? 'AND t.owner_user_id = ? AND p.owner_user_id = ?' : ''}
       ORDER BY t.current_unit_id
     `,
       )

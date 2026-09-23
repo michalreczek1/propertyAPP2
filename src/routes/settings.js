@@ -32,7 +32,7 @@ function tableExists(name) {
 }
 
 function settingsMap(req) {
-  const rows = db.prepare('SELECT key, value FROM settings').all();
+  const rows = canSeeAll(req) ? db.prepare('SELECT key, value FROM settings').all() : [];
   const map = {};
   for (const r of rows) map[r.key] = r.value;
   if (!canSeeAll(req) && tableExists('user_settings')) {
@@ -53,6 +53,7 @@ function getSetting(req, key, fallback = null) {
           .get(ownerId(req), key)
       : null;
   if (row) return row.value;
+  if (!canSeeAll(req)) return fallback;
   const global = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
   return global ? global.value : fallback;
 }

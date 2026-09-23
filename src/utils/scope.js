@@ -51,19 +51,10 @@ function canAccessUnit(db, req, unitId) {
 
 function canAccessTenant(db, req, tenantId) {
   if (!tenantId || canSeeAll(req)) return true;
-  return exists(
-    db,
-    `
-    SELECT 1
-    FROM tenants t
-    LEFT JOIN units u ON u.id = t.current_unit_id
-    LEFT JOIN properties p ON p.id = u.property_id
-    WHERE t.id = ?
-      AND (t.owner_user_id = ? OR p.owner_user_id = ?)
-    LIMIT 1
-  `,
-    [tenantId, ownerId(req), ownerId(req)],
-  );
+  return exists(db, 'SELECT 1 FROM tenants WHERE id = ? AND owner_user_id = ? LIMIT 1', [
+    tenantId,
+    ownerId(req),
+  ]);
 }
 
 function canAccessContract(db, req, contractId) {
@@ -75,68 +66,33 @@ function canAccessContract(db, req, contractId) {
     FROM contracts c
     LEFT JOIN units u ON u.id = c.unit_id
     LEFT JOIN properties p ON p.id = u.property_id
-    LEFT JOIN tenants t ON t.id = c.tenant_id
     WHERE c.id = ?
-      AND (p.owner_user_id = ? OR t.owner_user_id = ?)
+      AND p.owner_user_id = ?
     LIMIT 1
   `,
-    [contractId, ownerId(req), ownerId(req)],
+    [contractId, ownerId(req)],
   );
 }
 
 function canAccessPayment(db, req, paymentId) {
   if (!paymentId || canSeeAll(req)) return true;
-  return exists(
-    db,
-    `
-    SELECT 1
-    FROM payments pm
-    LEFT JOIN units u ON u.id = pm.unit_id
-    LEFT JOIN properties p ON p.id = u.property_id
-    LEFT JOIN tenants t ON t.id = pm.tenant_id
-    WHERE pm.id = ?
-      AND (pm.owner_user_id = ? OR p.owner_user_id = ? OR t.owner_user_id = ?)
-    LIMIT 1
-  `,
-    [paymentId, ownerId(req), ownerId(req), ownerId(req)],
-  );
+  return exists(db, 'SELECT 1 FROM payments WHERE id = ? AND owner_user_id = ? LIMIT 1', [
+    paymentId,
+    ownerId(req),
+  ]);
 }
 
 function canAccessExpense(db, req, expenseId) {
   if (!expenseId || canSeeAll(req)) return true;
-  return exists(
-    db,
-    `
-    SELECT 1
-    FROM expenses e
-    LEFT JOIN properties p ON p.id = e.property_id
-    LEFT JOIN units u ON u.id = e.unit_id
-    LEFT JOIN properties up ON up.id = u.property_id
-    WHERE e.id = ?
-      AND (e.owner_user_id = ? OR p.owner_user_id = ? OR up.owner_user_id = ?)
-    LIMIT 1
-  `,
-    [expenseId, ownerId(req), ownerId(req), ownerId(req)],
-  );
+  return exists(db, 'SELECT 1 FROM expenses WHERE id = ? AND owner_user_id = ? LIMIT 1', [
+    expenseId,
+    ownerId(req),
+  ]);
 }
 
 function canAccessTask(db, req, taskId) {
   if (!taskId || canSeeAll(req)) return true;
-  return exists(
-    db,
-    `
-    SELECT 1
-    FROM tasks t
-    LEFT JOIN properties p ON p.id = t.property_id
-    LEFT JOIN units u ON u.id = t.unit_id
-    LEFT JOIN properties up ON up.id = u.property_id
-    LEFT JOIN tenants te ON te.id = t.tenant_id
-    WHERE t.id = ?
-      AND (t.owner_user_id = ? OR p.owner_user_id = ? OR up.owner_user_id = ? OR te.owner_user_id = ?)
-    LIMIT 1
-  `,
-    [taskId, ownerId(req), ownerId(req), ownerId(req), ownerId(req)],
-  );
+  return exists(db, 'SELECT 1 FROM tasks WHERE id = ? AND owner_user_id = ? LIMIT 1', [taskId, ownerId(req)]);
 }
 
 function canAccessDocument(db, req, documentId) {

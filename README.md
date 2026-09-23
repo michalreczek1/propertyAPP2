@@ -23,10 +23,19 @@ An administrator can already create users in the app. Self-registration is avail
 receive the regular `user` role and their own session; passwords must have at least 12
 characters. The login page then shows **Utwórz konto**.
 
-Do not enable public registration until the tenant-isolation and abuse review is complete.
-The current administrator role can see all users' data. SMS and AI operations use shared
-server credentials, so unrestricted signups could incur costs. There is no email
+The [user data access audit](docs/USER-DATA-ACCESS-AUDIT.md) describes the ownership
+rules and remaining limitations. The current administrator role can see all users' data.
+Regular accounts cannot use the server SMSPlanet or Groq credentials. There is no email
 verification, password reset, account deletion or invitation workflow yet.
+
+Regular users who want SMS must [register with SMSPlanet](https://panel.smsplanet.pl/register),
+fund their SMSPlanet account, and generate a Bearer API token in the
+[SMSPlanet API panel](https://panel.smsplanet.pl/s/api). In PropertyApp, open Settings →
+SMS notifications, save the token, choose the sender, and send a test SMS. The token is
+encrypted in the database using `APP_SESSION_SECRET` and never returned by the API.
+Keep that secret stable and include it in recovery backups; rotating it requires users
+to add their SMS tokens again. Automated scheduled SMS currently runs only for the
+server owner account; regular users can trigger a scan manually.
 
 ## Development
 

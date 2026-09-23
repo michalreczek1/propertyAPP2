@@ -91,12 +91,12 @@ router.get('/tax-yearly', (req, res) => {
     LEFT JOIN tenants t ON t.id = pm.tenant_id
     WHERE pm.period = ?
       AND p.id = ?
-      ${scoped ? 'AND (pm.owner_user_id = ? OR p.owner_user_id = ? OR t.owner_user_id = ?)' : ''}
+      ${scoped ? 'AND pm.owner_user_id = ?' : ''}
   `);
 
   const propertyRows = properties.map((property) => {
     const values = months.map((period) => {
-      const row = rentByProperty.get(period, property.id, ...(scoped ? [uid, uid, uid] : []));
+      const row = rentByProperty.get(period, property.id, ...(scoped ? [uid] : []));
       return Math.round((Number(row && row.rent_paid) || 0) * 100) / 100;
     });
     return {
@@ -194,10 +194,8 @@ router.get('/owner-statement', (req, res) => {
 
   const uid = ownerId(req);
   const scoped = !canSeeAll(req);
-  const paymentScope = scoped
-    ? 'AND (pm.owner_user_id = ? OR p.owner_user_id = ? OR t.owner_user_id = ?)'
-    : '';
-  const paymentParams = scoped ? [uid, uid, uid] : [];
+  const paymentScope = scoped ? 'AND pm.owner_user_id = ?' : '';
+  const paymentParams = scoped ? [uid] : [];
   const arrears = db
     .prepare(
       `SELECT COUNT(*) AS count,
@@ -219,9 +217,9 @@ router.get('/owner-statement', (req, res) => {
        LEFT JOIN units u ON u.id = c.unit_id
        LEFT JOIN properties p ON p.id = u.property_id
        WHERE c.status = 'active'
-       ${scoped ? 'AND (p.owner_user_id = ? OR t.owner_user_id = ?)' : ''}`,
+       ${scoped ? 'AND p.owner_user_id = ?' : ''}`,
     )
-    .all(...(scoped ? [uid, uid] : []));
+    .all(...(scoped ? [uid] : []));
   const contractsEnding = contractsEndingWithinDays(db, activeContracts, 60).length;
   const expiringDocuments = db
     .prepare(

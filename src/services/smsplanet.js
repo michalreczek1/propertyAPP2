@@ -3,10 +3,6 @@
 const API_URL = process.env.SMSPLANET_API_URL || 'https://api2.smsplanet.pl/sms';
 const INFO_API_URL = process.env.SMSPLANET_INFO_API_URL || 'https://api2.smsplanet.pl/getMessageInfo';
 
-function tokenFromEnv() {
-  return process.env.SMSPLANET_TOKEN || process.env.SMSPLANET_API_TOKEN || '';
-}
-
 function normalizeSmsPlanetResponse(data) {
   if (data && data.messageId) {
     return { ok: true, messageId: String(data.messageId), raw: data };
@@ -20,7 +16,7 @@ function normalizeSmsPlanetResponse(data) {
 }
 
 async function sendSms({ token, from, to, msg, testMode, clearPolish, transactional }) {
-  const bearer = token || tokenFromEnv();
+  const bearer = token;
   const sender =
     String(from || '')
       .trim()
@@ -71,7 +67,7 @@ async function sendSms({ token, from, to, msg, testMode, clearPolish, transactio
 }
 
 async function getMessageInfo({ token, messageIds }) {
-  const bearer = token || tokenFromEnv();
+  const bearer = token;
   const ids = Array.isArray(messageIds) ? messageIds.filter(Boolean) : [messageIds].filter(Boolean);
   if (!bearer) {
     const err = new Error('smsplanet_token_required');

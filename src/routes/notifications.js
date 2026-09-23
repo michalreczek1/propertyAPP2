@@ -12,6 +12,32 @@ const {
   previewPaymentReminder,
   sendPaymentReminder,
 } = require('../services/notifications');
+const { ownerId } = require('../utils/scope');
+const { hasUserSecret, setUserSecret, deleteUserSecret } = require('../services/user-secrets');
+
+const SMS_TOKEN_SECRET = 'smsplanet_token';
+
+router.get('/credential', (req, res) => {
+  if (!ownerId(req) || req.user.role === 'admin')
+    return res.json({ managed_by_server: true, configured: false });
+  res.json({ managed_by_server: false, configured: hasUserSecret(ownerId(req), SMS_TOKEN_SECRET) });
+});
+
+router.put('/credential', (req, res) => {
+  if (!ownerId(req) || req.user.role === 'admin')
+    return res.status(403).json({ error: 'user_account_required' });
+  const token = String((req.body || {}).token || '').trim();
+  if (token.length < 20 || token.length > 500) return res.status(400).json({ error: 'invalid_sms_token' });
+  setUserSecret(ownerId(req), SMS_TOKEN_SECRET, token);
+  res.json({ configured: true });
+});
+
+router.delete('/credential', (req, res) => {
+  if (!ownerId(req) || req.user.role === 'admin')
+    return res.status(403).json({ error: 'user_account_required' });
+  deleteUserSecret(ownerId(req), SMS_TOKEN_SECRET);
+  res.json({ configured: false });
+});
 
 router.get('/settings', (req, res) => {
   res.json(getNotificationSettings(req));

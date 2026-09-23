@@ -32,10 +32,8 @@ router.get('/', (req, res) => {
     params.push(req.query.priority);
   }
   if (req.user && req.user.id && req.user.role !== 'admin') {
-    where.push(
-      '(t.owner_user_id = ? OR p.owner_user_id = ? OR up.owner_user_id = ? OR te.owner_user_id = ?)',
-    );
-    params.push(req.user.id, req.user.id, req.user.id, req.user.id);
+    where.push('t.owner_user_id = ?');
+    params.push(req.user.id);
   }
   res.json(
     db

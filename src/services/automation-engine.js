@@ -38,10 +38,10 @@ function scan(req) {
        LEFT JOIN units u ON u.id = c.unit_id
        LEFT JOIN properties p ON p.id = u.property_id
        WHERE c.status = 'active'
-       ${scoped ? 'AND (p.owner_user_id = ? OR t.owner_user_id = ?)' : ''}
+       ${scoped ? 'AND p.owner_user_id = ?' : ''}
        ORDER BY c.end_date`,
     )
-    .all(...(scoped ? [uid, uid] : []));
+    .all(...(scoped ? [uid] : []));
   const endingContracts = contractsEndingWithinDays(db, activeContracts, 30).slice(0, 25);
   const expiringDocuments = db
     .prepare(

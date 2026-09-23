@@ -9,8 +9,10 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function getSetting(db, key, fallback = 0) {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+function getSetting(db, key, fallback = 0, req = null) {
+  const row = !canSeeAll(req)
+    ? db.prepare('SELECT value FROM user_settings WHERE owner_user_id = ? AND key = ?').get(ownerId(req), key)
+    : db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
   return toNumber(row && row.value, fallback);
 }
 
@@ -109,7 +111,7 @@ function getOwnerCosts(db, period = currentPeriod(), req = null) {
   );
   let managementConfigured = rows.length
     ? rows.filter((row) => row.category === 'zarzadzanie').reduce((sum, row) => sum + toNumber(row.amount), 0)
-    : getSetting(db, 'cost.management.monthly', 0);
+    : getSetting(db, 'cost.management.monthly', 0, req);
   let mortgageConfiguredTotal = 0;
   let mortgageKoscielna = 0;
   let mortgageChrobrego = 0;
@@ -123,9 +125,9 @@ function getOwnerCosts(db, period = currentPeriod(), req = null) {
           property_name: property.name,
           amount:
             name.includes('kościelna') || name.includes('koscielna')
-              ? getSetting(db, 'cost.mortgage.koscielna.monthly', 0)
+              ? getSetting(db, 'cost.mortgage.koscielna.monthly', 0, req)
               : name.includes('chrobrego')
-                ? getSetting(db, 'cost.mortgage.chrobrego.monthly', 0)
+                ? getSetting(db, 'cost.mortgage.chrobrego.monthly', 0, req)
                 : 0,
         };
       });

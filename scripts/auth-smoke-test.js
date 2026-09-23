@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const Database = require('better-sqlite3');
 const { spawn, spawnSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
@@ -62,6 +63,8 @@ async function startServer() {
       NODE_ENV: 'test',
       APP_AUTH_ENABLED: '1',
       APP_REGISTRATION_ENABLED: '1',
+      SMSPLANET_TOKEN: 'server-private-test-token',
+      GROQ_API_KEY: 'server-private-test-key',
       APP_AUTH_USER: 'admin',
       APP_AUTH_PASSWORD_HASH: authHash,
       APP_SESSION_SECRET: 'test-secret-for-auth-smoke-with-enough-length',
@@ -156,6 +159,49 @@ async function main() {
   expect(duplicate.status === 409, 'case-insensitive duplicate registration was allowed');
   const deniedAdmin = await fetch(base + '/api/admin/users', { headers: { Cookie: registerCookie } });
   expect(deniedAdmin.status === 403, 'registered user can access admin API');
+  const noSharedSms = await fetch(base + '/api/notifications/settings', {
+    headers: { Cookie: registerCookie },
+  });
+  expect(!(await noSharedSms.json()).token_configured, 'registered user inherited server SMS token');
+  const noSharedCredential = await fetch(base + '/api/notifications/credential', {
+    headers: { Cookie: registerCookie },
+  });
+  expect(!(await noSharedCredential.json()).configured, 'registered user inherited SMS credential');
+  const smsWithoutToken = await fetch(base + '/api/notifications/test', {
+    method: 'POST',
+    headers: { Cookie: registerCookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone: '501123456', message: 'Test' }),
+  });
+  expect((await smsWithoutToken.json()).error === 'smsplanet_token_required', 'server SMS token was used');
+  const saveSmsToken = await fetch(base + '/api/notifications/credential', {
+    method: 'PUT',
+    headers: { Cookie: registerCookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: 'this-is-a-user-owned-test-token' }),
+  });
+  expect(saveSmsToken.ok, 'user cannot save own SMS token');
+  const credentialStatus = await fetch(base + '/api/notifications/credential', {
+    headers: { Cookie: registerCookie },
+  });
+  const credentialBody = await credentialStatus.text();
+  expect(
+    credentialBody.includes('"configured":true') && !credentialBody.includes('test-token'),
+    'SMS token leaked in credential status',
+  );
+  const inspectDb = new Database(dbFile, { readonly: true });
+  const storedToken = inspectDb
+    .prepare('SELECT ciphertext FROM user_secrets WHERE owner_user_id = ? AND name = ?')
+    .get(registered.user.id, 'smsplanet_token');
+  inspectDb.close();
+  expect(
+    storedToken && !storedToken.ciphertext.includes('user-owned-test-token'),
+    'SMS token is stored in plaintext',
+  );
+  const noSharedAi = await fetch(base + '/api/assistant/parse', {
+    method: 'POST',
+    headers: { Cookie: registerCookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: 'niejasna prośba testowa' }),
+  });
+  expect((await noSharedAi.json()).ai?.configured === false, 'registered user inherited server AI key');
 
   const bad = await fetch(base + '/api/auth/login', {
     method: 'POST',
@@ -220,7 +266,7 @@ async function main() {
   const adminSettingsSeed = await fetch(base + '/api/settings', {
     method: 'PUT',
     headers: { Cookie: cookie, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ 'tax.rate': '8.5' }),
+    body: JSON.stringify({ 'tax.rate': '8.5', 'company.nip': 'ADMIN-PRIVATE-NIP' }),
   });
   expect(adminSettingsSeed.ok, `admin settings write failed: ${adminSettingsSeed.status}`);
 
@@ -257,6 +303,11 @@ async function main() {
   });
   expect(adminProperty.status === 201, `admin property failed: ${adminProperty.status}`);
   const adminPropertyId = (await adminProperty.json()).id;
+  const registeredSettings = await fetch(base + '/api/settings', { headers: { Cookie: registerCookie } });
+  expect(
+    !(await registeredSettings.text()).includes('ADMIN-PRIVATE-NIP'),
+    'global company data leaked to registered user',
+  );
   const audit = await fetch(base + '/api/admin/audit', { headers: { Cookie: cookie } });
   const auditRows = await audit.json();
   expect(
@@ -298,6 +349,85 @@ async function main() {
   });
   expect(userProperty.status === 201, `user property failed: ${userProperty.status}`);
   const userPropertyId = (await userProperty.json()).id;
+  const registeredProperty = await fetch(base + '/api/properties', {
+    method: 'POST',
+    headers: { Cookie: registerCookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Registered Private Property', type: 'mieszkanie' }),
+  });
+  expect(registeredProperty.status === 201, 'registered user cannot create property');
+  const registeredPropertyId = (await registeredProperty.json()).id;
+  const registeredTenant = await fetch(base + '/api/tenants', {
+    method: 'POST',
+    headers: { Cookie: registerCookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Registered Private Tenant', status: 'active' }),
+  });
+  expect(registeredTenant.status === 201, 'registered user cannot create tenant');
+  const registeredTenantId = (await registeredTenant.json()).id;
+  const registeredTask = await fetch(base + '/api/tasks', {
+    method: 'POST',
+    headers: { Cookie: registerCookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: 'Registered Private Task' }),
+  });
+  expect(registeredTask.status === 201, 'registered user cannot create task');
+  const registeredTaskId = (await registeredTask.json()).id;
+  const registeredPayment = await fetch(base + '/api/payments', {
+    method: 'POST',
+    headers: { Cookie: registerCookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      period: '2026-05',
+      tenant_id: registeredTenantId,
+      rent_amount: 700,
+      notes: 'Registered Private Payment',
+    }),
+  });
+  expect(registeredPayment.status === 201, 'registered user cannot create payment');
+  const registeredPaymentId = (await registeredPayment.json()).id;
+  for (const [endpoint, privateName] of [
+    ['/api/properties', 'Registered Private Property'],
+    ['/api/tenants', 'Registered Private Tenant'],
+    ['/api/tasks', 'Registered Private Task'],
+    ['/api/payments?period=2026-05', 'Registered Private Payment'],
+    ['/api/export/payments.csv?period=2026-05', 'Registered Private Payment'],
+    ['/api/dashboard', 'Registered Private Property'],
+  ]) {
+    const otherResponse = await fetch(base + endpoint, { headers: { Cookie: userCookie } });
+    expect(
+      !String(await otherResponse.text()).includes(privateName),
+      `${endpoint} leaked registered user data`,
+    );
+  }
+  for (const endpoint of [
+    `/api/properties/${registeredPropertyId}`,
+    `/api/tenants/${registeredTenantId}`,
+    `/api/tasks/${registeredTaskId}`,
+    `/api/payments/${registeredPaymentId}`,
+  ]) {
+    const otherResponse = await fetch(base + endpoint, { headers: { Cookie: userCookie } });
+    expect(otherResponse.status === 404, `${endpoint} returned another user's record`);
+  }
+  const forbiddenApproval = await fetch(base + '/api/payments/approve-month', {
+    method: 'POST',
+    headers: { Cookie: userCookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ period: '2026-05' }),
+  });
+  expect((await forbiddenApproval.json()).updated === 0, 'bulk payment approval changed another user data');
+  const registeredPaymentRead = await fetch(base + `/api/payments/${registeredPaymentId}`, {
+    headers: { Cookie: registerCookie },
+  });
+  expect((await registeredPaymentRead.json()).status === 'pending', 'other user changed registered payment');
+  const foreignPropertyForRegistered = await fetch(base + `/api/properties/${userPropertyId}`, {
+    headers: { Cookie: registerCookie },
+  });
+  expect(foreignPropertyForRegistered.status === 404, 'registered account can read another user property');
+  const foreignPropertyMutation = await fetch(base + `/api/properties/${userPropertyId}`, {
+    method: 'DELETE',
+    headers: { Cookie: registerCookie },
+  });
+  expect(foreignPropertyMutation.status === 404, 'registered account can delete another user property');
+  const userSmsStatus = await fetch(base + '/api/notifications/credential', {
+    headers: { Cookie: userCookie },
+  });
+  expect(!(await userSmsStatus.json()).configured, 'SMS credential leaked to second user');
 
   const userProperties = await fetch(base + '/api/properties', { headers: { Cookie: userCookie } });
   const visibleProperties = await userProperties.json();

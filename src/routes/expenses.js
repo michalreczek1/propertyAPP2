@@ -44,8 +44,8 @@ router.get('/', (req, res) => {
     params.push(req.query.property_id);
   }
   if (req.user && req.user.id && req.user.role !== 'admin') {
-    where.push('(e.owner_user_id = ? OR p.owner_user_id = ? OR up.owner_user_id = ?)');
-    params.push(req.user.id, req.user.id, req.user.id);
+    where.push('e.owner_user_id = ?');
+    params.push(req.user.id);
   }
   const rows = db
     .prepare(
@@ -95,17 +95,12 @@ router.get('/by-category', (req, res) => {
     LEFT JOIN properties up ON up.id = u.property_id
     WHERE strftime('%Y-%m', e.date) = ?
       AND COALESCE(e.exists_in_month, 1) = 1
-      ${req.user && req.user.id && req.user.role !== 'admin' ? 'AND (e.owner_user_id = ? OR p.owner_user_id = ? OR up.owner_user_id = ?)' : ''}
+      ${req.user && req.user.id && req.user.role !== 'admin' ? 'AND e.owner_user_id = ?' : ''}
     GROUP BY category
     ORDER BY total DESC
   `,
     )
-    .all(
-      period,
-      ...(req.user && req.user.id && req.user.role !== 'admin'
-        ? [req.user.id, req.user.id, req.user.id]
-        : []),
-    );
+    .all(period, ...(req.user && req.user.id && req.user.role !== 'admin' ? [req.user.id] : []));
   if (req.query.include_owner === '1') {
     rows = appendOwnerCostCategories(rows, getOwnerCosts(db, period, req));
   }

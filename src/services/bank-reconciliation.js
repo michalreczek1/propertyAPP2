@@ -159,10 +159,10 @@ function scopedPayment(paymentId, uid) {
       LEFT JOIN units u ON u.id = pm.unit_id
       LEFT JOIN properties p ON p.id = u.property_id
       WHERE pm.id = ?
-        AND (pm.owner_user_id IS ? OR p.owner_user_id IS ? OR t.owner_user_id IS ?)
+        AND pm.owner_user_id IS ?
     `,
     )
-    .get(paymentId, uid, uid, uid);
+    .get(paymentId, uid);
 }
 
 function candidatePayments(uid) {
@@ -177,11 +177,11 @@ function candidatePayments(uid) {
       LEFT JOIN units u ON u.id = pm.unit_id
       LEFT JOIN properties p ON p.id = u.property_id
       WHERE pm.status IN ('pending', 'overdue', 'partial')
-        AND (pm.owner_user_id IS ? OR p.owner_user_id IS ? OR t.owner_user_id IS ?)
+        AND pm.owner_user_id IS ?
       ORDER BY pm.period DESC, pm.id DESC
     `,
     )
-    .all(uid, uid, uid);
+    .all(uid);
 }
 
 function paymentScore(transaction, payment) {

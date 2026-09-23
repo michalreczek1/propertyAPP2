@@ -375,12 +375,8 @@ function monthEnd(period) {
 function scopeCondition(req, aliases = {}) {
   if (!req.user || !req.user.id || req.user.role === 'admin') return { sql: '', params: [] };
   const uid = req.user.id;
-  const parts = [];
-  if (aliases.payment) parts.push(`${aliases.payment}.owner_user_id = ?`);
-  if (aliases.tenant) parts.push(`${aliases.tenant}.owner_user_id = ?`);
-  if (aliases.property) parts.push(`${aliases.property}.owner_user_id = ?`);
-  if (!parts.length) return { sql: '', params: [] };
-  return { sql: `AND (${parts.join(' OR ')})`, params: parts.map(() => uid) };
+  const alias = aliases.payment || aliases.tenant || aliases.property;
+  return alias ? { sql: `AND ${alias}.owner_user_id = ?`, params: [uid] } : { sql: '', params: [] };
 }
 
 function likeParam(text) {
@@ -426,11 +422,11 @@ function scopedPaymentRows(req, period) {
     LEFT JOIN units u ON u.id = p.unit_id
     LEFT JOIN properties pr ON pr.id = u.property_id
     WHERE p.period = ?
-      ${scoped ? 'AND (p.owner_user_id = ? OR pr.owner_user_id = ? OR t.owner_user_id = ?)' : ''}
+      ${scoped ? 'AND p.owner_user_id = ?' : ''}
     ORDER BY t.name, u.code, p.id
   `,
     )
-    .all(period, ...(scoped ? [req.user.id, req.user.id, req.user.id] : []));
+    .all(period, ...(scoped ? [req.user.id] : []));
 }
 
 function publicCandidates(rows) {
@@ -1017,8 +1013,7 @@ function extractExpenseCategory(message) {
   return 'inne';
 }
 
-async function classifyWithGroq(message, period, context) {
-  const apiKey = process.env.GROQ_API_KEY;
+async function classifyWithGroq(message, period, context, apiKey) {
   if (!apiKey)
     return {
       ...localIntent(message),
@@ -1337,16 +1332,11 @@ function scopedExpenses(req, period) {
     LEFT JOIN properties up ON up.id = u.property_id
     WHERE strftime('%Y-%m', e.date) = ?
       AND COALESCE(e.exists_in_month, 1) = 1
-      ${req.user && req.user.id && req.user.role !== 'admin' ? 'AND (e.owner_user_id = ? OR p.owner_user_id = ? OR up.owner_user_id = ?)' : ''}
+      ${req.user && req.user.id && req.user.role !== 'admin' ? 'AND e.owner_user_id = ?' : ''}
     ORDER BY e.amount DESC, e.date DESC
   `,
     )
-    .all(
-      period,
-      ...(req.user && req.user.id && req.user.role !== 'admin'
-        ? [req.user.id, req.user.id, req.user.id]
-        : []),
-    );
+    .all(period, ...(req.user && req.user.id && req.user.role !== 'admin' ? [req.user.id] : []));
 }
 
 function scopedLateFeeRows(req, period) {
@@ -1358,8 +1348,8 @@ function scopedLateFeeRows(req, period) {
     params.push(period);
   }
   if (scoped) {
-    where.push('(pm.owner_user_id = ? OR t.owner_user_id = ? OR pr.owner_user_id = ?)');
-    params.push(req.user.id, req.user.id, req.user.id);
+    where.push('pm.owner_user_id = ?');
+    params.push(req.user.id);
   }
   return db
     .prepare(
@@ -1590,10 +1580,10 @@ function tenantCountAnswer(req, model, message, period) {
     JOIN properties p ON p.id = u.property_id
     WHERE p.id IN (${placeholders})
       AND pm.period BETWEEN ? AND ?
-      ${scoped ? 'AND (pm.owner_user_id = ? OR t.owner_user_id = ? OR p.owner_user_id = ?)' : ''}
+      ${scoped ? 'AND pm.owner_user_id = ?' : ''}
   `,
     )
-    .all(...propertyIds, range.start, range.end, ...(scoped ? [uid, uid, uid] : []));
+    .all(...propertyIds, range.start, range.end, ...(scoped ? [uid] : []));
   const contractRows = db
     .prepare(
       `
@@ -1605,10 +1595,10 @@ function tenantCountAnswer(req, model, message, period) {
     WHERE p.id IN (${placeholders})
       AND COALESCE(c.start_date, '1900-01-01') <= ?
       AND COALESCE(c.end_date, '9999-12-31') >= ?
-      ${scoped ? 'AND (t.owner_user_id = ? OR p.owner_user_id = ?)' : ''}
+      ${scoped ? 'AND p.owner_user_id = ?' : ''}
   `,
     )
-    .all(...propertyIds, dateRange.end, dateRange.start, ...(scoped ? [uid, uid] : []));
+    .all(...propertyIds, dateRange.end, dateRange.start, ...(scoped ? [uid] : []));
   const byTenant = new Map();
   for (const row of [...paymentRows, ...contractRows]) if (row.id) byTenant.set(Number(row.id), row);
   const tenants = [...byTenant.values()].sort((a, b) => String(a.name).localeCompare(String(b.name), 'pl'));
@@ -3163,11 +3153,11 @@ function previewFillMissingPropertyPayments(req, model, message, period) {
     JOIN properties p ON p.id = u.property_id
     LEFT JOIN tenants t ON t.id = pm.tenant_id
     WHERE p.id = ?
-      ${scoped ? 'AND (pm.owner_user_id = ? OR p.owner_user_id = ? OR t.owner_user_id = ?)' : ''}
+      ${scoped ? 'AND pm.owner_user_id = ?' : ''}
     ORDER BY pm.period DESC, pm.id DESC
   `,
     )
-    .all(property.id, ...(scoped ? [uid, uid, uid] : []));
+    .all(property.id, ...(scoped ? [uid] : []));
   if (!rows.length) {
     return {
       ok: false,
@@ -3340,10 +3330,11 @@ async function parseAssistantCommand(req, body) {
   const period = input.period || todayLocalISO().slice(0, 7);
   const rows = scopedPaymentRows(req, period);
   const local = localIntent(input.message);
+  const aiKey = req.user && req.user.id && req.user.role !== 'admin' ? '' : process.env.GROQ_API_KEY;
   const useLocalIntent = local.intent !== 'unsupported' && Number(local.confidence || 0) >= 0.8;
   const classified = useLocalIntent
-    ? { ...local, ai_used: false, ai_configured: Boolean(process.env.GROQ_API_KEY), warning: null }
-    : await classifyWithGroq(input.message, period, assistantContext(req, input.message, period));
+    ? { ...local, ai_used: false, ai_configured: Boolean(aiKey), warning: null }
+    : await classifyWithGroq(input.message, period, assistantContext(req, input.message, period), aiKey);
   const merged =
     useLocalIntent || (classified.intent === 'unsupported' && local.intent !== 'unsupported')
       ? { ...classified, ...local }
@@ -3546,10 +3537,10 @@ function fillMissingPropertyPayments(req, action) {
     JOIN units u ON u.id = pm.unit_id
     JOIN properties p ON p.id = u.property_id
     WHERE pm.id = ?
-      ${scoped ? 'AND (pm.owner_user_id = ? OR p.owner_user_id = ?)' : ''}
+      ${scoped ? 'AND pm.owner_user_id = ?' : ''}
   `,
     )
-    .get(action.sample_payment_id, ...(scoped ? [uid, uid] : []));
+    .get(action.sample_payment_id, ...(scoped ? [uid] : []));
   if (!sample) {
     const err = new Error('sample_payment_not_found');
     err.status = 404;

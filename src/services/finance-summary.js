@@ -12,7 +12,7 @@ function getNum(db, key, fallback = 0, req = null) {
       .prepare('SELECT value FROM user_settings WHERE owner_user_id = ? AND key = ?')
       .get(ownerId(req), key);
   }
-  if (!row) row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+  if (!row && canSeeAll(req)) row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
   if (!row || row.value == null || row.value === '') return fallback;
   const n = Number(row.value);
   return Number.isFinite(n) ? n : fallback;
@@ -88,17 +88,17 @@ function monthListUntil(period, count = 12) {
   return months;
 }
 
-function scopePaymentClause(req, propertyAlias = 'pr', paymentAlias = 'pm', tenantAlias = 't') {
+function scopePaymentClause(req) {
   if (canSeeAll(req)) return { sql: '', params: [] };
   const uid = ownerId(req);
   return {
-    sql: `AND (${paymentAlias}.owner_user_id = ? OR ${propertyAlias}.owner_user_id = ? OR ${tenantAlias}.owner_user_id = ?)`,
-    params: [uid, uid, uid],
+    sql: 'AND pm.owner_user_id = ?',
+    params: [uid],
   };
 }
 
 function baseForPeriod(db, period, req = null) {
-  const scope = scopePaymentClause(req, 'pr', 'pm', 't');
+  const scope = scopePaymentClause(req);
   return db
     .prepare(
       `
@@ -135,8 +135,8 @@ function costsForPeriod(db, period, req = null) {
   const expenseScope = canSeeAll(req)
     ? { sql: '', params: [] }
     : {
-        sql: 'AND (e.owner_user_id = ? OR p.owner_user_id = ? OR up.owner_user_id = ?)',
-        params: [ownerId(req), ownerId(req), ownerId(req)],
+        sql: 'AND e.owner_user_id = ?',
+        params: [ownerId(req)],
       };
   const categories = db
     .prepare(

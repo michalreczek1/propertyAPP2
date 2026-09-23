@@ -473,8 +473,8 @@ router.get('/', (req, res) => {
     params.push(req.query.tenant_id);
   }
   if (req.user && req.user.id && req.user.role !== 'admin') {
-    where.push('(p.owner_user_id = ? OR t.owner_user_id = ?)');
-    params.push(req.user.id, req.user.id);
+    where.push('p.owner_user_id = ?');
+    params.push(req.user.id);
   }
   const rows = db
     .prepare(

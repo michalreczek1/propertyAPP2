@@ -5,6 +5,16 @@ const db = require('../db');
 const { sendSms, getMessageInfo, parseMessageInfo } = require('./smsplanet');
 const { todayLocalISO } = require('../utils/period');
 const { canSeeAll, ownerId } = require('../utils/scope');
+const { getUserSecret, hasUserSecret, setUserSecret, deleteUserSecret } = require('./user-secrets');
+
+const SMS_TOKEN_SECRET = 'smsplanet_token';
+
+function smsToken(req) {
+  if (req && req.user && req.user.id && req.user.role !== 'admin') {
+    return getUserSecret(ownerId(req), SMS_TOKEN_SECRET);
+  }
+  return process.env.SMSPLANET_TOKEN || process.env.SMSPLANET_API_TOKEN || '';
+}
 
 const SETTING_KEYS = [
   'notifications.sms.enabled',
@@ -62,11 +72,14 @@ function intSetting(settings, key, fallback) {
 }
 
 function getRawSetting(req, key) {
-  if (!canSeeAll(req) && tableExists('user_settings')) {
-    const row = db
-      .prepare('SELECT value FROM user_settings WHERE owner_user_id = ? AND key = ?')
-      .get(ownerId(req), key);
-    if (row) return row.value;
+  if (!canSeeAll(req)) {
+    if (tableExists('user_settings')) {
+      const row = db
+        .prepare('SELECT value FROM user_settings WHERE owner_user_id = ? AND key = ?')
+        .get(ownerId(req), key);
+      if (row) return row.value;
+    }
+    return undefined;
   }
   const global = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
   return global ? global.value : undefined;
@@ -74,6 +87,10 @@ function getRawSetting(req, key) {
 
 function getNotificationSettings(req = null) {
   const out = { ...DEFAULT_SETTINGS };
+  if (req && req.user && req.user.id && req.user.role !== 'admin') {
+    out['notifications.sms.sender'] = 'TEST';
+    out['notifications.sms.test_phone'] = '';
+  }
   for (const key of SETTING_KEYS) {
     const value = getRawSetting(req, key);
     if (value !== undefined && value !== null) out[key] = String(value);
@@ -92,7 +109,10 @@ function getNotificationSettings(req = null) {
     template_test: out['notifications.sms.template.test'] || DEFAULT_TEMPLATES.test,
     template_due_reminder: out['notifications.sms.template.due_reminder'] || DEFAULT_TEMPLATES.due_reminder,
     template_overdue: out['notifications.sms.template.overdue'] || DEFAULT_TEMPLATES.overdue,
-    token_configured: Boolean(process.env.SMSPLANET_TOKEN || process.env.SMSPLANET_API_TOKEN),
+    token_configured:
+      req && req.user && req.user.id && req.user.role !== 'admin'
+        ? hasUserSecret(ownerId(req), SMS_TOKEN_SECRET)
+        : Boolean(smsToken(req)),
   };
 }
 
@@ -212,14 +232,11 @@ function messageHash(message) {
 }
 
 function scopeSql(req, aliases = {}) {
-  if (canSeeAll(req)) return { sql: '', params: [] };
   const uid = ownerId(req);
   const payment = aliases.payment || 'p';
-  const property = aliases.property || 'pr';
-  const tenant = aliases.tenant || 't';
   return {
-    sql: `AND (${payment}.owner_user_id = ? OR ${property}.owner_user_id = ? OR ${tenant}.owner_user_id = ?)`,
-    params: [uid, uid, uid],
+    sql: `AND ${payment}.owner_user_id IS ?`,
+    params: [uid],
   };
 }
 
@@ -368,10 +385,11 @@ function updateLogFailure(logId, errorCode, errorMessage, attemptsBefore, noRetr
   );
 }
 
-async function sendLog(log, settings) {
+async function sendLog(log, settings, token) {
   let result;
   try {
     result = await sendSms({
+      token,
       from: settings.sender,
       to: log.recipient_phone,
       msg: log.message_text,
@@ -413,7 +431,7 @@ async function sendLog(log, settings) {
   return { ok: false, id: log.id, error: result.errorMessage, error_code: result.errorCode };
 }
 
-async function enqueueAndSend(row, type, settings, dryRun = false) {
+async function enqueueAndSend(row, type, settings, dryRun = false, token = '') {
   const actualPhone = normalizePhone(row.phone);
   const targetPhone =
     settings.test_mode && normalizePhone(settings.test_phone)
@@ -446,7 +464,7 @@ async function enqueueAndSend(row, type, settings, dryRun = false) {
   }
   const log = insertLog(row, type, targetPhone, message);
   if (!log) return { status: 'skipped', reason: 'already_logged' };
-  const sent = await sendLog(log, settings);
+  const sent = await sendLog(log, settings, token);
   return sent.ok
     ? { status: sent.status || 'sent', id: log.id, message_id: sent.message_id }
     : { status: 'failed', id: log.id, error: sent.error };
@@ -459,6 +477,7 @@ async function runNotificationScan({
   today = todayLocalISO(),
 } = {}) {
   const settings = getNotificationSettings(req);
+  const token = smsToken(req);
   const types = type === 'all' ? ['due_reminder', 'overdue'] : [type];
   const result = {
     dry_run: dryRun,
@@ -476,7 +495,7 @@ async function runNotificationScan({
     const rows = eligiblePayments(currentType, settings, req, today);
     for (const row of rows) {
       result.scanned += 1;
-      const item = await enqueueAndSend(row, currentType, settings, dryRun);
+      const item = await enqueueAndSend(row, currentType, settings, dryRun, token);
       if (dryRun) result.candidates.push({ type: currentType, ...item });
       else if (item.status === 'sent') result.sent += 1;
       else if (item.status === 'simulated') result.simulated += 1;
@@ -510,9 +529,8 @@ function listLogs(req, limit = 80) {
 
 async function processDueRetries(req = null) {
   const settings = getNotificationSettings(req);
-  const scope = canSeeAll(req)
-    ? { sql: '', params: [] }
-    : { sql: 'AND owner_user_id = ?', params: [ownerId(req)] };
+  const token = smsToken(req);
+  const scope = { sql: 'AND owner_user_id IS ?', params: [ownerId(req)] };
   const logs = db
     .prepare(
       `
@@ -531,7 +549,7 @@ async function processDueRetries(req = null) {
   const result = { retried: 0, sent: 0, simulated: 0, failed: 0 };
   for (const log of logs) {
     result.retried += 1;
-    const sent = await sendLog(log, settings);
+    const sent = await sendLog(log, settings, token);
     if (sent.ok && sent.status === 'simulated') result.simulated = (result.simulated || 0) + 1;
     else if (sent.ok) result.sent += 1;
     else result.failed += 1;
@@ -541,9 +559,7 @@ async function processDueRetries(req = null) {
 
 async function syncDeliveryStatuses(req = null, limit = 20) {
   const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 50);
-  const scope = canSeeAll(req)
-    ? { sql: '', params: [] }
-    : { sql: 'AND owner_user_id = ?', params: [ownerId(req)] };
+  const scope = { sql: 'AND owner_user_id IS ?', params: [ownerId(req)] };
   const logs = db
     .prepare(
       `
@@ -561,7 +577,7 @@ async function syncDeliveryStatuses(req = null, limit = 20) {
   const result = { checked: 0, delivered: 0, failed: 0, pending: 0, errors: [] };
   for (const log of logs) {
     try {
-      const info = await getMessageInfo({ messageIds: [log.provider_message_id] });
+      const info = await getMessageInfo({ token: smsToken(req), messageIds: [log.provider_message_id] });
       const rows = parseMessageInfo(info.message);
       const expectedPhone = String(log.recipient_phone || '')
         .replace(/\D/g, '')
@@ -602,7 +618,7 @@ async function sendTestSms(req, phone, message) {
     period: null,
   };
   const log = insertLog(fake, 'test', normalized, text);
-  const sent = await sendLog(log, settings);
+  const sent = await sendLog(log, settings, smsToken(req));
   return { ...sent, log_id: log.id, test_mode: settings.test_mode };
 }
 
@@ -668,7 +684,7 @@ async function sendPaymentReminder(req, paymentId) {
   }
   const settings = getNotificationSettings(req);
   const row = reminderPaymentRow(req, paymentId);
-  const result = await enqueueAndSend(row, 'assistant_reminder', settings, false);
+  const result = await enqueueAndSend(row, 'assistant_reminder', settings, false, smsToken(req));
   return { ...result, preview: { ...preview, token_configured: settings.token_configured } };
 }
 

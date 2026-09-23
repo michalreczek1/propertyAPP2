@@ -92,8 +92,8 @@ router.get('/', (req, res) => {
     params.push(req.query.property_id);
   }
   if (req.user && req.user.id && req.user.role !== 'admin') {
-    where.push('(t.owner_user_id = ? OR p.owner_user_id = ?)');
-    params.push(req.user.id, req.user.id);
+    where.push('t.owner_user_id = ?');
+    params.push(req.user.id);
   }
   const sql = `
     SELECT t.*, u.name AS unit_name, u.code AS unit_code, u.base_rent, u.base_media,

@@ -31,12 +31,8 @@ function ownerUserId(req) {
 function scopeCondition(req, aliases = {}) {
   if (canSeeAll(req)) return { sql: '', params: [] };
   const uid = ownerId(req);
-  const parts = [];
-  if (aliases.property) parts.push(`${aliases.property}.owner_user_id = ?`);
-  if (aliases.tenant) parts.push(`${aliases.tenant}.owner_user_id = ?`);
-  if (aliases.payment) parts.push(`${aliases.payment}.owner_user_id = ?`);
-  if (!parts.length) return { sql: '', params: [] };
-  return { sql: `AND (${parts.join(' OR ')})`, params: parts.map(() => uid) };
+  const alias = aliases.payment || aliases.tenant || aliases.property;
+  return alias ? { sql: `AND ${alias}.owner_user_id = ?`, params: [uid] } : { sql: '', params: [] };
 }
 
 function paymentPeriodBounds(req) {
@@ -349,10 +345,10 @@ function getTenantCount(req, property, range) {
     JOIN units u ON u.id = pm.unit_id
     JOIN properties p ON p.id = u.property_id
     WHERE p.id = ? AND pm.period BETWEEN ? AND ?
-      ${scoped ? 'AND (pm.owner_user_id = ? OR t.owner_user_id = ? OR p.owner_user_id = ?)' : ''}
+      ${scoped ? 'AND pm.owner_user_id = ?' : ''}
   `,
     )
-    .all(property.id, range.start, range.end, ...(scoped ? [uid, uid, uid] : []));
+    .all(property.id, range.start, range.end, ...(scoped ? [uid] : []));
   const contractRows = db
     .prepare(
       `
@@ -364,10 +360,10 @@ function getTenantCount(req, property, range) {
     WHERE p.id = ?
       AND COALESCE(c.start_date, '1900-01-01') <= ?
       AND COALESCE(c.end_date, '9999-12-31') >= ?
-      ${scoped ? 'AND (t.owner_user_id = ? OR p.owner_user_id = ?)' : ''}
+      ${scoped ? 'AND p.owner_user_id = ?' : ''}
   `,
     )
-    .all(property.id, endDate, startDate, ...(scoped ? [uid, uid] : []));
+    .all(property.id, endDate, startDate, ...(scoped ? [uid] : []));
   const byTenant = new Map();
   for (const row of [...paymentRows, ...contractRows]) if (row.id) byTenant.set(Number(row.id), row);
   const tenants = [...byTenant.values()].sort((a, b) => String(a.name).localeCompare(String(b.name), 'pl'));

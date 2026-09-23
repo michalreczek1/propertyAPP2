@@ -5381,35 +5381,44 @@ async function uploadDocDialog() {
 
 // ═══════════════════════ USTAWIENIA ═══════════════════════
 async function renderSettings(root) {
-  const [s, importStatus, ownerCosts, notificationSettings, notificationLogs, aiAliases, automationData] =
-    await Promise.all([
-      Api.get('/settings'),
-      Api.get('/import/status').catch(() => ({ excel_import_enabled: false, dry_run_enabled: true })),
-      Api.get('/settings/owner-costs').catch(() => ({
-        valid_from_period: '2026-01',
-        management_monthly: 0,
-        mortgages: [],
-      })),
-      Api.get('/notifications/settings').catch(() => ({
-        enabled: false,
-        sender: 'TEST',
-        send_time: '09:30',
-        overdue_days: 1,
-        reminder_enabled: true,
-        reminder_days_before_due: 3,
-        test_mode: true,
-        test_phone: '',
-        clear_polish: false,
-        transactional: false,
-        token_configured: false,
-      })),
-      Api.get('/notifications/logs?limit=12').catch(() => []),
-      Api.get('/assistant/aliases').catch(() => ({
-        aliases: [],
-        candidates: { properties: [], tenants: [], metrics: [] },
-      })),
-      Api.get('/automations?status=pending').catch(() => ({ proposals: [], stats: {} })),
-    ]);
+  const [
+    s,
+    importStatus,
+    ownerCosts,
+    notificationSettings,
+    notificationLogs,
+    aiAliases,
+    automationData,
+    smsCredential,
+  ] = await Promise.all([
+    Api.get('/settings'),
+    Api.get('/import/status').catch(() => ({ excel_import_enabled: false, dry_run_enabled: true })),
+    Api.get('/settings/owner-costs').catch(() => ({
+      valid_from_period: '2026-01',
+      management_monthly: 0,
+      mortgages: [],
+    })),
+    Api.get('/notifications/settings').catch(() => ({
+      enabled: false,
+      sender: 'TEST',
+      send_time: '09:30',
+      overdue_days: 1,
+      reminder_enabled: true,
+      reminder_days_before_due: 3,
+      test_mode: true,
+      test_phone: '',
+      clear_polish: false,
+      transactional: false,
+      token_configured: false,
+    })),
+    Api.get('/notifications/logs?limit=12').catch(() => []),
+    Api.get('/assistant/aliases').catch(() => ({
+      aliases: [],
+      candidates: { properties: [], tenants: [], metrics: [] },
+    })),
+    Api.get('/automations?status=pending').catch(() => ({ proposals: [], stats: {} })),
+    Api.get('/notifications/credential').catch(() => ({ managed_by_server: true, configured: false })),
+  ]);
   setTopbar(
     VIEW_TITLES.ustawienia,
     'Dane firmy, podatki, preferencje',
@@ -5459,6 +5468,15 @@ async function renderSettings(root) {
         </div>
       </div>
       <form id="notif-form" class="form-grid">
+        ${
+          smsCredential.managed_by_server
+            ? ''
+            : `<div class="form-row full"><label>Twój token API SMSPlanet</label>
+          <input id="sms-api-token" type="password" autocomplete="off" placeholder="Wklej własny token API (nie jest wyświetlany ponownie)">
+          <div class="hint">${smsCredential.configured ? 'Własny token jest zapisany.' : 'Brak własnego tokenu — wysyłka SMS nie zadziała.'} <a href="https://panel.smsplanet.pl/register" target="_blank" rel="noopener noreferrer">Załóż konto SMSPlanet</a>, zasil je i <a href="https://panel.smsplanet.pl/s/api" target="_blank" rel="noopener noreferrer">wygeneruj token API</a>. Wklej go tutaj, zapisz i wyślij SMS testowy.</div>
+          <div style="display:flex;gap:8px"><button type="button" class="tb-btn tb-primary" id="sms-token-save">Zapisz token</button><button type="button" class="tb-btn tb-ghost" id="sms-token-delete" ${smsCredential.configured ? '' : 'disabled'}>Usuń token</button></div>
+        </div>`
+        }
         <div class="form-row"><label>Wysyłka aktywna</label><input name="enabled" type="checkbox" ${notificationSettings.enabled ? 'checked' : ''}></div>
         <div class="form-row"><label>Symulacja API bez wysyłki</label><input name="test_mode" type="checkbox" ${notificationSettings.test_mode ? 'checked' : ''}></div>
         <div class="form-row"><label>Nadawca</label><input name="sender" value="${escapeHtml(notificationSettings.sender || 'TEST')}"></div>
@@ -5482,7 +5500,7 @@ async function renderSettings(root) {
           <textarea name="template_overdue" rows="3">${escapeHtml(notificationSettings.template_overdue || 'Przypomnienie: nie odnotowano platnosci za {unit} ({period}). Kwota: {amount} zl. Prosimy o uregulowanie.')}</textarea>
         </div>
         <div class="form-row full">
-          <div class="hint">Token API jest czytany z env serwera: ${notificationSettings.token_configured ? 'skonfigurowany' : 'brak tokena'}. Zaznaczona symulacja sprawdza API bez fizycznej wysyłki SMS-a. Odznacz ją, zapisz i użyj „Wyślij SMS testowy”, aby dostać prawdziwą wiadomość. Zmienne w treści: {tenant}, {unit}, {property}, {period}, {due_date}, {amount}.</div>
+          <div class="hint">Token API: ${notificationSettings.token_configured ? 'skonfigurowany' : 'brak tokena'}. Zaznaczona symulacja sprawdza API bez fizycznej wysyłki SMS-a. Odznacz ją, zapisz i użyj „Wyślij SMS testowy”, aby dostać prawdziwą wiadomość. Zmienne w treści: {tenant}, {unit}, {property}, {period}, {due_date}, {amount}.</div>
         </div>
       </form>
       <div id="sms-preview" style="padding:0 24px 16px;font-size:12px;color:var(--t3)"></div>
@@ -5623,6 +5641,27 @@ async function renderSettings(root) {
   document.getElementById('sms-sync-status').onclick = () => syncSmsDeliveryStatuses();
   document.getElementById('sms-run-now').onclick = () => runSmsNotificationsNow();
   document.getElementById('sms-test').onclick = () => sendTestSms();
+  if (!smsCredential.managed_by_server) {
+    document.getElementById('sms-token-save').onclick = async () => {
+      const token = document.getElementById('sms-api-token').value.trim();
+      try {
+        await Api.put('/notifications/credential', { token });
+        toast('Token SMS zapisany');
+        render();
+      } catch (error) {
+        toast(error.message, 'err');
+      }
+    };
+    document.getElementById('sms-token-delete').onclick = async () => {
+      try {
+        await Api.del('/notifications/credential');
+        toast('Token SMS usunięty');
+        render();
+      } catch (error) {
+        toast(error.message, 'err');
+      }
+    };
+  }
   document.getElementById('ai-alias-add').onclick = () => openAiAliasModal(aiAliases);
   document.getElementById('ai-alias-seed').onclick = () => seedAiAliases();
   document.querySelectorAll('[data-ai-alias-delete]').forEach((btn) => {

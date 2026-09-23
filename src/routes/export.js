@@ -76,11 +76,11 @@ router.get('/payments.csv', (req, res) => {
     LEFT JOIN properties pr ON pr.id = u.property_id
     LEFT JOIN tenants t2 ON t2.id = pm.tenant_id
     WHERE pm.period = ?
-      ${scoped ? 'AND (pm.owner_user_id = ? OR pr.owner_user_id = ? OR t2.owner_user_id = ?)' : ''}
+      ${scoped ? 'AND pm.owner_user_id = ?' : ''}
     ORDER BY pr.name, u.code
   `,
     )
-    .all(period, ...(scoped ? [ownerId(req), ownerId(req), ownerId(req)] : []));
+    .all(period, ...(scoped ? [ownerId(req)] : []));
 
   const header = [
     'period',

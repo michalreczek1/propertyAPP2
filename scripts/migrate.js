@@ -980,6 +980,18 @@ applyMigration('2026-09-13-014-expense-month-status', () => {
     db.prepare('ALTER TABLE expenses ADD COLUMN exists_in_month INTEGER NOT NULL DEFAULT 1').run();
   }
 });
+applyMigration('2026-09-23-015-user-secrets', () => {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_secrets (
+      owner_user_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      ciphertext TEXT NOT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (owner_user_id, name),
+      FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+});
 console.log('✓ Schemat bazy gotowy:', db.name);
 console.log(
   '  Tabele:',
