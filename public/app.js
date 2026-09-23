@@ -977,12 +977,12 @@ function updateAccountTile() {
 function userRowHtml(u) {
   return `
     <tr>
-      <td><div class="user-cell">${avatar(u.display_name || u.username)}<div><b>${escapeHtml(u.display_name || u.username)}</b><span>${escapeHtml(u.username)}</span></div></div></td>
+      <td><div class="user-cell">${avatar(u.display_name || u.username)}<div><b>${escapeHtml(u.display_name || u.username)}</b><span>${escapeHtml(u.username)}${u.email ? ` · ${escapeHtml(u.email)}` : ''}</span></div></div></td>
       <td>${escapeHtml(roleLabel(u.role))}</td>
-      <td>${u.active ? chip('chip-e', 'Aktywny', true) : chip('chip-r', 'Wyłączony')}</td>
+      <td>${u.approval_status === 'pending' ? chip('chip-w', 'Oczekuje') : u.active ? chip('chip-e', 'Aktywny', true) : chip('chip-r', 'Wyłączony')}</td>
       <td>${Number(u.properties_count || 0)}</td>
       <td>${u.last_login_at ? fmtDate(u.last_login_at) : '—'}</td>
-      <td class="ta-r"><button class="icon-btn" data-edit-user="${u.id}" title="Edytuj"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></td>
+      <td class="ta-r">${u.approval_status === 'pending' ? `<button class="tb-btn tb-primary" data-approve-user="${u.id}">Aktywuj</button>` : ''}<button class="icon-btn" data-edit-user="${u.id}" title="Edytuj"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></td>
     </tr>`;
 }
 
@@ -1052,6 +1052,18 @@ async function openAccountPanel() {
       });
     };
   });
+  m.root.querySelectorAll('[data-approve-user]').forEach((btn) => {
+    btn.onclick = async () => {
+      try {
+        await Api.post(`/admin/users/${btn.dataset.approveUser}/approve`, {});
+        toast('Konto aktywowane');
+        m.close();
+        openAccountPanel();
+      } catch (e) {
+        toast(e.message, 'err');
+      }
+    };
+  });
 }
 
 function editAppUser(user, onSaved) {
@@ -1070,6 +1082,7 @@ function editAppUser(user, onSaved) {
           ]
         : []),
       { name: 'display_name', label: 'Nazwa wyświetlana', default: user && user.display_name, full: !isNew },
+      { name: 'email', label: 'Adres e-mail', type: 'email', default: user && user.email, full: true },
       {
         name: 'role',
         label: 'Rola',

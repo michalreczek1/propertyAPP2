@@ -4,15 +4,7 @@ const form = document.getElementById('login-form');
 const err = document.getElementById('login-error');
 const registerForm = document.getElementById('register-form');
 const registerError = document.getElementById('register-error');
-const modeButton = document.getElementById('auth-mode');
-
-if (registerForm && registerError && modeButton && form) {
-  modeButton.addEventListener('click', () => {
-    const registering = registerForm.hidden;
-    registerForm.hidden = !registering;
-    form.hidden = registering;
-    modeButton.textContent = registering ? 'Mam już konto — zaloguj' : 'Utwórz konto';
-  });
+if (registerForm && registerError) {
   registerForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     registerError.className = 'error';
@@ -30,12 +22,17 @@ if (registerForm && registerError && modeButton && form) {
         throw new Error(
           data.error === 'username_exists'
             ? 'Ten login jest już zajęty.'
-            : data.error === 'too_many_attempts'
-              ? 'Zbyt wiele prób. Spróbuj ponownie za 15 minut.'
-              : 'Nie udało się utworzyć konta. Sprawdź dane.',
+            : data.error === 'email_exists'
+              ? 'Ten adres e-mail jest już używany.'
+              : data.error === 'account_exists'
+                ? 'Login lub adres e-mail jest już używany.'
+                : data.error === 'too_many_attempts'
+                  ? 'Zbyt wiele prób. Spróbuj ponownie za 15 minut.'
+                  : 'Nie udało się utworzyć konta. Sprawdź dane.',
         );
       }
-      location.href = '/';
+      registerForm.hidden = true;
+      document.getElementById('register-success').hidden = false;
     } catch (error) {
       registerError.textContent = error.message;
       registerError.className = 'error on';
@@ -63,7 +60,9 @@ if (form && err) {
         throw new Error(
           data.error === 'invalid_credentials'
             ? 'Nieprawidłowy login lub hasło.'
-            : data.error || 'Błąd logowania',
+            : data.error === 'account_pending'
+              ? 'Konto czeka na aktywację przez administratora.'
+              : data.error || 'Błąd logowania',
         );
       }
       let next = '/';

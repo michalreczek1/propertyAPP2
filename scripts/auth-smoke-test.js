@@ -128,12 +128,11 @@ async function main() {
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
       'landing page overflows mobile viewport',
     );
-    await page.locator('#auth-mode').click();
+    await page.locator('.hero-actions .primary-link').click();
+    expect(page.url().endsWith('/register'), 'sign-up button did not open registration page');
     expect(await page.locator('#register-form').isVisible(), 'registration form cannot be opened');
-    expect(
-      !(await page.locator('#login-form').isVisible()),
-      'login form remains visible in registration mode',
-    );
+    expect(await page.locator('input[name="email"]').isVisible(), 'email field is missing');
+    await page.goto(base + '/');
     await page.setViewportSize({ width: 1440, height: 900 });
     const heroBox = await page.locator('.hero-copy').boundingBox();
     const accountBox = await page.locator('.account-card').boundingBox();
@@ -175,25 +174,75 @@ async function main() {
     body: JSON.stringify({
       username: 'self_registered',
       display_name: 'New owner',
+      email: 'new-owner@example.test',
       password: 'a-long-test-password',
     }),
   });
   expect(register.status === 201, `registration failed: ${register.status}`);
   const registered = await register.json();
-  expect(registered.user.role === 'user' && registered.user.id, 'registration must create a regular DB user');
-  const registerCookie = register.headers.get('set-cookie');
-  const registerMe = await fetch(base + '/api/auth/me', { headers: { Cookie: registerCookie } });
-  expect((await registerMe.json()).user.id === registered.user.id, 'new session is invalid');
+  expect(registered.approval_status === 'pending', 'registration must wait for approval');
+  expect(!register.headers.get('set-cookie'), 'pending registration received a session');
+  const anonymousApproval = await fetch(base + '/api/admin/users/1/approve', { method: 'POST' });
+  expect(anonymousApproval.status === 401, 'anonymous user could approve an account');
+  const pendingLogin = await fetch(base + '/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'self_registered', password: 'a-long-test-password' }),
+  });
+  expect(
+    pendingLogin.status === 403 && (await pendingLogin.json()).error === 'account_pending',
+    'pending user could log in',
+  );
+  const adminLogin = await fetch(base + '/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'admin', password: 'secret-pass' }),
+  });
+  const adminCookie = adminLogin.headers.get('set-cookie');
+  const pendingUsers = await (
+    await fetch(base + '/api/admin/users', { headers: { Cookie: adminCookie } })
+  ).json();
+  const pendingUser = pendingUsers.find((user) => user.username === 'self_registered');
+  expect(
+    pendingUser && pendingUser.email === 'new-owner@example.test' && pendingUser.active === 0,
+    'pending account missing from admin list',
+  );
+  const approve = await fetch(base + `/api/admin/users/${pendingUser.id}/approve`, {
+    method: 'POST',
+    headers: { Cookie: adminCookie, 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+  expect(approve.ok && (await approve.json()).active === 1, 'administrator could not activate account');
+  const registeredLogin = await fetch(base + '/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'self_registered', password: 'a-long-test-password' }),
+  });
+  expect(registeredLogin.ok, 'approved user could not log in');
+  const registerCookie = registeredLogin.headers.get('set-cookie');
+  registered.user = { id: pendingUser.id };
   const duplicate = await fetch(base + '/api/auth/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       username: 'SELF_REGISTERED',
       display_name: 'Duplicate',
+      email: 'different@example.test',
       password: 'a-long-test-password',
     }),
   });
   expect(duplicate.status === 409, 'case-insensitive duplicate registration was allowed');
+  const duplicateEmail = await fetch(base + '/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      username: 'another_owner',
+      display_name: 'Duplicate email',
+      email: 'NEW-OWNER@example.test',
+      password: 'a-long-test-password',
+    }),
+  });
+  expect(duplicateEmail.status === 409, 'case-insensitive duplicate email was allowed');
   const deniedAdmin = await fetch(base + '/api/admin/users', { headers: { Cookie: registerCookie } });
   expect(deniedAdmin.status === 403, 'registered user can access admin API');
   const noSharedSms = await fetch(base + '/api/notifications/settings', {

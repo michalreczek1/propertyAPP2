@@ -992,6 +992,15 @@ applyMigration('2026-09-23-015-user-secrets', () => {
     );
   `);
 });
+applyMigration('2026-09-23-016-registration-approval', () => {
+  if (!columnExists('users', 'email')) db.prepare('ALTER TABLE users ADD COLUMN email TEXT').run();
+  if (!columnExists('users', 'approval_status')) {
+    db.prepare("ALTER TABLE users ADD COLUMN approval_status TEXT NOT NULL DEFAULT 'approved'").run();
+  }
+  db.exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_email_ci ON users(LOWER(email)) WHERE email IS NOT NULL',
+  );
+});
 console.log('✓ Schemat bazy gotowy:', db.name);
 console.log(
   '  Tabele:',

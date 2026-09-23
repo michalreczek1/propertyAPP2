@@ -6,7 +6,7 @@ const db = require('../db');
 const { requireAdmin } = require('../middleware/auth');
 
 const USER_FIELDS = `
-  id, username, display_name, role, active, last_login_at, created_at, updated_at
+  id, username, display_name, email, approval_status, role, active, last_login_at, created_at, updated_at
 `;
 
 const CreateUserSchema = z.object({
@@ -17,6 +17,7 @@ const CreateUserSchema = z.object({
     .max(64)
     .regex(/^[a-zA-Z0-9._-]+$/),
   display_name: z.string().trim().max(120).optional().nullable(),
+  email: z.string().trim().email().max(254).optional().nullable(),
   role: z.enum(['admin', 'user']).default('user'),
   password: z.string().min(8).max(200),
   active: z.boolean().optional().default(true),
@@ -24,6 +25,7 @@ const CreateUserSchema = z.object({
 
 const UpdateUserSchema = z.object({
   display_name: z.string().trim().max(120).optional().nullable(),
+  email: z.string().trim().email().max(254).optional().nullable(),
   role: z.enum(['admin', 'user']).optional(),
   password: z.string().min(8).max(200).optional().nullable(),
   active: z.boolean().optional(),
@@ -92,7 +94,7 @@ router.get('/users', (_req, res) => {
     SELECT ${USER_FIELDS},
       (SELECT COUNT(*) FROM properties p WHERE p.owner_user_id = users.id) AS properties_count
     FROM users
-    ORDER BY active DESC, role = 'admin' DESC, username COLLATE NOCASE
+    ORDER BY approval_status = 'pending' DESC, active DESC, role = 'admin' DESC, username COLLATE NOCASE
   `,
     )
     .all();
@@ -109,11 +111,11 @@ router.post('/users', (req, res) => {
   const r = db
     .prepare(
       `
-    INSERT INTO users(username, display_name, role, password_hash, active)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO users(username, display_name, email, role, password_hash, active)
+    VALUES (?, ?, ?, ?, ?, ?)
   `,
     )
-    .run(b.username, b.display_name || b.username, b.role, hash, b.active ? 1 : 0);
+    .run(b.username, b.display_name || b.username, b.email || null, b.role, hash, b.active ? 1 : 0);
   res.status(201).json(userById(r.lastInsertRowid));
 });
 
@@ -131,7 +133,7 @@ router.put('/users/:id', (req, res) => {
   }
   const fields = [];
   const params = [];
-  for (const key of ['display_name', 'role']) {
+  for (const key of ['display_name', 'email', 'role']) {
     if (b[key] !== undefined) {
       fields.push(`${key} = ?`);
       params.push(b[key] || (key === 'display_name' ? current.username : b[key]));
@@ -140,6 +142,8 @@ router.put('/users/:id', (req, res) => {
   if (nextActive !== undefined) {
     fields.push('active = ?');
     params.push(nextActive);
+    if (nextActive === 1 && current.approval_status === 'pending')
+      fields.push("approval_status = 'approved'");
   }
   if (b.password) {
     fields.push('password_hash = ?');
@@ -149,6 +153,17 @@ router.put('/users/:id', (req, res) => {
   if (!fields.length) return res.status(400).json({ error: 'no_fields' });
   fields.push('updated_at = CURRENT_TIMESTAMP');
   db.prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...params, id);
+  res.json(userById(id));
+});
+
+router.post('/users/:id/approve', (req, res) => {
+  const id = Number(req.params.id);
+  const current = userById(id);
+  if (!current) return res.status(404).json({ error: 'not_found' });
+  if (current.approval_status !== 'pending') return res.status(409).json({ error: 'not_pending' });
+  db.prepare(
+    "UPDATE users SET active = 1, approval_status = 'approved', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+  ).run(id);
   res.json(userById(id));
 });
 

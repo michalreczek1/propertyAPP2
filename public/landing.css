@@ -273,12 +273,30 @@ input:focus-visible {
   color: #9fb0c5;
   font-size: 13px;
 }
-.account-switch button {
+.account-switch button,
+.account-switch a {
   border: 0;
   background: none;
   color: #7ee5db;
   font-weight: 800;
   padding: 0;
+}
+.register-page {
+  display: grid;
+  place-items: center;
+  min-height: calc(100vh - 76px);
+  padding-block: 48px;
+}
+.register-page .account-card {
+  width: min(100%, 510px);
+}
+.register-success {
+  padding: 12px 32px 32px;
+  color: #d8e3f2;
+}
+.register-success p {
+  line-height: 1.6;
+  color: #9fb0c5;
 }
 .account-foot {
   border-top: 1px solid #2d3e53;

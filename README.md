@@ -20,8 +20,9 @@ ignored private note.
 
 An administrator can already create users in the app. Self-registration is available when
 `APP_REGISTRATION_ENABLED=1` is set on the server. It is disabled by default. New accounts
-receive the regular `user` role and their own session; passwords must have at least 12
-characters. The login page then shows **Utwórz konto**.
+receive the regular `user` role. The registration form asks for a name, login, email and
+password of at least 12 characters. New accounts remain inactive until an administrator
+opens the account panel and clicks **Aktywuj**. They can log in after approval.
 
 The [user data access audit](docs/USER-DATA-ACCESS-AUDIT.md) describes the ownership
 rules and remaining limitations. The current administrator role can see all users' data.

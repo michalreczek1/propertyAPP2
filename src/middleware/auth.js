@@ -41,6 +41,12 @@ const RegistrationSchema = z
       .max(64)
       .regex(/^[a-zA-Z0-9._-]+$/),
     display_name: z.string().trim().min(1).max(120),
+    email: z
+      .string()
+      .trim()
+      .email()
+      .max(254)
+      .transform((value) => value.toLowerCase()),
     password: z.string().min(12).max(200),
   })
   .strict();
@@ -62,6 +68,8 @@ function publicUser(row) {
     display_name: row.display_name || row.username,
     role: row.role || 'user',
     active: row.active !== 0,
+    email: row.email || null,
+    approval_status: row.approval_status || 'approved',
     session_version: Number(row.session_version || 1),
   };
 }
@@ -71,7 +79,7 @@ function getDbUserByUsername(username) {
   return db
     .prepare(
       `
-    SELECT id, username, display_name, role, password_hash, active, session_version
+    SELECT id, username, display_name, email, approval_status, role, password_hash, active, session_version
     FROM users
     WHERE LOWER(username) = LOWER(?)
     LIMIT 1
@@ -85,7 +93,7 @@ function getDbUserById(id) {
   return db
     .prepare(
       `
-    SELECT id, username, display_name, role, active, session_version
+    SELECT id, username, display_name, email, approval_status, role, active, session_version
     FROM users
     WHERE id = ?
     LIMIT 1
@@ -303,8 +311,18 @@ function loginPage(req, res) {
   );
 }
 
+function registrationPage(req, res) {
+  const status = authStatus(req);
+  if (status.user) return res.redirect('/');
+  const { renderRegistration } = require('../views/landing');
+  res.setHeader('Cache-Control', 'no-store, must-revalidate');
+  res.setHeader('Content-Type', 'text/html; charset=UTF-8');
+  res.send(renderRegistration({ registrationEnabled: getConfig().registrationEnabled }));
+}
+
 function installAuth(app) {
   app.get('/login', loginPage);
+  app.get('/register', registrationPage);
   app.get('/api/auth/me', (req, res) => res.json(authStatus(req)));
   app.post('/api/auth/register', (req, res) => {
     const config = getConfig();
@@ -313,27 +331,24 @@ function installAuth(app) {
     if (!checkRateLimit(req, '__registration__')) return res.status(429).json({ error: 'too_many_attempts' });
     const parsed = RegistrationSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'invalid_registration' });
-    const { username, display_name, password } = parsed.data;
+    const { username, display_name, email, password } = parsed.data;
     if (getDbUserByUsername(username) || username.toLowerCase() === config.username.toLowerCase()) {
       return res.status(409).json({ error: 'username_exists' });
     }
-    let id;
+    if (db.prepare('SELECT 1 FROM users WHERE LOWER(email) = ?').get(email)) {
+      return res.status(409).json({ error: 'email_exists' });
+    }
     try {
       const hash = bcrypt.hashSync(password, 12);
-      id = db
-        .prepare(
-          `INSERT INTO users(username, display_name, role, password_hash, active)
-        VALUES (?, ?, 'user', ?, 1)`,
-        )
-        .run(username, display_name, hash).lastInsertRowid;
+      db.prepare(
+        `INSERT INTO users(username, display_name, email, role, password_hash, active, approval_status)
+        VALUES (?, ?, ?, 'user', ?, 0, 'pending')`,
+      ).run(username, display_name, email, hash);
     } catch (error) {
-      if (error.code === 'SQLITE_CONSTRAINT_UNIQUE')
-        return res.status(409).json({ error: 'username_exists' });
+      if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') return res.status(409).json({ error: 'account_exists' });
       throw error;
     }
-    const user = publicUser(getDbUserByUsername(username));
-    setSessionCookie(req, res, createToken(user, config.sessionSecret));
-    res.status(201).json({ ok: true, user });
+    res.status(201).json({ ok: true, approval_status: 'pending' });
   });
   app.post('/api/auth/login', async (req, res) => {
     const config = getConfig();
@@ -344,7 +359,11 @@ function installAuth(app) {
     if (!checkRateLimit(req, username)) return res.status(429).json({ error: 'too_many_attempts' });
     let user = null;
     const dbUser = getDbUserByUsername(username);
-    if (dbUser && dbUser.active !== 0 && (await bcrypt.compare(password, dbUser.password_hash))) {
+    const dbPasswordValid = dbUser && (await bcrypt.compare(password, dbUser.password_hash));
+    if (dbPasswordValid && dbUser.approval_status === 'pending') {
+      return res.status(403).json({ error: 'account_pending' });
+    }
+    if (dbPasswordValid && dbUser.active !== 0 && dbUser.approval_status === 'approved') {
       db.prepare('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?').run(dbUser.id);
       user = publicUser(dbUser);
     } else if (

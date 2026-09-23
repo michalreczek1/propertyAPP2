@@ -40,7 +40,7 @@ function renderLanding({ configMissing, registrationEnabled, encodedNext, isLogi
         <span class="eyebrow">Panel dla właścicieli nieruchomości na wynajem</span>
         <h1 id="hero-title">Najem pod kontrolą.<br><span>W jednym miejscu.</span></h1>
         <p class="lead">PropertyApp pomaga uporządkować lokale, najemców, umowy i rozliczenia. Sprawdzaj wpłaty, koszty oraz terminy bez przeskakiwania między arkuszami i dokumentami.</p>
-        <div class="hero-actions"><a class="primary-link" href="#konto">${registrationEnabled ? 'Załóż konto' : 'Przejdź do logowania'}</a><a class="secondary-link" href="#funkcje">Poznaj funkcje <span aria-hidden="true">↓</span></a></div>
+        <div class="hero-actions"><a class="primary-link" href="${registrationEnabled ? '/register' : '#konto'}">${registrationEnabled ? 'Załóż konto' : 'Przejdź do logowania'}</a><a class="secondary-link" href="#funkcje">Poznaj funkcje <span aria-hidden="true">↓</span></a></div>
         <p class="hero-note">Dostęp przez przeglądarkę · osobne dane dla każdego zwykłego konta</p>
       </div>
       <div class="account-card" id="konto">
@@ -51,17 +51,7 @@ function renderLanding({ configMissing, registrationEnabled, encodedNext, isLogi
           <label>Hasło<input name="password" type="password" autocomplete="current-password" required ${configMissing ? 'disabled' : ''}></label>
           <button class="submit" type="submit" ${configMissing ? 'disabled' : ''}>Zaloguj się <span aria-hidden="true">→</span></button>
         </form>
-        ${
-          registrationEnabled
-            ? `<form id="register-form" hidden>
-          <div class="error" id="register-error" role="alert"></div>
-          <label>Login<input name="username" autocomplete="username" required minlength="3" maxlength="64"></label>
-          <label>Imię lub nazwa<input name="display_name" autocomplete="name" required maxlength="120"></label>
-          <label>Hasło (min. 12 znaków)<input name="password" type="password" autocomplete="new-password" required minlength="12"></label>
-          <button class="submit" type="submit">Utwórz konto <span aria-hidden="true">→</span></button>
-        </form><div class="account-switch"><span>Nowy użytkownik?</span><button id="auth-mode" type="button">Utwórz konto</button></div>`
-            : ''
-        }
+        ${registrationEnabled ? '<div class="account-switch"><span>Nowy użytkownik?</span><a href="/register">Załóż konto</a></div>' : ''}
         <div class="account-foot">Sesja logowania jest zapisywana w ciasteczku httpOnly.</div>
       </div>
     </section>
@@ -93,7 +83,7 @@ function renderLanding({ configMissing, registrationEnabled, encodedNext, isLogi
       </div>
     </div></section>
 
-    <section class="closing container"><div><span class="eyebrow">WSZYSTKO W JEDNYM PANELU</span><h2>Uporządkuj najem od dziś</h2><p>Dodaj pierwszą nieruchomość i zobacz, jak Twoje dane łączą się w spójny obraz.</p></div><a class="primary-link" href="#konto">${registrationEnabled ? 'Utwórz konto' : 'Zaloguj się'}</a></section>
+    <section class="closing container"><div><span class="eyebrow">WSZYSTKO W JEDNYM PANELU</span><h2>Uporządkuj najem od dziś</h2><p>Dodaj pierwszą nieruchomość i zobacz, jak Twoje dane łączą się w spójny obraz.</p></div><a class="primary-link" href="${registrationEnabled ? '/register' : '#konto'}">${registrationEnabled ? 'Utwórz konto' : 'Zaloguj się'}</a></section>
   </main>
   <footer class="site-footer"><div class="container"><span>© ${new Date().getFullYear()} PropertyApp</span><span>Panel zarządzania najmem nieruchomości</span></div></footer>
   <script src="/login.js"></script>
@@ -101,4 +91,26 @@ function renderLanding({ configMissing, registrationEnabled, encodedNext, isLogi
 </html>`;
 }
 
-module.exports = { renderLanding };
+function renderRegistration({ registrationEnabled }) {
+  return `<!DOCTYPE html>
+<html lang="pl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex,follow"><title>Załóż konto – PropertyApp</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/landing.css"></head>
+<body><header class="site-header"><div class="container header-inner"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">⌂</span><span>PropertyApp</span></a><nav aria-label="Nawigacja"><a href="/">O serwisie</a><a class="nav-login" href="/login#konto">Zaloguj się</a></nav></div></header>
+<main class="register-page container"><div class="account-card"><div class="account-head"><span class="account-kicker">NOWE KONTO</span><h1>Załóż konto</h1><p>${registrationEnabled ? 'Wypełnij formularz. Administrator sprawdzi zgłoszenie i aktywuje konto. Potem możesz się zalogować.' : 'Rejestracja jest obecnie niedostępna.'}</p></div>
+${
+  registrationEnabled
+    ? `<form id="register-form"><div class="error" id="register-error" role="alert"></div>
+<label>Imię lub nazwa<input name="display_name" autocomplete="name" required maxlength="120"></label>
+<label>Login<input name="username" autocomplete="username" required minlength="3" maxlength="64" pattern="[a-zA-Z0-9._-]+"></label>
+<label>Adres e-mail<input name="email" type="email" autocomplete="email" required maxlength="254"></label>
+<label>Hasło (minimum 12 znaków)<input name="password" type="password" autocomplete="new-password" required minlength="12" maxlength="200"></label>
+<button class="submit" type="submit">Wyślij zgłoszenie <span aria-hidden="true">→</span></button></form>
+<div id="register-success" class="register-success" role="status" hidden><h2>Zgłoszenie wysłane</h2><p>Konto czeka na aktywację przez administratora. Po zatwierdzeniu zaloguj się swoim loginem i hasłem.</p><a class="primary-link" href="/login#konto">Przejdź do logowania</a></div>`
+    : ''
+}
+<div class="account-switch"><span>Masz już konto?</span><a href="/login#konto">Zaloguj się</a></div></div></main>
+<script src="/login.js"></script></body></html>`;
+}
+
+module.exports = { renderLanding, renderRegistration };
