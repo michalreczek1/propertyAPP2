@@ -321,37 +321,86 @@ input:focus-visible {
 .preview-section {
   padding-top: 78px;
 }
+.preview-section .section-heading {
+  text-align: center;
+  margin-inline: auto;
+}
 .dashboard-preview {
-  margin: 0;
+  max-width: 600px;
+  margin: 0 auto;
   overflow: hidden;
   border: 1px solid #303052;
   border-radius: 18px;
   background: #111126;
   box-shadow: 0 28px 85px #0007;
 }
-.preview-scroll {
-  overflow-x: auto;
-  overscroll-behavior-inline: contain;
+.preview-trigger {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
 }
-.preview-scroll img {
+.preview-trigger img {
   display: block;
   width: 100%;
   height: auto;
 }
 .dashboard-preview figcaption {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  padding: 16px 20px;
+  padding: 13px 16px;
   border-top: 1px solid #303052;
   color: #9898cc;
   font-size: 13px;
+  text-align: center;
 }
-.dashboard-preview figcaption a {
-  color: #b29aff;
-  font-weight: 700;
-  white-space: nowrap;
+.preview-dialog {
+  width: min(95vw, 1320px);
+  max-width: none;
+  max-height: 92vh;
+  padding: 0;
+  margin: auto;
+  overflow: hidden;
+  color: #eeeeff;
+  background: #111126;
+  border: 1px solid #434368;
+  border-radius: 16px;
+  box-shadow: 0 30px 90px #000b;
+}
+.preview-dialog::backdrop {
+  background: rgba(3, 3, 12, 0.82);
+}
+.preview-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  font-size: 15px;
+}
+.preview-dialog-head button {
+  padding: 7px 10px;
+  color: #eeeeff;
+  background: #262644;
+  border: 1px solid #434368;
+  border-radius: 8px;
+}
+.preview-dialog-scroll {
+  overflow: auto;
+  max-height: calc(92vh - 106px);
+  overscroll-behavior: contain;
+}
+.preview-dialog-scroll img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.preview-dialog-note {
+  margin: 0;
+  padding: 12px 18px;
+  color: #9898cc;
+  border-top: 1px solid #303052;
+  font-size: 13px;
 }
 .preview-swipe-hint {
   display: none;
@@ -547,12 +596,9 @@ input:focus-visible {
   .section {
     padding-block: 68px;
   }
-  .preview-scroll img {
+  .preview-dialog-scroll img {
     width: 900px;
     max-width: none;
-  }
-  .dashboard-preview figcaption {
-    display: grid;
   }
   .preview-swipe-hint {
     display: inline;

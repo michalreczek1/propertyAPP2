@@ -115,7 +115,7 @@ async function main() {
     'landing page SEO metadata missing',
   );
   expect(
-    rootHtml.includes('id="podglad"') && rootHtml.includes('wyłącznie fikcyjne dane'),
+    rootHtml.includes('id="podglad"') && rootHtml.includes('fikcyjne dane'),
     'dashboard preview section missing',
   );
   const preview = await fetch(base + '/dashboard-preview.png');
@@ -132,16 +132,20 @@ async function main() {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     await page.goto(base + '/');
     await page.locator('#hero-title').waitFor();
-    const previewImage = page.locator('.preview-scroll img');
+    const previewImage = page.locator('.preview-trigger img');
     await previewImage.scrollIntoViewIfNeeded();
     expect(
       await previewImage.evaluate((img) => img.complete && img.naturalWidth > 0),
       'dashboard preview image did not load',
     );
+    await page.locator('#preview-open').click();
+    expect(await page.locator('#dashboard-dialog').isVisible(), 'dashboard popup did not open');
     expect(
-      await page.locator('.preview-scroll').evaluate((el) => el.scrollWidth > el.clientWidth),
-      'mobile dashboard preview cannot be panned',
+      await page.locator('.preview-dialog-scroll').evaluate((el) => el.scrollWidth > el.clientWidth),
+      'mobile dashboard popup cannot be panned',
     );
+    await page.keyboard.press('Escape');
+    expect(!(await page.locator('#dashboard-dialog').isVisible()), 'Escape did not close dashboard popup');
     await page.locator('#hero-title').scrollIntoViewIfNeeded();
     expect(await page.locator('#hero-title').isVisible(), 'landing hero is not visible on mobile');
     expect(
@@ -164,6 +168,16 @@ async function main() {
     );
     await page.goto(base + '/');
     await page.setViewportSize({ width: 1440, height: 900 });
+    const thumbnail = await page.locator('.dashboard-preview').boundingBox();
+    expect(thumbnail && thumbnail.width <= 600, 'dashboard thumbnail is too wide');
+    await page.locator('#preview-open').click();
+    const popup = await page.locator('#dashboard-dialog').boundingBox();
+    expect(popup && popup.width > thumbnail.width, 'dashboard popup is not larger than thumbnail');
+    await page.locator('#preview-close').click();
+    expect(
+      !(await page.locator('#dashboard-dialog').isVisible()),
+      'close button did not close dashboard popup',
+    );
     const heroBox = await page.locator('.hero-copy').boundingBox();
     const accountBox = await page.locator('.account-card').boundingBox();
     expect(heroBox && accountBox && accountBox.x > heroBox.x, 'desktop landing layout is broken');

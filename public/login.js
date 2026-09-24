@@ -1,5 +1,16 @@
 'use strict';
 
+const previewOpen = document.getElementById('preview-open');
+const previewDialog = document.getElementById('dashboard-dialog');
+const previewClose = document.getElementById('preview-close');
+if (previewOpen && previewDialog && previewClose) {
+  previewOpen.addEventListener('click', () => previewDialog.showModal());
+  previewClose.addEventListener('click', () => previewDialog.close());
+  previewDialog.addEventListener('click', (event) => {
+    if (event.target === previewDialog) previewDialog.close();
+  });
+}
+
 const form = document.getElementById('login-form');
 const err = document.getElementById('login-error');
 const registerForm = document.getElementById('register-form');

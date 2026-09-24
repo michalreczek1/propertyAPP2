@@ -73,11 +73,16 @@ function renderLanding({ configMissing, registrationEnabled, encodedNext, isLogi
     <section class="section preview-section" id="podglad" aria-labelledby="preview-title"><div class="container">
       <div class="section-heading"><span class="eyebrow">TAK WYGLĄDA PROPERTYAPP</span><h2 id="preview-title">Zajrzyj do środka</h2><p>To zrzut ekranu działającego dashboardu. Dane na obrazie są przykładowe i zostały przygotowane wyłącznie do prezentacji.</p></div>
       <figure class="dashboard-preview">
-        <div class="preview-scroll" tabindex="0" role="region" aria-label="Podgląd dashboardu, przewijany poziomo na telefonie">
+        <button class="preview-trigger" id="preview-open" type="button" aria-haspopup="dialog" aria-controls="dashboard-dialog" aria-label="Powiększ podgląd dashboardu PropertyApp">
           <img src="${publicAsset('dashboard-preview.png')}" width="2880" height="1800" loading="lazy" alt="Dashboard PropertyApp z przykładowymi danymi: przychód miesiąca, obłożenie lokali, lista płatności i statusy najmu.">
-        </div>
-        <figcaption><span>Rzeczywisty interfejs aplikacji · wyłącznie fikcyjne dane<span class="preview-swipe-hint"> · Przesuń obraz w bok</span></span><a href="${publicAsset('dashboard-preview.png')}" target="_blank" rel="noopener">Otwórz pełny obraz ↗</a></figcaption>
+        </button>
+        <figcaption>Rzeczywisty interfejs · fikcyjne dane · kliknij, aby powiększyć</figcaption>
       </figure>
+      <dialog class="preview-dialog" id="dashboard-dialog" aria-label="Powiększony podgląd dashboardu PropertyApp">
+        <div class="preview-dialog-head"><strong>Dashboard PropertyApp</strong><button id="preview-close" type="button" aria-label="Zamknij podgląd">Zamknij ×</button></div>
+        <div class="preview-dialog-scroll" tabindex="0" role="region" aria-label="Powiększony obraz dashboardu, przewijany poziomo na telefonie"><img src="${publicAsset('dashboard-preview.png')}" width="2880" height="1800" alt="Dashboard PropertyApp z fikcyjnymi danymi o płatnościach i obłożeniu lokali."></div>
+        <p class="preview-dialog-note">Zrzut z działającej aplikacji · wyłącznie przykładowe dane<span class="preview-swipe-hint"> · Przesuń obraz w bok</span></p>
+      </dialog>
     </div></section>
 
     <section class="section feature-section" id="funkcje" aria-labelledby="features-title"><div class="container">
