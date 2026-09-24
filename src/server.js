@@ -93,6 +93,11 @@ app.get('/favicon.svg', (_req, res) => {
   res.type('image/svg+xml');
   res.sendFile(path.join(PUBLIC_DIR, 'favicon.svg'));
 });
+app.get('/propertyapp-logo.svg', (_req, res) => {
+  immutableAsset(res);
+  res.type('image/svg+xml');
+  res.sendFile(path.join(PUBLIC_DIR, 'propertyapp-logo.svg'));
+});
 app.get('/robots.txt', (_req, res) => {
   res
     .type('text/plain')

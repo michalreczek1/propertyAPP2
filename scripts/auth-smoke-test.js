@@ -132,6 +132,16 @@ async function main() {
     expect(page.url().endsWith('/register'), 'sign-up button did not open registration page');
     expect(await page.locator('#register-form').isVisible(), 'registration form cannot be opened');
     expect(await page.locator('input[name="email"]').isVisible(), 'email field is missing');
+    const registerCard = await page.locator('.register-page .account-card').boundingBox();
+    expect(registerCard && registerCard.width <= 480, 'registration card is too wide');
+    expect(
+      await page.locator('.brand-mark').evaluate((img) => img.complete && img.naturalWidth > 0),
+      'FamilyOS PropertyApp logo is missing',
+    );
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      'registration page overflows mobile viewport',
+    );
     await page.goto(base + '/');
     await page.setViewportSize({ width: 1440, height: 900 });
     const heroBox = await page.locator('.hero-copy').boundingBox();
@@ -154,7 +164,7 @@ async function main() {
       `login page retained unsafe next redirect: ${unsafe}`,
     );
     expect(
-      html.includes('<script src="/login.js"></script>') && !html.includes('<script>'),
+      html.includes('<script src="/login.js?v=') && !html.includes('<script>'),
       'login page still contains inline JavaScript',
     );
     expect(html.includes('content="noindex,follow"'), 'duplicate login URL is indexable');

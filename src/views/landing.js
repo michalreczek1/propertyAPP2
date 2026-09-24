@@ -1,5 +1,16 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+
+function publicAsset(name) {
+  const file = path.join(__dirname, '..', '..', 'public', name);
+  return `/${name}?v=${Math.floor(fs.statSync(file).mtimeMs)}`;
+}
+
+const brand =
+  '<img class="brand-mark" src="/propertyapp-logo.svg" width="38" height="38" alt=""><span>PropertyApp</span>';
+
 function renderLanding({ configMissing, registrationEnabled, encodedNext, isLoginPath }) {
   return `<!DOCTYPE html>
 <html lang="pl">
@@ -16,15 +27,18 @@ function renderLanding({ configMissing, registrationEnabled, encodedNext, isLogi
   <meta property="og:title" content="PropertyApp – uporządkuj zarządzanie najmem">
   <meta property="og:description" content="Lokale, najemcy, umowy, płatności, koszty i dokumenty w jednym panelu.">
   <meta property="og:url" content="https://propertyapp.familyos.pl/">
-  <meta name="theme-color" content="#0b1120">
+  <meta name="theme-color" content="#070714">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/landing.css">
+  <link rel="stylesheet" href="${publicAsset('landing.css')}">
 </head>
 <body>
   <a class="skip-link" href="#main">Przejdź do treści</a>
   <header class="site-header">
     <div class="container header-inner">
-      <a class="brand" href="/" aria-label="PropertyApp — strona główna"><span class="brand-mark" aria-hidden="true">⌂</span><span>PropertyApp</span></a>
+      <a class="brand" href="/" aria-label="PropertyApp — strona główna">${brand}</a>
       <nav aria-label="Nawigacja główna">
         <a href="#funkcje">Funkcje</a>
         <a href="#jak-to-dziala">Jak to działa</a>
@@ -44,7 +58,7 @@ function renderLanding({ configMissing, registrationEnabled, encodedNext, isLogi
         <p class="hero-note">Dostęp przez przeglądarkę · osobne dane dla każdego zwykłego konta</p>
       </div>
       <div class="account-card" id="konto">
-        <div class="account-head"><span class="account-kicker">TWOJE KONTO</span><h2>Zacznij pracę</h2><p>${configMissing ? 'Logowanie wymaga konfiguracji na serwerze.' : 'Zaloguj się lub utwórz konto, aby wejść do panelu.'}</p></div>
+        <div class="account-head"><span class="account-kicker">TWOJE KONTO</span><h2>Zaloguj się</h2><p>${configMissing ? 'Logowanie wymaga konfiguracji na serwerze.' : 'Wpisz dane konta, aby wejść do panelu.'}</p></div>
         <form id="login-form" data-next="${encodedNext}">
           <div class="error${configMissing ? ' on' : ''}" id="login-error" role="alert">${configMissing ? 'Logowanie nie jest obecnie dostępne.' : ''}</div>
           <label>Login<input name="username" autocomplete="username" required ${configMissing ? 'disabled' : ''}></label>
@@ -52,7 +66,7 @@ function renderLanding({ configMissing, registrationEnabled, encodedNext, isLogi
           <button class="submit" type="submit" ${configMissing ? 'disabled' : ''}>Zaloguj się <span aria-hidden="true">→</span></button>
         </form>
         ${registrationEnabled ? '<div class="account-switch"><span>Nowy użytkownik?</span><a href="/register">Załóż konto</a></div>' : ''}
-        <div class="account-foot">Sesja logowania jest zapisywana w ciasteczku httpOnly.</div>
+        <div class="account-foot">Bezpieczne połączenie · dostęp do własnych danych</div>
       </div>
     </section>
 
@@ -86,7 +100,7 @@ function renderLanding({ configMissing, registrationEnabled, encodedNext, isLogi
     <section class="closing container"><div><span class="eyebrow">WSZYSTKO W JEDNYM PANELU</span><h2>Uporządkuj najem od dziś</h2><p>Dodaj pierwszą nieruchomość i zobacz, jak Twoje dane łączą się w spójny obraz.</p></div><a class="primary-link" href="${registrationEnabled ? '/register' : '#konto'}">${registrationEnabled ? 'Utwórz konto' : 'Zaloguj się'}</a></section>
   </main>
   <footer class="site-footer"><div class="container"><span>© ${new Date().getFullYear()} PropertyApp</span><span>Panel zarządzania najmem nieruchomości</span></div></footer>
-  <script src="/login.js"></script>
+  <script src="${publicAsset('login.js')}"></script>
 </body>
 </html>`;
 }
@@ -94,9 +108,11 @@ function renderLanding({ configMissing, registrationEnabled, encodedNext, isLogi
 function renderRegistration({ registrationEnabled }) {
   return `<!DOCTYPE html>
 <html lang="pl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="robots" content="noindex,follow"><title>Załóż konto – PropertyApp</title>
-<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/landing.css"></head>
-<body><header class="site-header"><div class="container header-inner"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">⌂</span><span>PropertyApp</span></a><nav aria-label="Nawigacja"><a href="/">O serwisie</a><a class="nav-login" href="/login#konto">Zaloguj się</a></nav></div></header>
+<meta name="robots" content="noindex,follow"><meta name="theme-color" content="#070714"><title>Załóż konto – PropertyApp</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="${publicAsset('landing.css')}"></head>
+<body><header class="site-header"><div class="container header-inner"><a class="brand" href="/" aria-label="PropertyApp — strona główna">${brand}</a><nav aria-label="Nawigacja"><a href="/">O serwisie</a><a class="nav-login" href="/login#konto">Zaloguj się</a></nav></div></header>
 <main class="register-page container"><div class="account-card"><div class="account-head"><span class="account-kicker">NOWE KONTO</span><h1>Załóż konto</h1><p>${registrationEnabled ? 'Wypełnij formularz. Administrator sprawdzi zgłoszenie i aktywuje konto. Potem możesz się zalogować.' : 'Rejestracja jest obecnie niedostępna.'}</p></div>
 ${
   registrationEnabled
@@ -110,7 +126,7 @@ ${
     : ''
 }
 <div class="account-switch"><span>Masz już konto?</span><a href="/login#konto">Zaloguj się</a></div></div></main>
-<script src="/login.js"></script></body></html>`;
+<script src="${publicAsset('login.js')}"></script></body></html>`;
 }
 
 module.exports = { renderLanding, renderRegistration };

@@ -1,14 +1,7 @@
 :root {
-  font-family:
-    Inter,
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    sans-serif;
-  color: #e8eefb;
-  background: #0b1120;
+  font-family: 'DM Sans', sans-serif;
+  color: #eeeeff;
+  background: #070714;
   font-synthesis: none;
 }
 * {
@@ -20,6 +13,9 @@ html {
 body {
   margin: 0;
   min-width: 320px;
+  background:
+    radial-gradient(ellipse 55% 30% at 15% 10%, rgba(139, 92, 246, 0.14), transparent 75%),
+    radial-gradient(ellipse 45% 28% at 88% 30%, rgba(6, 182, 212, 0.08), transparent 75%), #070714;
 }
 button,
 input {
@@ -35,7 +31,7 @@ a {
 a:focus-visible,
 button:focus-visible,
 input:focus-visible {
-  outline: 3px solid #63d7d0;
+  outline: 3px solid #a78bfa;
   outline-offset: 3px;
 }
 .container {
@@ -48,7 +44,7 @@ input:focus-visible {
   top: 12px;
   z-index: 20;
   background: #fff;
-  color: #0b1120;
+  color: #070714;
   padding: 10px;
 }
 .skip-link:focus {
@@ -58,7 +54,7 @@ input:focus-visible {
   position: relative;
   z-index: 2;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: #0b1120;
+  background: rgba(7, 7, 20, 0.92);
 }
 .header-inner {
   min-height: 76px;
@@ -71,42 +67,38 @@ input:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 11px;
-  font-size: 20px;
-  font-weight: 800;
+  font-family: Syne, sans-serif;
+  font-size: 18px;
+  font-weight: 700;
   letter-spacing: -0.04em;
 }
 .brand-mark {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border-radius: 10px;
-  color: #0b1120;
-  background: #57d2c6;
-  font-size: 29px;
-  line-height: 1;
+  display: block;
+  width: 38px;
+  height: 38px;
+  flex: none;
 }
 .site-header nav {
   display: flex;
   align-items: center;
   gap: 28px;
-  color: #a9b7cc;
+  color: #9898cc;
   font-size: 14px;
 }
 .site-header nav a:hover {
   color: #fff;
 }
 .site-header nav .nav-login {
-  border: 1px solid #43566d;
+  border: 1px solid #3b3b60;
   color: #eef6ff;
   padding: 9px 15px;
   border-radius: 9px;
 }
 .hero {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(330px, 0.85fr);
+  grid-template-columns: minmax(0, 1.25fr) minmax(340px, 0.75fr);
   align-items: center;
-  gap: 70px;
+  gap: 80px;
   padding-block: 90px 110px;
   position: relative;
 }
@@ -119,29 +111,31 @@ input:focus-visible {
   left: -170px;
   top: 10px;
   border-radius: 50%;
-  background: #1b6f7330;
+  background: rgba(139, 92, 246, 0.2);
   filter: blur(65px);
 }
 .eyebrow {
-  color: #66d8cf;
+  color: #a78bfa;
   letter-spacing: 0.16em;
   font-size: 12px;
   font-weight: 800;
 }
 .hero h1 {
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 700;
   font-size: clamp(44px, 5vw, 72px);
   line-height: 1.08;
-  letter-spacing: -0.055em;
+  letter-spacing: -0.04em;
   margin: 18px 0 26px;
   max-width: 760px;
 }
 .hero h1 span {
-  color: #6cd8ce;
+  color: #a78bfa;
 }
 .lead {
   font-size: 19px;
   line-height: 1.75;
-  color: #bbcadb;
+  color: #b9b9dc;
   max-width: 650px;
   margin: 0;
 }
@@ -158,13 +152,13 @@ input:focus-visible {
   justify-content: center;
   padding: 15px 24px;
   border-radius: 11px;
-  background: #5ed5ca;
-  color: #07131e;
+  background: linear-gradient(135deg, #8b5cf6, #6d59e8);
+  color: #fff;
   font-weight: 800;
-  box-shadow: 0 14px 35px #2abdaf22;
+  box-shadow: 0 14px 35px rgba(139, 92, 246, 0.22);
 }
 .primary-link:hover {
-  background: #83e4da;
+  background: #9d73ff;
 }
 .secondary-link {
   color: #dfeaf8;
@@ -175,14 +169,19 @@ input:focus-visible {
 }
 .hero-note {
   font-size: 13px;
-  color: #889db4;
+  color: #9898cc;
   margin: 25px 0 0;
 }
 .account-card {
-  background: #111c2e;
-  border: 1px solid #32445b;
+  width: 100%;
+  max-width: 430px;
+  justify-self: end;
+  background: #111126;
+  border: 1px solid #303052;
   border-radius: 18px;
-  box-shadow: 0 28px 90px #0005;
+  box-shadow:
+    0 28px 90px #0008,
+    0 0 55px rgba(139, 92, 246, 0.06);
   overflow: hidden;
   scroll-margin-top: 28px;
 }
@@ -191,17 +190,26 @@ input:focus-visible {
 }
 .account-kicker {
   font-size: 11px;
-  color: #70dad1;
+  color: #a78bfa;
   letter-spacing: 0.18em;
   font-weight: 800;
 }
 .account-head h2 {
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 700;
+  font-size: 28px;
+  letter-spacing: -0.035em;
+  margin: 9px 0 7px;
+}
+.register-page .account-head h1 {
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 700;
   font-size: 28px;
   letter-spacing: -0.035em;
   margin: 9px 0 7px;
 }
 .account-head p {
-  color: #9fb0c5;
+  color: #9898cc;
   font-size: 14px;
   line-height: 1.55;
   margin: 0;
@@ -217,7 +225,7 @@ input:focus-visible {
 }
 .account-card label {
   font-size: 13px;
-  color: #d8e3f2;
+  color: #eeeeff;
   font-weight: 700;
 }
 .account-card input {
@@ -225,19 +233,19 @@ input:focus-visible {
   display: block;
   margin-top: 8px;
   padding: 13px 14px;
-  background: #0c1727;
-  border: 1px solid #3a4d63;
+  background: #0a0a1c;
+  border: 1px solid #3b3b60;
   border-radius: 9px;
   color: #fff;
 }
 .account-card input:focus {
-  border-color: #66d8cf;
+  border-color: #8b5cf6;
 }
 .submit {
   border: 0;
   border-radius: 9px;
-  background: #5ed5ca;
-  color: #07131e;
+  background: linear-gradient(135deg, #8b5cf6, #6d59e8);
+  color: #fff;
   font-weight: 800;
   padding: 14px 16px;
   display: flex;
@@ -245,7 +253,7 @@ input:focus-visible {
   align-items: center;
 }
 .submit:hover {
-  background: #83e4da;
+  background: #9d73ff;
 }
 .submit:disabled {
   opacity: 0.5;
@@ -268,48 +276,51 @@ input:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  border-top: 1px solid #2d3e53;
+  border-top: 1px solid #303052;
   padding: 17px 32px;
-  color: #9fb0c5;
+  color: #9898cc;
   font-size: 13px;
 }
 .account-switch button,
 .account-switch a {
   border: 0;
   background: none;
-  color: #7ee5db;
+  color: #b29aff;
   font-weight: 800;
   padding: 0;
 }
 .register-page {
-  display: grid;
-  place-items: center;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   min-height: calc(100vh - 76px);
   padding-block: 48px;
 }
 .register-page .account-card {
-  width: min(100%, 510px);
+  width: min(100%, 480px);
+  max-width: 480px;
+  flex: none;
 }
 .register-success {
   padding: 12px 32px 32px;
-  color: #d8e3f2;
+  color: #eeeeff;
 }
 .register-success p {
   line-height: 1.6;
-  color: #9fb0c5;
+  color: #9898cc;
 }
 .account-foot {
-  border-top: 1px solid #2d3e53;
+  border-top: 1px solid #303052;
   padding: 13px 32px 18px;
-  color: #7e91a9;
+  color: #7777a6;
   font-size: 12px;
 }
 .section {
   padding-block: 92px;
 }
 .feature-section {
-  background: #101a2a;
-  border-block: 1px solid #24354a;
+  background: #0d0d20;
+  border-block: 1px solid #292947;
 }
 .section-heading {
   max-width: 700px;
@@ -317,6 +328,8 @@ input:focus-visible {
 }
 .section-heading h2,
 .closing h2 {
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 700;
   font-size: clamp(31px, 3.5vw, 46px);
   letter-spacing: -0.045em;
   line-height: 1.15;
@@ -324,7 +337,7 @@ input:focus-visible {
 }
 .section-heading p,
 .closing p {
-  color: #aebdd0;
+  color: #aaaad2;
   line-height: 1.7;
   font-size: 16px;
   margin: 0;
@@ -335,8 +348,8 @@ input:focus-visible {
   gap: 16px;
 }
 .feature {
-  border: 1px solid #304159;
-  background: #152238;
+  border: 1px solid #303052;
+  background: #15152b;
   border-radius: 14px;
   padding: 27px;
   min-height: 208px;
@@ -347,17 +360,19 @@ input:focus-visible {
   display: grid;
   place-items: center;
   border-radius: 10px;
-  background: #234c57;
-  color: #8af0e6;
+  background: rgba(139, 92, 246, 0.16);
+  color: #b29aff;
   font-size: 25px;
 }
 .feature h3 {
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 700;
   font-size: 19px;
   letter-spacing: -0.025em;
   margin: 22px 0 9px;
 }
 .feature p {
-  color: #aebed1;
+  color: #aaaad2;
   line-height: 1.65;
   font-size: 14px;
   margin: 0;
@@ -377,31 +392,33 @@ input:focus-visible {
   display: flex;
   gap: 22px;
   padding: 22px 0;
-  border-bottom: 1px solid #2c3d51;
+  border-bottom: 1px solid #303052;
 }
 .steps li:first-child {
   padding-top: 0;
 }
 .steps li > span {
-  color: #70dad1;
+  color: #a78bfa;
   font-size: 13px;
   font-weight: 800;
   letter-spacing: 0.08em;
   padding-top: 4px;
 }
 .steps h3 {
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 700;
   margin: 0 0 7px;
   font-size: 19px;
 }
 .steps p {
   margin: 0;
-  color: #a9bbcf;
+  color: #aaaad2;
   line-height: 1.6;
   font-size: 14px;
 }
 .faq-section {
-  background: #101a2a;
-  border-block: 1px solid #24354a;
+  background: #0d0d20;
+  border-block: 1px solid #292947;
 }
 .faq-grid {
   display: grid;
@@ -410,14 +427,16 @@ input:focus-visible {
 }
 .faq-grid > div {
   padding: 16px 0;
-  border-top: 1px solid #34455b;
+  border-top: 1px solid #303052;
 }
 .faq-grid h3 {
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 700;
   font-size: 18px;
   margin: 0 0 10px;
 }
 .faq-grid p {
-  color: #aebed1;
+  color: #aaaad2;
   line-height: 1.65;
   font-size: 14px;
   margin: 0;
@@ -433,8 +452,8 @@ input:focus-visible {
   max-width: 660px;
 }
 .site-footer {
-  border-top: 1px solid #26364b;
-  color: #8496ae;
+  border-top: 1px solid #303052;
+  color: #7777a6;
   font-size: 13px;
 }
 .site-footer .container {
