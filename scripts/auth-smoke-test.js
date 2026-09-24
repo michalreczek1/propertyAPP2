@@ -864,6 +864,25 @@ async function main() {
     await page.goto(base + '/');
     await page.locator('#account-btn').click();
     const deleteButton = page.locator(`[data-delete-user="${registered.user.id}"]`);
+    const editButton = page.locator(`[data-edit-user="${registered.user.id}"]`);
+    const deleteBox = await deleteButton.boundingBox();
+    const editBox = await editButton.boundingBox();
+    const userRow = await deleteButton.locator('xpath=ancestor::tr').boundingBox();
+    expect(
+      deleteBox &&
+        editBox &&
+        userRow &&
+        Math.abs(deleteBox.y - editBox.y) < 2 &&
+        deleteBox.x > editBox.x &&
+        deleteBox.y >= userRow.y &&
+        deleteBox.y + deleteBox.height <= userRow.y + userRow.height,
+      'edit and delete buttons are not aligned within the user row',
+    );
+    expect(
+      (await deleteButton.getAttribute('aria-label')).includes('self_registered'),
+      'delete button does not identify account',
+    );
+    await page.screenshot({ path: path.join(ROOT, 'test-results', 'user-account-actions.png') });
     await deleteButton.click();
     expect(
       (await page.locator('#cf-yes').textContent()) === 'Usuń konto i dane',

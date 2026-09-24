@@ -985,6 +985,7 @@ function updateAccountTile() {
 }
 
 function userRowHtml(u) {
+  const accountLabel = escapeHtml(`${u.display_name || u.username} (${u.username})`);
   return `
     <tr>
       <td><div class="user-cell">${avatar(u.display_name || u.username)}<div><b>${escapeHtml(u.display_name || u.username)}</b><span>${escapeHtml(u.username)}${u.email ? ` · ${escapeHtml(u.email)}` : ''}</span></div></div></td>
@@ -992,7 +993,7 @@ function userRowHtml(u) {
       <td>${u.approval_status === 'pending' ? chip('chip-w', 'Oczekuje') : u.active ? chip('chip-e', 'Aktywny', true) : chip('chip-r', 'Wyłączony')}</td>
       <td>${Number(u.properties_count || 0)}</td>
       <td>${u.last_login_at ? fmtDate(u.last_login_at) : '—'}</td>
-      <td class="ta-r">${u.approval_status === 'pending' ? `<button class="tb-btn tb-primary" data-approve-user="${u.id}">Aktywuj</button>` : ''}<button class="icon-btn" data-edit-user="${u.id}" title="Edytuj"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>${u.can_delete ? `<button class="tb-btn tb-danger" type="button" data-delete-user="${u.id}">Usuń</button>` : ''}</td>
+      <td class="ta-r"><div class="user-row-actions">${u.approval_status === 'pending' ? `<button class="tb-btn tb-primary" data-approve-user="${u.id}">Aktywuj</button>` : ''}<button class="icon-btn" type="button" data-edit-user="${u.id}" title="Edytuj: ${accountLabel}" aria-label="Edytuj konto ${accountLabel}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>${u.can_delete ? `<button class="icon-btn danger" type="button" data-delete-user="${u.id}" title="Usuń: ${accountLabel}" aria-label="Usuń konto ${accountLabel}"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg></button>` : ''}</div></td>
     </tr>`;
 }
 

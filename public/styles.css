@@ -2680,9 +2680,30 @@ select.slim {
 }
 .user-table .ta-r {
   white-space: nowrap;
+  width: 88px;
 }
-.user-table .ta-r > button + button {
-  margin-left: 6px;
+.user-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  white-space: nowrap;
+}
+.user-row-actions .icon-btn {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  color: var(--t3);
+  background: rgba(255, 255, 255, 0.025);
+}
+.user-row-actions .icon-btn svg {
+  width: 14px;
+  height: 14px;
+}
+.user-row-actions .icon-btn.danger {
+  color: var(--rose);
+  border-color: rgba(244, 63, 94, 0.3);
+  background: rgba(244, 63, 94, 0.08);
 }
 .user-cell {
   display: flex;
