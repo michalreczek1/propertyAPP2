@@ -484,15 +484,25 @@ function modal({ title, body, footer, wide, onClose }) {
   return { close, root: root.querySelector('.modal') };
 }
 
-function confirmDialog({ title = 'Potwierdź', message, danger, onYes }) {
+function confirmDialog({
+  title = 'Potwierdź',
+  message,
+  danger,
+  confirmLabel = 'Tak, kontynuuj',
+  onYes,
+  onNo,
+}) {
   const m = modal({
     title,
     body: `<div style="padding:22px 26px;font-size:13.5px;color:var(--t2);line-height:1.55">${escapeHtml(message || '')}</div>`,
     footer: `
       <button class="tb-btn tb-ghost" id="cf-no">Anuluj</button>
-      <button class="tb-btn ${danger ? 'tb-danger' : 'tb-primary'}" id="cf-yes">Tak, kontynuuj</button>`,
+      <button class="tb-btn ${danger ? 'tb-danger' : 'tb-primary'}" id="cf-yes">${escapeHtml(confirmLabel)}</button>`,
   });
-  m.root.querySelector('#cf-no').onclick = m.close;
+  m.root.querySelector('#cf-no').onclick = () => {
+    m.close();
+    if (onNo) onNo();
+  };
   m.root.querySelector('#cf-yes').onclick = async () => {
     m.close();
     try {
@@ -982,7 +992,7 @@ function userRowHtml(u) {
       <td>${u.approval_status === 'pending' ? chip('chip-w', 'Oczekuje') : u.active ? chip('chip-e', 'Aktywny', true) : chip('chip-r', 'Wyłączony')}</td>
       <td>${Number(u.properties_count || 0)}</td>
       <td>${u.last_login_at ? fmtDate(u.last_login_at) : '—'}</td>
-      <td class="ta-r">${u.approval_status === 'pending' ? `<button class="tb-btn tb-primary" data-approve-user="${u.id}">Aktywuj</button>` : ''}<button class="icon-btn" data-edit-user="${u.id}" title="Edytuj"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></td>
+      <td class="ta-r">${u.approval_status === 'pending' ? `<button class="tb-btn tb-primary" data-approve-user="${u.id}">Aktywuj</button>` : ''}<button class="icon-btn" data-edit-user="${u.id}" title="Edytuj"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>${u.can_delete ? `<button class="tb-btn tb-danger" type="button" data-delete-user="${u.id}">Usuń</button>` : ''}</td>
     </tr>`;
 }
 
@@ -1059,6 +1069,33 @@ async function openAccountPanel() {
         toast('Konto aktywowane');
         m.close();
         openAccountPanel();
+      } catch (e) {
+        toast(e.message, 'err');
+      }
+    };
+  });
+  m.root.querySelectorAll('[data-delete-user]').forEach((btn) => {
+    btn.onclick = async () => {
+      try {
+        const preview = await Api.get(`/admin/users/${btn.dataset.deleteUser}/deletion-preview`);
+        const counts = preview.counts;
+        confirmDialog({
+          title: 'Usuń konto użytkownika',
+          message: `Usunąć konto „${preview.user.display_name || preview.user.username}” (${preview.user.username})? Razem z kontem zostaną bezpowrotnie usunięte: nieruchomości ${counts.properties}, lokale ${counts.units}, najemcy ${counts.tenants}, umowy ${counts.contracts}, płatności ${counts.payments}, koszty ${counts.expenses}, zadania ${counts.tasks}, dokumenty ${counts.documents} oraz pozostałe dane tego użytkownika.`,
+          danger: true,
+          confirmLabel: 'Usuń konto i dane',
+          onNo: () => openAccountPanel(),
+          onYes: async () => {
+            const result = await Api.del(`/admin/users/${btn.dataset.deleteUser}`);
+            toast(
+              result.files_cleanup_failed
+                ? 'Konto usunięte, ale nie udało się usunąć części plików.'
+                : 'Konto i dane usunięte',
+              result.files_cleanup_failed ? 'err' : 'ok',
+            );
+            openAccountPanel();
+          },
+        });
       } catch (e) {
         toast(e.message, 'err');
       }

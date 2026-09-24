@@ -3,7 +3,8 @@ const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const { z } = require('zod');
 const db = require('../db');
-const { requireAdmin } = require('../middleware/auth');
+const { getConfig, requireAdmin } = require('../middleware/auth');
+const { deleteUserAndData, deletionPreview } = require('../services/user-deletion');
 
 const USER_FIELDS = `
   id, username, display_name, email, approval_status, role, active, last_login_at, created_at, updated_at
@@ -87,7 +88,7 @@ router.get('/audit', (req, res) => {
   res.json(rows);
 });
 
-router.get('/users', (_req, res) => {
+router.get('/users', (req, res) => {
   const users = db
     .prepare(
       `
@@ -98,7 +99,16 @@ router.get('/users', (_req, res) => {
   `,
     )
     .all();
-  res.json(users);
+  const bootstrapUsername = getConfig().username.toLowerCase();
+  res.json(
+    users.map((user) => ({
+      ...user,
+      can_delete:
+        user.id !== req.user.id &&
+        user.username.toLowerCase() !== req.user.username.toLowerCase() &&
+        user.username.toLowerCase() !== bootstrapUsername,
+    })),
+  );
 });
 
 router.post('/users', (req, res) => {
@@ -165,6 +175,36 @@ router.post('/users/:id/approve', (req, res) => {
     "UPDATE users SET active = 1, approval_status = 'approved', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
   ).run(id);
   res.json(userById(id));
+});
+
+router.get('/users/:id/deletion-preview', (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ error: 'invalid_user' });
+  const user = userById(id);
+  if (!user) return res.status(404).json({ error: 'not_found' });
+  res.json({
+    user: { id: user.id, username: user.username, display_name: user.display_name },
+    counts: deletionPreview(id),
+  });
+});
+
+router.delete('/users/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ error: 'invalid_user' });
+  const user = userById(id);
+  if (!user) return res.status(404).json({ error: 'not_found' });
+  if (id === req.user.id || user.username.toLowerCase() === req.user.username.toLowerCase()) {
+    return res.status(400).json({ error: 'cannot_delete_self' });
+  }
+  const bootstrapUsername = getConfig().username;
+  if (bootstrapUsername && user.username.toLowerCase() === bootstrapUsername.toLowerCase()) {
+    return res.status(400).json({ error: 'protected_admin' });
+  }
+  if (user.role === 'admin' && user.active && activeAdminCount(id) < 1) {
+    return res.status(400).json({ error: 'last_admin_required' });
+  }
+  const result = deleteUserAndData(id);
+  res.json({ ok: true, ...result });
 });
 
 module.exports = router;

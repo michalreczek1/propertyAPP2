@@ -2678,6 +2678,12 @@ select.slim {
 .user-table td {
   padding: 10px 12px;
 }
+.user-table .ta-r {
+  white-space: nowrap;
+}
+.user-table .ta-r > button + button {
+  margin-left: 6px;
+}
 .user-cell {
   display: flex;
   align-items: center;

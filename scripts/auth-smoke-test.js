@@ -60,6 +60,7 @@ async function startServer() {
     env: {
       ...process.env,
       DB_FILE: dbFile,
+      UPLOADS_DIR: path.join(tmpDir, 'uploads'),
       PORT: String(port),
       HOST: '127.0.0.1',
       NODE_ENV: 'test',
@@ -801,6 +802,143 @@ async function main() {
     body: JSON.stringify({ active: false }),
   });
   expect(editUser.ok, `admin edit user failed: ${editUser.status}`);
+
+  const cannotDeleteSelf = await fetch(base + `/api/admin/users/1`, {
+    method: 'DELETE',
+    headers: { Cookie: cookie },
+  });
+  expect(cannotDeleteSelf.status === 400, 'admin could delete own account');
+  const cannotDeleteOther = await fetch(base + `/api/admin/users/${createdUser.id}`, {
+    method: 'DELETE',
+    headers: { Cookie: registerCookie },
+  });
+  expect(cannotDeleteOther.status === 403, 'regular user could delete another account');
+
+  const targetUnit = await fetch(base + '/api/units', {
+    method: 'POST',
+    headers: { Cookie: registerCookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ property_id: registeredPropertyId, name: 'Delete-test unit', status: 'vacant' }),
+  });
+  expect(targetUnit.status === 201, 'could not create user unit for deletion test');
+  const targetUnitId = (await targetUnit.json()).id;
+  const targetContract = await fetch(base + '/api/contracts', {
+    method: 'POST',
+    headers: { Cookie: registerCookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      tenant_id: registeredTenantId,
+      unit_id: targetUnitId,
+      start_date: '2026-01-01',
+      end_date: '2026-12-31',
+      rent: 700,
+      status: 'active',
+    }),
+  });
+  expect(targetContract.status === 201, 'could not create user contract for deletion test');
+  const targetContractId = (await targetContract.json()).id;
+  const documentBody = new FormData();
+  documentBody.append(
+    'file',
+    new Blob(['%PDF-1.4\n1 0 obj\nendobj\n%%EOF'], { type: 'application/pdf' }),
+    'delete-test.pdf',
+  );
+  documentBody.append('name', 'Delete-test document');
+  documentBody.append('entity_type', 'property');
+  documentBody.append('entity_id', String(registeredPropertyId));
+  const targetDocument = await fetch(base + '/api/documents', {
+    method: 'POST',
+    headers: { Cookie: registerCookie },
+    body: documentBody,
+  });
+  expect(targetDocument.status === 201, 'could not upload user document for deletion test');
+  const targetDocumentData = await targetDocument.json();
+  const targetFile = path.join(tmpDir, 'uploads', targetDocumentData.file_path);
+  expect(fs.existsSync(targetFile), 'uploaded deletion-test document is missing');
+
+  const deleteBrowser = await chromium.launch();
+  try {
+    const context = await deleteBrowser.newContext();
+    await context.addCookies([
+      { name: 'propertyapp_session', value: cookie.split(';')[0].split('=')[1], url: base },
+    ]);
+    const page = await context.newPage();
+    await page.goto(base + '/');
+    await page.locator('#account-btn').click();
+    const deleteButton = page.locator(`[data-delete-user="${registered.user.id}"]`);
+    await deleteButton.click();
+    expect(
+      (await page.locator('#cf-yes').textContent()) === 'Usuń konto i dane',
+      'deletion confirmation is unclear',
+    );
+    expect(
+      (await page.locator('.modal-body').textContent()).includes('dokumenty 1'),
+      'deletion preview omits documents',
+    );
+    await page.screenshot({ path: path.join(ROOT, 'test-results', 'user-deletion-confirmation.png') });
+    await page.locator('#cf-no').click();
+    await page.locator(`[data-delete-user="${registered.user.id}"]`).click();
+    await page.locator('#cf-yes').click();
+    await page.locator(`[data-delete-user="${registered.user.id}"]`).waitFor({ state: 'detached' });
+  } finally {
+    await deleteBrowser.close();
+  }
+
+  const deletedLogin = await fetch(base + '/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'self_registered', password: 'a-new-long-password' }),
+  });
+  expect(deletedLogin.status === 401, 'deleted account can still log in');
+  const deletedSession = await fetch(base + '/api/auth/me', { headers: { Cookie: registerCookie } });
+  expect(!(await deletedSession.json()).user, 'deleted account session still works');
+  const deletedDb = new Database(dbFile, { readonly: true });
+  try {
+    for (const [table, id] of [
+      ['users', registered.user.id],
+      ['properties', registeredPropertyId],
+      ['units', targetUnitId],
+      ['tenants', registeredTenantId],
+      ['contracts', targetContractId],
+      ['payments', registeredPaymentId],
+      ['tasks', registeredTaskId],
+      ['documents', targetDocumentData.id],
+    ]) {
+      expect(
+        !deletedDb.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(id),
+        `${table} survived account deletion`,
+      );
+    }
+    for (const table of [
+      'recurring_costs',
+      'recurring_cost_month_status',
+      'notification_logs',
+      'bank_matches',
+      'bank_transactions',
+      'bank_imports',
+      'automation_proposals',
+      'ai_queries',
+      'assistant_action_executions',
+      'user_aliases',
+      'user_settings',
+      'user_secrets',
+    ]) {
+      expect(
+        !deletedDb.prepare(`SELECT 1 FROM ${table} WHERE owner_user_id = ?`).get(registered.user.id),
+        `${table} still contains deleted user data`,
+      );
+    }
+    expect(
+      !deletedDb.prepare('SELECT 1 FROM account_codes WHERE user_id = ?').get(registered.user.id),
+      'account code survived',
+    );
+    expect(deletedDb.pragma('foreign_key_check').length === 0, 'account deletion left invalid references');
+  } finally {
+    deletedDb.close();
+  }
+  expect(!fs.existsSync(targetFile), 'deleted account document file survived');
+  const remainingUser = await fetch(base + `/api/admin/users/${createdUser.id}/deletion-preview`, {
+    headers: { Cookie: cookie },
+  });
+  expect(remainingUser.ok, 'deleting one account removed another account');
 
   const logout = await fetch(base + '/api/auth/logout', {
     method: 'POST',
