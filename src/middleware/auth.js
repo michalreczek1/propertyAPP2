@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { z } = require('zod');
 const db = require('../db');
+const { emailConfigured, newCode, sendAccountEmail, verifyTurnstile } = require('../services/account-email');
 
 const COOKIE_NAME = 'propertyapp_session';
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -28,8 +29,23 @@ function getConfig() {
   const enabled = explicitlyDisabled(envFlag)
     ? false
     : truthy(envFlag) || process.env.NODE_ENV === 'production' || configured;
-  const registrationEnabled = enabled && configured && truthy(process.env.APP_REGISTRATION_ENABLED);
-  return { enabled, configured, username, passwordHash, sessionSecret, registrationEnabled };
+  const mailReady =
+    emailConfigured() || (process.env.NODE_ENV === 'test' && process.env.AUTH_TEST_MODE === '1');
+  const captchaReady =
+    Boolean(process.env.TURNSTILE_SITE_KEY && process.env.TURNSTILE_SECRET_KEY) ||
+    (process.env.NODE_ENV === 'test' && process.env.AUTH_TEST_MODE === '1');
+  const registrationEnabled =
+    enabled && configured && mailReady && captchaReady && truthy(process.env.APP_REGISTRATION_ENABLED);
+  const passwordResetEnabled = enabled && configured && mailReady && captchaReady;
+  return {
+    enabled,
+    configured,
+    username,
+    passwordHash,
+    sessionSecret,
+    registrationEnabled,
+    passwordResetEnabled,
+  };
 }
 
 const RegistrationSchema = z
@@ -48,8 +64,70 @@ const RegistrationSchema = z
       .max(254)
       .transform((value) => value.toLowerCase()),
     password: z.string().min(12).max(200),
+    captcha_token: z.string().min(1).max(2048),
   })
   .strict();
+
+const EmailSchema = z.object({
+  email: z
+    .string()
+    .trim()
+    .email()
+    .max(254)
+    .transform((v) => v.toLowerCase()),
+});
+const CodeSchema = EmailSchema.extend({ code: z.string().regex(/^\d{6}$/) });
+const ResetSchema = CodeSchema.extend({ password: z.string().min(12).max(200) });
+const CaptchaEmailSchema = EmailSchema.extend({ captcha_token: z.string().min(1).max(2048) });
+
+function getDbUserByEmail(email) {
+  if (!tableExists('users')) return null;
+  return db
+    .prepare('SELECT id, username, email, active, approval_status FROM users WHERE LOWER(email) = ?')
+    .get(email);
+}
+
+function codeHash(userId, purpose, code) {
+  return crypto
+    .createHmac('sha256', getConfig().sessionSecret)
+    .update(`${userId}:${purpose}:${code}`)
+    .digest('hex');
+}
+
+async function issueCode(user, purpose) {
+  const now = Date.now();
+  const current = db
+    .prepare('SELECT sent_at FROM account_codes WHERE user_id = ? AND purpose = ?')
+    .get(user.id, purpose);
+  if (current && now - current.sent_at < 60_000) return false;
+  const code = newCode();
+  await sendAccountEmail({ to: user.email, purpose, code });
+  db.prepare(
+    `
+    INSERT INTO account_codes (user_id, purpose, code_hash, expires_at, sent_at, attempts)
+    VALUES (?, ?, ?, ?, ?, 0)
+    ON CONFLICT(user_id, purpose) DO UPDATE SET
+      code_hash = excluded.code_hash, expires_at = excluded.expires_at,
+      sent_at = excluded.sent_at, attempts = 0
+  `,
+  ).run(user.id, purpose, codeHash(user.id, purpose, code), now + 10 * 60_000, now);
+  return true;
+}
+
+function consumeCode(user, purpose, code) {
+  const challenge = db
+    .prepare('SELECT code_hash, expires_at, attempts FROM account_codes WHERE user_id = ? AND purpose = ?')
+    .get(user.id, purpose);
+  if (!challenge || challenge.expires_at < Date.now() || challenge.attempts >= 5) return false;
+  const valid = safeEqual(challenge.code_hash, codeHash(user.id, purpose, code));
+  if (!valid) {
+    db.prepare('UPDATE account_codes SET attempts = attempts + 1 WHERE user_id = ? AND purpose = ?').run(
+      user.id,
+      purpose,
+    );
+  }
+  return valid;
+}
 
 function tableExists(name) {
   return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?").get(name);
@@ -305,6 +383,7 @@ function loginPage(req, res) {
     renderLanding({
       configMissing: status.enabled && !status.configured,
       registrationEnabled: config.registrationEnabled,
+      passwordResetEnabled: config.passwordResetEnabled,
       encodedNext: encodeURIComponent(safeNextPath(req.query.next)),
       isLoginPath: req.path === '/login',
     }),
@@ -317,38 +396,157 @@ function registrationPage(req, res) {
   const { renderRegistration } = require('../views/landing');
   res.setHeader('Cache-Control', 'no-store, must-revalidate');
   res.setHeader('Content-Type', 'text/html; charset=UTF-8');
-  res.send(renderRegistration({ registrationEnabled: getConfig().registrationEnabled }));
+  res.send(
+    renderRegistration({
+      registrationEnabled: getConfig().registrationEnabled,
+      turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || '',
+    }),
+  );
+}
+
+function verificationPage(req, res) {
+  const { renderVerification } = require('../views/landing');
+  res.setHeader('Cache-Control', 'no-store, must-revalidate');
+  res.type('html').send(
+    renderVerification({
+      registrationEnabled: getConfig().registrationEnabled,
+      turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || '',
+      email: typeof req.query.email === 'string' ? req.query.email : '',
+    }),
+  );
+}
+
+function passwordResetPage(req, res) {
+  const { renderPasswordReset } = require('../views/landing');
+  res.setHeader('Cache-Control', 'no-store, must-revalidate');
+  res.type('html').send(
+    renderPasswordReset({
+      passwordResetEnabled: getConfig().passwordResetEnabled,
+      turnstileSiteKey: process.env.TURNSTILE_SITE_KEY || '',
+    }),
+  );
 }
 
 function installAuth(app) {
   app.get('/login', loginPage);
   app.get('/register', registrationPage);
+  app.get('/verify-email', verificationPage);
+  app.get('/forgot-password', passwordResetPage);
   app.get('/api/auth/me', (req, res) => res.json(authStatus(req)));
-  app.post('/api/auth/register', (req, res) => {
+  app.post('/api/auth/register', async (req, res) => {
     const config = getConfig();
     if (!config.registrationEnabled) return res.status(404).json({ error: 'registration_disabled' });
     if (!tableExists('users')) return res.status(503).json({ error: 'migration_required' });
     if (!checkRateLimit(req, '__registration__')) return res.status(429).json({ error: 'too_many_attempts' });
     const parsed = RegistrationSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'invalid_registration' });
-    const { username, display_name, email, password } = parsed.data;
+    const { username, display_name, email, password, captcha_token } = parsed.data;
+    if (!(await verifyTurnstile(captcha_token, req)))
+      return res.status(400).json({ error: 'captcha_failed' });
     if (getDbUserByUsername(username) || username.toLowerCase() === config.username.toLowerCase()) {
       return res.status(409).json({ error: 'username_exists' });
     }
-    if (db.prepare('SELECT 1 FROM users WHERE LOWER(email) = ?').get(email)) {
+    if (getDbUserByEmail(email)) {
       return res.status(409).json({ error: 'email_exists' });
     }
+    let userId;
     try {
       const hash = bcrypt.hashSync(password, 12);
-      db.prepare(
-        `INSERT INTO users(username, display_name, email, role, password_hash, active, approval_status)
+      const result = db
+        .prepare(
+          `INSERT INTO users(username, display_name, email, role, password_hash, active, approval_status)
         VALUES (?, ?, ?, 'user', ?, 0, 'pending')`,
-      ).run(username, display_name, email, hash);
+        )
+        .run(username, display_name, email, hash);
+      userId = result.lastInsertRowid;
     } catch (error) {
       if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') return res.status(409).json({ error: 'account_exists' });
       throw error;
     }
+    try {
+      await issueCode({ id: userId, email }, 'verify');
+    } catch (error) {
+      db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+      console.error('Account verification email failed:', error.message);
+      return res.status(502).json({ error: 'email_delivery_failed' });
+    }
     res.status(201).json({ ok: true, approval_status: 'pending' });
+  });
+  app.post('/api/auth/verify-email', (req, res) => {
+    if (!getConfig().registrationEnabled) return res.status(404).json({ error: 'registration_disabled' });
+    const parsed = CodeSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'invalid_code' });
+    const user = getDbUserByEmail(parsed.data.email);
+    if (!user || user.approval_status !== 'pending' || !consumeCode(user, 'verify', parsed.data.code)) {
+      return res.status(400).json({ error: 'invalid_code' });
+    }
+    db.transaction(() => {
+      db.prepare(
+        "UPDATE users SET active = 1, approval_status = 'approved', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      ).run(user.id);
+      db.prepare("DELETE FROM account_codes WHERE user_id = ? AND purpose = 'verify'").run(user.id);
+    })();
+    res.json({ ok: true });
+  });
+  app.post('/api/auth/verification/resend', async (req, res) => {
+    if (!getConfig().registrationEnabled) return res.status(404).json({ error: 'registration_disabled' });
+    const parsed = CaptchaEmailSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'invalid_request' });
+    if (!checkRateLimit(req, '__verification_resend__'))
+      return res.status(429).json({ error: 'too_many_attempts' });
+    if (!(await verifyTurnstile(parsed.data.captcha_token, req)))
+      return res.status(400).json({ error: 'captcha_failed' });
+    const user = getDbUserByEmail(parsed.data.email);
+    if (user && user.approval_status === 'pending') {
+      try {
+        await issueCode(user, 'verify');
+      } catch (error) {
+        console.error('Verification resend failed:', error.message);
+      }
+    }
+    res.json({ ok: true });
+  });
+  app.post('/api/auth/password/forgot', async (req, res) => {
+    if (!getConfig().passwordResetEnabled) return res.status(404).json({ error: 'password_reset_disabled' });
+    const parsed = CaptchaEmailSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'invalid_request' });
+    if (!checkRateLimit(req, '__password_reset__'))
+      return res.status(429).json({ error: 'too_many_attempts' });
+    if (!(await verifyTurnstile(parsed.data.captcha_token, req)))
+      return res.status(400).json({ error: 'captcha_failed' });
+    const user = getDbUserByEmail(parsed.data.email);
+    if (user && user.active === 1 && user.approval_status === 'approved') {
+      try {
+        await issueCode(user, 'reset');
+      } catch (error) {
+        console.error('Password reset email failed:', error.message);
+      }
+    }
+    res.json({ ok: true });
+  });
+  app.post('/api/auth/password/reset', (req, res) => {
+    if (!getConfig().passwordResetEnabled) return res.status(404).json({ error: 'password_reset_disabled' });
+    const parsed = ResetSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'invalid_request' });
+    if (!checkRateLimit(req, '__password_reset_code__'))
+      return res.status(429).json({ error: 'too_many_attempts' });
+    const user = getDbUserByEmail(parsed.data.email);
+    if (
+      !user ||
+      user.active !== 1 ||
+      user.approval_status !== 'approved' ||
+      !consumeCode(user, 'reset', parsed.data.code)
+    ) {
+      return res.status(400).json({ error: 'invalid_code' });
+    }
+    const hash = bcrypt.hashSync(parsed.data.password, 12);
+    db.transaction(() => {
+      db.prepare(
+        'UPDATE users SET password_hash = ?, session_version = session_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      ).run(hash, user.id);
+      db.prepare("DELETE FROM account_codes WHERE user_id = ? AND purpose = 'reset'").run(user.id);
+    })();
+    res.json({ ok: true });
   });
   app.post('/api/auth/login', async (req, res) => {
     const config = getConfig();

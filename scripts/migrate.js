@@ -1001,6 +1001,21 @@ applyMigration('2026-09-23-016-registration-approval', () => {
     'CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_email_ci ON users(LOWER(email)) WHERE email IS NOT NULL',
   );
 });
+applyMigration('2026-09-24-017-account-codes', () => {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS account_codes (
+      user_id INTEGER NOT NULL,
+      purpose TEXT NOT NULL CHECK (purpose IN ('verify', 'reset')),
+      code_hash TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      sent_at INTEGER NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (user_id, purpose),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_account_codes_expiry ON account_codes(expires_at);
+  `);
+});
 console.log('✓ Schemat bazy gotowy:', db.name);
 console.log(
   '  Tabele:',

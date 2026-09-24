@@ -64,6 +64,7 @@ async function startServer() {
       NODE_ENV: 'test',
       APP_AUTH_ENABLED: '1',
       APP_REGISTRATION_ENABLED: '1',
+      AUTH_TEST_MODE: '1',
       SMSPLANET_TOKEN: 'server-private-test-token',
       GROQ_API_KEY: 'server-private-test-key',
       APP_AUTH_USER: 'admin',
@@ -175,6 +176,43 @@ async function main() {
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
       'registration page overflows mobile viewport',
     );
+    await page.locator('#register-form input[name="display_name"]').fill('UI owner');
+    await page.locator('#register-form input[name="username"]').fill('ui_owner');
+    await page.locator('#register-form input[name="email"]').fill('ui-owner@example.test');
+    await page.locator('#register-form input[name="password"]').fill('a-long-ui-password');
+    await page.locator('#register-form').evaluate((form) => {
+      const token = document.createElement('input');
+      token.type = 'hidden';
+      token.name = 'cf-turnstile-response';
+      token.value = 'test-turnstile';
+      form.append(token);
+    });
+    await page.locator('#register-form button').click();
+    await page.waitForURL('**/verify-email?email=ui-owner%40example.test');
+    await page.locator('#verify-form input[name="code"]').fill('123456');
+    await page.locator('#verify-form button').click();
+    await page.locator('#verify-success').waitFor({ state: 'visible' });
+    expect(
+      await page.locator('#verify-success').isVisible(),
+      `browser email verification failed: ${await page.locator('#verify-error').textContent()}`,
+    );
+    await page.goto(base + '/forgot-password');
+    await page.locator('#forgot-form input[name="email"]').fill('ui-owner@example.test');
+    await page.locator('#forgot-form').evaluate((form) => {
+      const token = document.createElement('input');
+      token.type = 'hidden';
+      token.name = 'cf-turnstile-response';
+      token.value = 'test-turnstile';
+      form.append(token);
+    });
+    await page.locator('#forgot-form button').click();
+    await page.locator('#forgot-success').waitFor({ state: 'visible' });
+    expect(await page.locator('#forgot-success').isVisible(), 'browser reset code request failed');
+    await page.locator('#reset-form input[name="code"]').fill('123456');
+    await page.locator('#reset-form input[name="password"]').fill('a-new-ui-password');
+    await page.locator('#reset-form button').click();
+    await page.locator('#reset-success').waitFor({ state: 'visible' });
+    expect(await page.locator('#reset-success').isVisible(), 'browser password reset failed');
     await page.goto(base + '/');
     await page.setViewportSize({ width: 1440, height: 900 });
     const thumbnail = await page.locator('.dashboard-preview').boundingBox();
@@ -226,6 +264,19 @@ async function main() {
   const blocked = await fetch(base + '/api/dashboard');
   expect(blocked.status === 401, `expected unauthorized API, got ${blocked.status}`);
 
+  const botRegistration = await fetch(base + '/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      username: 'bot_owner',
+      display_name: 'Bot owner',
+      email: 'bot-owner@example.test',
+      password: 'a-long-test-password',
+      captcha_token: 'invalid',
+    }),
+  });
+  expect(botRegistration.status === 400, 'invalid Turnstile token was accepted');
+
   const register = await fetch(base + '/api/auth/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -234,11 +285,12 @@ async function main() {
       display_name: 'New owner',
       email: 'new-owner@example.test',
       password: 'a-long-test-password',
+      captcha_token: 'test-turnstile',
     }),
   });
   expect(register.status === 201, `registration failed: ${register.status}`);
   const registered = await register.json();
-  expect(registered.approval_status === 'pending', 'registration must wait for approval');
+  expect(registered.approval_status === 'pending', 'registration must wait for email verification');
   expect(!register.headers.get('set-cookie'), 'pending registration received a session');
   const anonymousApproval = await fetch(base + '/api/admin/users/1/approve', { method: 'POST' });
   expect(anonymousApproval.status === 401, 'anonymous user could approve an account');
@@ -265,19 +317,29 @@ async function main() {
     pendingUser && pendingUser.email === 'new-owner@example.test' && pendingUser.active === 0,
     'pending account missing from admin list',
   );
-  const approve = await fetch(base + `/api/admin/users/${pendingUser.id}/approve`, {
+  const badCode = await fetch(base + '/api/auth/verify-email', {
     method: 'POST',
-    headers: { Cookie: adminCookie, 'Content-Type': 'application/json' },
-    body: '{}',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'new-owner@example.test', code: '000000' }),
   });
-  expect(approve.ok && (await approve.json()).active === 1, 'administrator could not activate account');
+  expect(badCode.status === 400, 'invalid verification code was accepted');
+  const verify = await fetch(base + '/api/auth/verify-email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'new-owner@example.test', code: '123456' }),
+  });
+  expect(verify.ok, 'valid email code did not activate account');
+  const verifiedUsers = await (
+    await fetch(base + '/api/admin/users', { headers: { Cookie: adminCookie } })
+  ).json();
+  expect(verifiedUsers.find((u) => u.id === pendingUser.id)?.active === 1, 'verified account inactive');
   const registeredLogin = await fetch(base + '/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: 'self_registered', password: 'a-long-test-password' }),
   });
   expect(registeredLogin.ok, 'approved user could not log in');
-  const registerCookie = registeredLogin.headers.get('set-cookie');
+  let registerCookie = registeredLogin.headers.get('set-cookie');
   registered.user = { id: pendingUser.id };
   const duplicate = await fetch(base + '/api/auth/register', {
     method: 'POST',
@@ -287,6 +349,7 @@ async function main() {
       display_name: 'Duplicate',
       email: 'different@example.test',
       password: 'a-long-test-password',
+      captcha_token: 'test-turnstile',
     }),
   });
   expect(duplicate.status === 409, 'case-insensitive duplicate registration was allowed');
@@ -298,9 +361,51 @@ async function main() {
       display_name: 'Duplicate email',
       email: 'NEW-OWNER@example.test',
       password: 'a-long-test-password',
+      captcha_token: 'test-turnstile',
     }),
   });
   expect(duplicateEmail.status === 409, 'case-insensitive duplicate email was allowed');
+  const forgot = await fetch(base + '/api/auth/password/forgot', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'new-owner@example.test', captcha_token: 'test-turnstile' }),
+  });
+  expect(forgot.ok, 'password reset code request failed');
+  const reset = await fetch(base + '/api/auth/password/reset', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: 'new-owner@example.test',
+      code: '123456',
+      password: 'a-new-long-password',
+    }),
+  });
+  expect(reset.ok, 'valid reset code did not change password');
+  const reusedReset = await fetch(base + '/api/auth/password/reset', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: 'new-owner@example.test',
+      code: '123456',
+      password: 'another-long-password',
+    }),
+  });
+  expect(reusedReset.status === 400, 'reset code was reusable');
+  const oldLogin = await fetch(base + '/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'self_registered', password: 'a-long-test-password' }),
+  });
+  expect(oldLogin.status === 401, 'old password still works');
+  const newLogin = await fetch(base + '/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'self_registered', password: 'a-new-long-password' }),
+  });
+  expect(newLogin.ok, 'new password does not work');
+  const expiredByReset = await fetch(base + '/api/auth/me', { headers: { Cookie: registerCookie } });
+  expect(!(await expiredByReset.json()).user, 'old session remained valid after password reset');
+  registerCookie = newLogin.headers.get('set-cookie');
   const deniedAdmin = await fetch(base + '/api/admin/users', { headers: { Cookie: registerCookie } });
   expect(deniedAdmin.status === 403, 'registered user can access admin API');
   const noSharedSms = await fetch(base + '/api/notifications/settings', {

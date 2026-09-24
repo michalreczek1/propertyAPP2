@@ -18,16 +18,21 @@ ignored private note.
 
 ## User accounts
 
-An administrator can already create users in the app. Self-registration is available when
-`APP_REGISTRATION_ENABLED=1` is set on the server. It is disabled by default. New accounts
-receive the regular `user` role. The registration form asks for a name, login, email and
-password of at least 12 characters. New accounts remain inactive until an administrator
-opens the account panel and clicks **Aktywuj**. They can log in after approval.
+An administrator can create users in the app. Self-registration is available when
+`APP_REGISTRATION_ENABLED=1` is set on the server together with `RESEND_API_KEY`,
+`RESEND_FROM_EMAIL`, `TURNSTILE_SITE_KEY`, and `TURNSTILE_SECRET_KEY`. It is disabled by
+default. New accounts receive the regular `user` role. The registration form asks for a
+name, login, email and password of at least 12 characters. A six-digit code sent through
+Resend confirms the email and activates the account automatically. The code expires after
+10 minutes, allows five attempts, and may be resent after one minute. Cloudflare Turnstile
+is checked on the server for registration and code requests. Password recovery uses the
+same email service and invalidates existing sessions after the password changes.
 
 The [user data access audit](docs/USER-DATA-ACCESS-AUDIT.md) describes the ownership
 rules and remaining limitations. The current administrator role can see all users' data.
-Regular accounts cannot use the server SMSPlanet or Groq credentials. There is no email
-verification, password reset, account deletion or invitation workflow yet.
+Regular accounts cannot use the server SMSPlanet or Groq credentials. Account deletion
+and invitation workflows are not available yet. The original environment based admin
+account has no email address and cannot use self-service password recovery.
 
 Regular users who want SMS must [register with SMSPlanet](https://panel.smsplanet.pl/register),
 fund their SMSPlanet account, and generate a Bearer API token in the

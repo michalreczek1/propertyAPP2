@@ -23,7 +23,7 @@
 ## Remaining limitations
 
 - Administrator access to all records is by design and is not a private tenant boundary.
-- Account creation has no email verification, password reset, user deletion or invitation workflow. Registration is rate limited.
+- Email verification and password reset use short-lived codes. User deletion and invitation workflows are not available. Registration is rate limited.
 - Property names remain globally unique in the current schema, so two owners cannot use an identical name.
 - User SMS scans are manual; the background schedule runs only for the original server owner.
 - Encryption depends on the stable `APP_SESSION_SECRET`; rotating it requires users to enter their SMS tokens again.

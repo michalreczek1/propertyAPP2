@@ -11,7 +11,35 @@ function publicAsset(name) {
 const brand =
   '<img class="brand-mark" src="/propertyapp-logo.svg" width="38" height="38" alt=""><span>PropertyApp</span>';
 
-function renderLanding({ configMissing, registrationEnabled, encodedNext, isLoginPath }) {
+function escapeHtml(value) {
+  return String(value).replace(
+    /[&<>"']/g,
+    (char) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      })[char],
+  );
+}
+
+function turnstile(siteKey) {
+  return `<div class="cf-turnstile" data-sitekey="${escapeHtml(siteKey)}" data-theme="dark"></div>`;
+}
+
+function turnstileScript() {
+  return '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>';
+}
+
+function renderLanding({
+  configMissing,
+  registrationEnabled,
+  passwordResetEnabled,
+  encodedNext,
+  isLoginPath,
+}) {
   return `<!DOCTYPE html>
 <html lang="pl">
 <head>
@@ -65,7 +93,9 @@ function renderLanding({ configMissing, registrationEnabled, encodedNext, isLogi
           <label>Hasło<input name="password" type="password" autocomplete="current-password" required ${configMissing ? 'disabled' : ''}></label>
           <button class="submit" type="submit" ${configMissing ? 'disabled' : ''}>Zaloguj się <span aria-hidden="true">→</span></button>
         </form>
+        ${passwordResetEnabled ? '<div class="account-switch"><span>Nie pamiętasz hasła?</span><a href="/forgot-password">Odzyskaj dostęp</a></div>' : ''}
         ${registrationEnabled ? '<div class="account-switch"><span>Nowy użytkownik?</span><a href="/register">Załóż konto</a></div>' : ''}
+        ${registrationEnabled ? '<div class="account-switch"><span>Masz już kod?</span><a href="/verify-email">Potwierdź e-mail</a></div>' : ''}
         <div class="account-foot">Bezpieczne połączenie · dostęp do własnych danych</div>
       </div>
     </section>
@@ -122,7 +152,7 @@ function renderLanding({ configMissing, registrationEnabled, encodedNext, isLogi
 </html>`;
 }
 
-function renderRegistration({ registrationEnabled }) {
+function renderRegistration({ registrationEnabled, turnstileSiteKey = '' }) {
   return `<!DOCTYPE html>
 <html lang="pl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex,follow"><meta name="theme-color" content="#070714"><title>Załóż konto – PropertyApp</title>
@@ -130,7 +160,7 @@ function renderRegistration({ registrationEnabled }) {
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="${publicAsset('landing.css')}"></head>
 <body><header class="site-header"><div class="container header-inner"><a class="brand" href="/" aria-label="PropertyApp — strona główna">${brand}</a><nav aria-label="Nawigacja"><a href="/">O serwisie</a><a class="nav-login" href="/login#konto">Zaloguj się</a></nav></div></header>
-<main class="register-page container"><div class="account-card"><div class="account-head"><span class="account-kicker">NOWE KONTO</span><h1>Załóż konto</h1><p>${registrationEnabled ? 'Wypełnij formularz. Administrator sprawdzi zgłoszenie i aktywuje konto. Potem możesz się zalogować.' : 'Rejestracja jest obecnie niedostępna.'}</p></div>
+<main class="register-page container"><div class="account-card"><div class="account-head"><span class="account-kicker">NOWE KONTO</span><h1>Załóż konto</h1><p>${registrationEnabled ? 'Wypełnij formularz, a potem potwierdź adres e-mail kodem. Konto aktywuje się automatycznie.' : 'Rejestracja jest obecnie niedostępna.'}</p></div>
 ${
   registrationEnabled
     ? `<form id="register-form"><div class="error" id="register-error" role="alert"></div>
@@ -138,12 +168,51 @@ ${
 <label>Login<input name="username" autocomplete="username" required minlength="3" maxlength="64" pattern="[a-zA-Z0-9._-]+"></label>
 <label>Adres e-mail<input name="email" type="email" autocomplete="email" required maxlength="254"></label>
 <label>Hasło (minimum 12 znaków)<input name="password" type="password" autocomplete="new-password" required minlength="12" maxlength="200"></label>
+${turnstile(turnstileSiteKey)}
 <button class="submit" type="submit">Wyślij zgłoszenie <span aria-hidden="true">→</span></button></form>
-<div id="register-success" class="register-success" role="status" hidden><h2>Zgłoszenie wysłane</h2><p>Konto czeka na aktywację przez administratora. Po zatwierdzeniu zaloguj się swoim loginem i hasłem.</p><a class="primary-link" href="/login#konto">Przejdź do logowania</a></div>`
+<div id="register-success" class="register-success" role="status" hidden><h2>Sprawdź pocztę</h2><p>Wysłaliśmy kod potwierdzający na Twój adres e-mail.</p><a class="primary-link" href="/verify-email">Wpisz kod</a></div>`
     : ''
 }
 <div class="account-switch"><span>Masz już konto?</span><a href="/login#konto">Zaloguj się</a></div></div></main>
-<script src="${publicAsset('login.js')}"></script></body></html>`;
+${registrationEnabled ? turnstileScript() : ''}<script src="${publicAsset('login.js')}"></script></body></html>`;
 }
 
-module.exports = { renderLanding, renderRegistration };
+function accountPage({ title, kicker, intro, body, includeTurnstile = false }) {
+  return `<!DOCTYPE html><html lang="pl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="robots" content="noindex,follow"><meta name="theme-color" content="#070714"><title>${escapeHtml(title)} – PropertyApp</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="${publicAsset('landing.css')}"></head><body><header class="site-header"><div class="container header-inner"><a class="brand" href="/" aria-label="PropertyApp — strona główna">${brand}</a><nav aria-label="Nawigacja"><a href="/">O serwisie</a><a class="nav-login" href="/login#konto">Zaloguj się</a></nav></div></header><main class="register-page container"><div class="account-card"><div class="account-head"><span class="account-kicker">${escapeHtml(kicker)}</span><h1>${escapeHtml(title)}</h1><p>${escapeHtml(intro)}</p></div>${body}<div class="account-switch"><a href="/login#konto">Wróć do logowania</a></div></div></main>${includeTurnstile ? turnstileScript() : ''}<script src="${publicAsset('login.js')}"></script></body></html>`;
+}
+
+function renderVerification({ registrationEnabled, turnstileSiteKey, email }) {
+  if (!registrationEnabled)
+    return accountPage({
+      title: 'Potwierdzenie e-maila',
+      kicker: 'NOWE KONTO',
+      intro: 'Rejestracja jest obecnie niedostępna.',
+      body: '',
+    });
+  return accountPage({
+    title: 'Potwierdź adres e-mail',
+    kicker: 'NOWE KONTO',
+    intro: 'Wpisz sześciocyfrowy kod wysłany na Twój adres. Kod jest ważny przez 10 minut.',
+    includeTurnstile: true,
+    body: `<form id="verify-form"><div class="error" id="verify-error" role="alert"></div><label>Adres e-mail<input name="email" type="email" autocomplete="email" value="${escapeHtml(email)}" required></label><label>Kod z wiadomości<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label><button class="submit" type="submit">Aktywuj konto <span aria-hidden="true">→</span></button></form><div id="verify-success" class="register-success" role="status" hidden><h2>Konto aktywne</h2><p>Możesz już się zalogować.</p><a class="primary-link" href="/login#konto">Przejdź do logowania</a></div><form id="resend-form"><div class="error" id="resend-error" role="alert"></div><label>Wyślij nowy kod na adres<input name="email" type="email" autocomplete="email" value="${escapeHtml(email)}" required></label>${turnstile(turnstileSiteKey)}<button class="submit" type="submit">Wyślij ponownie <span aria-hidden="true">→</span></button></form>`,
+  });
+}
+
+function renderPasswordReset({ passwordResetEnabled, turnstileSiteKey }) {
+  if (!passwordResetEnabled)
+    return accountPage({
+      title: 'Odzyskaj hasło',
+      kicker: 'TWOJE KONTO',
+      intro: 'Odzyskiwanie hasła jest obecnie niedostępne.',
+      body: '',
+    });
+  return accountPage({
+    title: 'Odzyskaj hasło',
+    kicker: 'TWOJE KONTO',
+    intro: 'Wyślemy kod na adres e-mail przypisany do konta. Kod jest ważny przez 10 minut.',
+    includeTurnstile: true,
+    body: `<form id="forgot-form"><div class="error" id="forgot-error" role="alert"></div><label>Adres e-mail<input name="email" type="email" autocomplete="email" required></label>${turnstile(turnstileSiteKey)}<button class="submit" type="submit">Wyślij kod <span aria-hidden="true">→</span></button></form><div id="forgot-success" class="register-success" role="status" hidden>Jeśli ten adres należy do aktywnego konta, wysłaliśmy kod. Sprawdź pocztę.</div><form id="reset-form"><div class="error" id="reset-error" role="alert"></div><label>Adres e-mail<input name="email" type="email" autocomplete="email" required></label><label>Kod z wiadomości<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label><label>Nowe hasło (minimum 12 znaków)<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="200" required></label><button class="submit" type="submit">Ustaw nowe hasło <span aria-hidden="true">→</span></button></form><div id="reset-success" class="register-success" role="status" hidden><h2>Hasło zmienione</h2><p>Zaloguj się nowym hasłem.</p><a class="primary-link" href="/login#konto">Przejdź do logowania</a></div>`,
+  });
+}
+
+module.exports = { renderLanding, renderRegistration, renderVerification, renderPasswordReset };

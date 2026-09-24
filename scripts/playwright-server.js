@@ -19,6 +19,7 @@ const env = {
   DB_FILE: dbFile,
   UPLOADS_DIR: uploadsDir,
   NODE_ENV: 'test',
+  AUTH_TEST_MODE: '1',
   PORT: process.env.PORT || '8090',
   HOST: '127.0.0.1',
 };

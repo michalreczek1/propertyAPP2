@@ -271,6 +271,14 @@ input:focus-visible {
 .error.on {
   display: block;
 }
+.account-message.on {
+  display: block;
+  color: #d8c8ff;
+  font-size: 13px;
+}
+.cf-turnstile {
+  max-width: 100%;
+}
 .account-switch {
   display: flex;
   align-items: center;
