@@ -125,17 +125,7 @@ html {
   height: 28px;
   flex-shrink: 0;
   border-radius: 8px;
-  background: linear-gradient(135deg, var(--violet), var(--cyan));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.rail-logo-mark svg {
-  width: 14px;
-  height: 14px;
-  stroke: #fff;
-  fill: none;
-  stroke-width: 2.2;
+  display: block;
 }
 .rail-logo-text {
   font-family: var(--display);

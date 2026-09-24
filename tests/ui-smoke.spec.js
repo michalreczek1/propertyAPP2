@@ -77,6 +77,9 @@ async function cleanupPaymentFixture(request, fixture) {
 test('dashboard and expenses render without clipping the app shell', async ({ page, request }) => {
   let fixture = null;
   await page.goto('/#dashboard');
+  const logo = page.locator('.rail-logo-mark');
+  await expect(logo).toHaveAttribute('src', '/propertyapp-logo.svg');
+  expect(await logo.evaluate((img) => img.complete && img.naturalWidth > 0)).toBeTruthy();
   await expect(page.getByText('Przychód miesiąca')).toBeVisible();
   await expect(page.locator('[onclick]')).toHaveCount(0);
   await expect(page.getByText('Netto właściciel').first()).toBeVisible();
