@@ -318,6 +318,44 @@ input:focus-visible {
 .section {
   padding-block: 92px;
 }
+.preview-section {
+  padding-top: 78px;
+}
+.dashboard-preview {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid #303052;
+  border-radius: 18px;
+  background: #111126;
+  box-shadow: 0 28px 85px #0007;
+}
+.preview-scroll {
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+.preview-scroll img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.dashboard-preview figcaption {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  border-top: 1px solid #303052;
+  color: #9898cc;
+  font-size: 13px;
+}
+.dashboard-preview figcaption a {
+  color: #b29aff;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.preview-swipe-hint {
+  display: none;
+}
 .feature-section {
   background: #0d0d20;
   border-block: 1px solid #292947;
@@ -508,6 +546,16 @@ input:focus-visible {
   }
   .section {
     padding-block: 68px;
+  }
+  .preview-scroll img {
+    width: 900px;
+    max-width: none;
+  }
+  .dashboard-preview figcaption {
+    display: grid;
+  }
+  .preview-swipe-hint {
+    display: inline;
   }
   .feature-grid,
   .steps-layout,

@@ -40,6 +40,10 @@ server owner account; regular users can trigger a scan manually.
 
 ## Development
 
+The public dashboard image is captured from the real UI with a fresh, isolated database
+containing only synthetic properties, tenants, payments, and expenses. Regenerate it with
+`node scripts/generate-landing-dashboard.js`, then review the screenshot before committing.
+
 ```bash
 npm install
 npm run migrate

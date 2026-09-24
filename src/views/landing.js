@@ -54,7 +54,7 @@ function renderLanding({ configMissing, registrationEnabled, encodedNext, isLogi
         <span class="eyebrow">Panel dla właścicieli nieruchomości na wynajem</span>
         <h1 id="hero-title">Najem pod kontrolą.<br><span>W jednym miejscu.</span></h1>
         <p class="lead">PropertyApp pomaga uporządkować lokale, najemców, umowy i rozliczenia. Sprawdzaj wpłaty, koszty oraz terminy bez przeskakiwania między arkuszami i dokumentami.</p>
-        <div class="hero-actions"><a class="primary-link" href="${registrationEnabled ? '/register' : '#konto'}">${registrationEnabled ? 'Załóż konto' : 'Przejdź do logowania'}</a><a class="secondary-link" href="#funkcje">Poznaj funkcje <span aria-hidden="true">↓</span></a></div>
+        <div class="hero-actions"><a class="primary-link" href="${registrationEnabled ? '/register' : '#konto'}">${registrationEnabled ? 'Załóż konto' : 'Przejdź do logowania'}</a><a class="secondary-link" href="#podglad">Zobacz panel <span aria-hidden="true">↓</span></a></div>
         <p class="hero-note">Dostęp przez przeglądarkę · osobne dane dla każdego zwykłego konta</p>
       </div>
       <div class="account-card" id="konto">
@@ -69,6 +69,16 @@ function renderLanding({ configMissing, registrationEnabled, encodedNext, isLogi
         <div class="account-foot">Bezpieczne połączenie · dostęp do własnych danych</div>
       </div>
     </section>
+
+    <section class="section preview-section" id="podglad" aria-labelledby="preview-title"><div class="container">
+      <div class="section-heading"><span class="eyebrow">TAK WYGLĄDA PROPERTYAPP</span><h2 id="preview-title">Zajrzyj do środka</h2><p>To zrzut ekranu działającego dashboardu. Dane na obrazie są przykładowe i zostały przygotowane wyłącznie do prezentacji.</p></div>
+      <figure class="dashboard-preview">
+        <div class="preview-scroll" tabindex="0" role="region" aria-label="Podgląd dashboardu, przewijany poziomo na telefonie">
+          <img src="${publicAsset('dashboard-preview.png')}" width="2880" height="1800" loading="lazy" alt="Dashboard PropertyApp z przykładowymi danymi: przychód miesiąca, obłożenie lokali, lista płatności i statusy najmu.">
+        </div>
+        <figcaption><span>Rzeczywisty interfejs aplikacji · wyłącznie fikcyjne dane<span class="preview-swipe-hint"> · Przesuń obraz w bok</span></span><a href="${publicAsset('dashboard-preview.png')}" target="_blank" rel="noopener">Otwórz pełny obraz ↗</a></figcaption>
+      </figure>
+    </div></section>
 
     <section class="section feature-section" id="funkcje" aria-labelledby="features-title"><div class="container">
       <div class="section-heading"><span class="eyebrow">CO ZROBI PROPERTYAPP</span><h2 id="features-title">Codzienna obsługa najmu bez chaosu</h2><p>Najważniejsze informacje o wynajmie są połączone z właściwą nieruchomością, lokalem i najemcą.</p></div>

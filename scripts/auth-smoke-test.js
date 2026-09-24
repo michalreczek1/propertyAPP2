@@ -114,6 +114,15 @@ async function main() {
     rootHtml.includes('<meta name="description"') && rootHtml.includes('content="index,follow"'),
     'landing page SEO metadata missing',
   );
+  expect(
+    rootHtml.includes('id="podglad"') && rootHtml.includes('wyłącznie fikcyjne dane'),
+    'dashboard preview section missing',
+  );
+  const preview = await fetch(base + '/dashboard-preview.png');
+  expect(
+    preview.ok && (preview.headers.get('content-type') || '').includes('image/png'),
+    'public dashboard preview missing',
+  );
   const robots = await fetch(base + '/robots.txt');
   expect(robots.ok && (await robots.text()).includes('Sitemap:'), 'robots.txt missing');
   const sitemap = await fetch(base + '/sitemap.xml');
@@ -123,6 +132,17 @@ async function main() {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     await page.goto(base + '/');
     await page.locator('#hero-title').waitFor();
+    const previewImage = page.locator('.preview-scroll img');
+    await previewImage.scrollIntoViewIfNeeded();
+    expect(
+      await previewImage.evaluate((img) => img.complete && img.naturalWidth > 0),
+      'dashboard preview image did not load',
+    );
+    expect(
+      await page.locator('.preview-scroll').evaluate((el) => el.scrollWidth > el.clientWidth),
+      'mobile dashboard preview cannot be panned',
+    );
+    await page.locator('#hero-title').scrollIntoViewIfNeeded();
     expect(await page.locator('#hero-title').isVisible(), 'landing hero is not visible on mobile');
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
