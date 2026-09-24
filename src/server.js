@@ -99,6 +99,11 @@ app.get('/propertyapp-logo.svg', (_req, res) => {
   res.type('image/svg+xml');
   res.sendFile(path.join(PUBLIC_DIR, 'propertyapp-logo.svg'));
 });
+app.get('/propertyapp-email-logo.png', (_req, res) => {
+  immutableAsset(res);
+  res.type('image/png');
+  res.sendFile(path.join(PUBLIC_DIR, 'propertyapp-email-logo.png'));
+});
 app.get('/dashboard-preview.png', (_req, res) => {
   immutableAsset(res);
   res.type('image/png');

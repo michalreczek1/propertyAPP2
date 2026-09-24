@@ -15,6 +15,17 @@ const form = document.getElementById('login-form');
 const err = document.getElementById('login-error');
 const registerForm = document.getElementById('register-form');
 const registerError = document.getElementById('register-error');
+document.querySelectorAll('.password-toggle').forEach((button) => {
+  button.addEventListener('click', () => {
+    const input = document.getElementById(button.getAttribute('aria-controls'));
+    if (!input) return;
+    const visible = input.type === 'password';
+    input.type = visible ? 'text' : 'password';
+    button.textContent = visible ? 'Ukryj' : 'Pokaż';
+    button.setAttribute('aria-label', visible ? 'Ukryj hasło' : 'Pokaż hasło');
+    button.setAttribute('aria-pressed', String(visible));
+  });
+});
 function formBody(element) {
   const body = Object.fromEntries(new FormData(element).entries());
   if (body['cf-turnstile-response']) {
@@ -55,7 +66,7 @@ if (registerForm && registerError) {
   registerForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     registerError.className = 'error';
-    const button = registerForm.querySelector('button');
+    const button = registerForm.querySelector('button[type="submit"]');
     button.disabled = true;
     try {
       const body = formBody(registerForm);
@@ -153,7 +164,7 @@ const resetForm = document.getElementById('reset-form');
 if (resetForm) {
   resetForm.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const button = resetForm.querySelector('button');
+    const button = resetForm.querySelector('button[type="submit"]');
     const errorElement = document.getElementById('reset-error');
     errorElement.className = 'error';
     button.disabled = true;
@@ -175,7 +186,7 @@ if (form && err) {
     event.preventDefault();
     err.className = 'error';
     err.textContent = '';
-    const button = form.querySelector('button');
+    const button = form.querySelector('button[type="submit"]');
     button.disabled = true;
     try {
       const body = Object.fromEntries(new FormData(form).entries());

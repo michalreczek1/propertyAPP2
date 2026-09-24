@@ -9,6 +9,7 @@ const bcrypt = require('bcryptjs');
 const Database = require('better-sqlite3');
 const { chromium } = require('@playwright/test');
 const { spawn, spawnSync } = require('child_process');
+const { buildAccountEmail } = require('../src/services/account-email');
 
 const ROOT = path.join(__dirname, '..');
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'propertyapp-auth-'));
@@ -101,6 +102,21 @@ async function stopServer() {
 }
 
 async function main() {
+  for (const [purpose, pathSegment] of [
+    ['verify', 'verify-email'],
+    ['reset', 'forgot-password'],
+  ]) {
+    const mail = buildAccountEmail(purpose, '123456');
+    expect(
+      mail.html.includes('PropertyApp') && mail.html.includes('propertyapp-email-logo.png'),
+      'branded email is missing',
+    );
+    expect(
+      mail.html.includes(`/` + pathSegment) && mail.text.includes(`/` + pathSegment),
+      'email action link is missing',
+    );
+    expect(mail.html.includes('123456') && mail.text.includes('123456'), 'email code is missing');
+  }
   runNode('scripts/migrate.js');
   await startServer();
 
@@ -128,6 +144,11 @@ async function main() {
   expect(
     preview.ok && (preview.headers.get('content-type') || '').includes('image/png'),
     'public dashboard preview missing',
+  );
+  const emailLogo = await fetch(base + '/propertyapp-email-logo.png');
+  expect(
+    emailLogo.ok && (emailLogo.headers.get('content-type') || '').includes('image/png'),
+    'email logo missing',
   );
   const robots = await fetch(base + '/robots.txt');
   expect(robots.ok && (await robots.text()).includes('Sitemap:'), 'robots.txt missing');
@@ -180,6 +201,16 @@ async function main() {
     await page.locator('#register-form input[name="username"]').fill('ui_owner');
     await page.locator('#register-form input[name="email"]').fill('ui-owner@example.test');
     await page.locator('#register-form input[name="password"]').fill('a-long-ui-password');
+    const registerPassword = page.locator('#register-form input[name="password"]');
+    const registerToggle = page.locator('#register-form .password-toggle');
+    await registerToggle.click();
+    expect((await registerPassword.getAttribute('type')) === 'text', 'registration password was not shown');
+    expect((await registerPassword.inputValue()) === 'a-long-ui-password', 'registration password changed');
+    await registerToggle.click();
+    expect(
+      (await registerPassword.getAttribute('type')) === 'password',
+      'registration password was not hidden',
+    );
     await page.locator('#register-form').evaluate((form) => {
       const token = document.createElement('input');
       token.type = 'hidden';
@@ -187,7 +218,7 @@ async function main() {
       token.value = 'test-turnstile';
       form.append(token);
     });
-    await page.locator('#register-form button').click();
+    await page.locator('#register-form button[type="submit"]').click();
     await page.waitForURL('**/verify-email?email=ui-owner%40example.test');
     await page.locator('#verify-form input[name="code"]').fill('123456');
     await page.locator('#verify-form button').click();
@@ -210,10 +241,19 @@ async function main() {
     expect(await page.locator('#forgot-success').isVisible(), 'browser reset code request failed');
     await page.locator('#reset-form input[name="code"]').fill('123456');
     await page.locator('#reset-form input[name="password"]').fill('a-new-ui-password');
-    await page.locator('#reset-form button').click();
+    await page.locator('#reset-form .password-toggle').click();
+    expect(
+      (await page.locator('#reset-form input[name="password"]').getAttribute('type')) === 'text',
+      'reset password was not shown',
+    );
+    await page.locator('#reset-form button[type="submit"]').click();
     await page.locator('#reset-success').waitFor({ state: 'visible' });
     expect(await page.locator('#reset-success').isVisible(), 'browser password reset failed');
     await page.goto(base + '/');
+    const loginPassword = page.locator('#login-form input[name="password"]');
+    await loginPassword.fill('login-password-preview');
+    await page.locator('#login-form .password-toggle').click();
+    expect((await loginPassword.getAttribute('type')) === 'text', 'login password was not shown');
     await page.setViewportSize({ width: 1440, height: 900 });
     const thumbnail = await page.locator('.dashboard-preview').boundingBox();
     const previewCopy = await page.locator('.preview-section .section-heading').boundingBox();

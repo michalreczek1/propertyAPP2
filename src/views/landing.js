@@ -33,6 +33,10 @@ function turnstileScript() {
   return '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>';
 }
 
+function passwordField(id, label, autocomplete, attributes = '') {
+  return `<div class="password-group"><label for="${id}">${label}</label><div class="password-field"><input id="${id}" name="password" type="password" autocomplete="${autocomplete}" ${attributes}><button class="password-toggle" type="button" aria-label="Pokaż hasło" aria-controls="${id}" aria-pressed="false">Pokaż</button></div></div>`;
+}
+
 function renderLanding({
   configMissing,
   registrationEnabled,
@@ -90,7 +94,7 @@ function renderLanding({
         <form id="login-form" data-next="${encodedNext}">
           <div class="error${configMissing ? ' on' : ''}" id="login-error" role="alert">${configMissing ? 'Logowanie nie jest obecnie dostępne.' : ''}</div>
           <label>Login<input name="username" autocomplete="username" required ${configMissing ? 'disabled' : ''}></label>
-          <label>Hasło<input name="password" type="password" autocomplete="current-password" required ${configMissing ? 'disabled' : ''}></label>
+          ${passwordField('login-password', 'Hasło', 'current-password', `required ${configMissing ? 'disabled' : ''}`)}
           <button class="submit" type="submit" ${configMissing ? 'disabled' : ''}>Zaloguj się <span aria-hidden="true">→</span></button>
         </form>
         ${passwordResetEnabled ? '<div class="account-switch"><span>Nie pamiętasz hasła?</span><a href="/forgot-password">Odzyskaj dostęp</a></div>' : ''}
@@ -167,7 +171,7 @@ ${
 <label>Imię lub nazwa<input name="display_name" autocomplete="name" required maxlength="120"></label>
 <label>Login<input name="username" autocomplete="username" required minlength="3" maxlength="64" pattern="[a-zA-Z0-9._-]+"></label>
 <label>Adres e-mail<input name="email" type="email" autocomplete="email" required maxlength="254"></label>
-<label>Hasło (minimum 12 znaków)<input name="password" type="password" autocomplete="new-password" required minlength="12" maxlength="200"></label>
+${passwordField('register-password', 'Hasło (minimum 12 znaków)', 'new-password', 'required minlength="12" maxlength="200"')}
 ${turnstile(turnstileSiteKey)}
 <button class="submit" type="submit">Wyślij zgłoszenie <span aria-hidden="true">→</span></button></form>
 <div id="register-success" class="register-success" role="status" hidden><h2>Sprawdź pocztę</h2><p>Wysłaliśmy kod potwierdzający na Twój adres e-mail.</p><a class="primary-link" href="/verify-email">Wpisz kod</a></div>`
@@ -211,7 +215,7 @@ function renderPasswordReset({ passwordResetEnabled, turnstileSiteKey }) {
     kicker: 'TWOJE KONTO',
     intro: 'Wyślemy kod na adres e-mail przypisany do konta. Kod jest ważny przez 10 minut.',
     includeTurnstile: true,
-    body: `<form id="forgot-form"><div class="error" id="forgot-error" role="alert"></div><label>Adres e-mail<input name="email" type="email" autocomplete="email" required></label>${turnstile(turnstileSiteKey)}<button class="submit" type="submit">Wyślij kod <span aria-hidden="true">→</span></button></form><div id="forgot-success" class="register-success" role="status" hidden>Jeśli ten adres należy do aktywnego konta, wysłaliśmy kod. Sprawdź pocztę.</div><form id="reset-form"><div class="error" id="reset-error" role="alert"></div><label>Adres e-mail<input name="email" type="email" autocomplete="email" required></label><label>Kod z wiadomości<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label><label>Nowe hasło (minimum 12 znaków)<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="200" required></label><button class="submit" type="submit">Ustaw nowe hasło <span aria-hidden="true">→</span></button></form><div id="reset-success" class="register-success" role="status" hidden><h2>Hasło zmienione</h2><p>Zaloguj się nowym hasłem.</p><a class="primary-link" href="/login#konto">Przejdź do logowania</a></div>`,
+    body: `<form id="forgot-form"><div class="error" id="forgot-error" role="alert"></div><label>Adres e-mail<input name="email" type="email" autocomplete="email" required></label>${turnstile(turnstileSiteKey)}<button class="submit" type="submit">Wyślij kod <span aria-hidden="true">→</span></button></form><div id="forgot-success" class="register-success" role="status" hidden>Jeśli ten adres należy do aktywnego konta, wysłaliśmy kod. Sprawdź pocztę.</div><form id="reset-form"><div class="error" id="reset-error" role="alert"></div><label>Adres e-mail<input name="email" type="email" autocomplete="email" required></label><label>Kod z wiadomości<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label>${passwordField('reset-password', 'Nowe hasło (minimum 12 znaków)', 'new-password', 'minlength="12" maxlength="200" required')}<button class="submit" type="submit">Ustaw nowe hasło <span aria-hidden="true">→</span></button></form><div id="reset-success" class="register-success" role="status" hidden><h2>Hasło zmienione</h2><p>Zaloguj się nowym hasłem.</p><a class="primary-link" href="/login#konto">Przejdź do logowania</a></div>`,
   });
 }
 

@@ -241,6 +241,31 @@ input:focus-visible {
 .account-card input:focus {
   border-color: #8b5cf6;
 }
+.password-field {
+  position: relative;
+  margin-top: 8px;
+}
+.account-card .password-field input {
+  margin-top: 0;
+  padding-right: 84px;
+}
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #bcb6ed;
+  padding: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.password-toggle:hover {
+  color: #fff;
+  background: #272747;
+}
 .submit {
   border: 0;
   border-radius: 9px;
