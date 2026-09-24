@@ -321,13 +321,21 @@ input:focus-visible {
 .preview-section {
   padding-top: 78px;
 }
+.preview-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 560px);
+  align-items: center;
+  gap: 64px;
+}
 .preview-section .section-heading {
-  text-align: center;
-  margin-inline: auto;
+  max-width: 470px;
+  margin: 0;
+  text-align: left;
 }
 .dashboard-preview {
-  max-width: 600px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: 560px;
+  margin: 0;
   overflow: hidden;
   border: 1px solid #303052;
   border-radius: 18px;
@@ -550,6 +558,13 @@ input:focus-visible {
   padding-block: 24px;
 }
 @media (max-width: 900px) {
+  .preview-layout {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+  .dashboard-preview {
+    margin-inline: auto;
+  }
   .hero {
     grid-template-columns: 1fr;
     gap: 44px;

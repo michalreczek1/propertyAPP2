@@ -169,7 +169,12 @@ async function main() {
     await page.goto(base + '/');
     await page.setViewportSize({ width: 1440, height: 900 });
     const thumbnail = await page.locator('.dashboard-preview').boundingBox();
+    const previewCopy = await page.locator('.preview-section .section-heading').boundingBox();
     expect(thumbnail && thumbnail.width <= 600, 'dashboard thumbnail is too wide');
+    expect(
+      previewCopy && previewCopy.x + previewCopy.width < thumbnail.x,
+      'dashboard description is not left of the thumbnail',
+    );
     await page.locator('#preview-open').click();
     const popup = await page.locator('#dashboard-dialog').boundingBox();
     expect(popup && popup.width > thumbnail.width, 'dashboard popup is not larger than thumbnail');
