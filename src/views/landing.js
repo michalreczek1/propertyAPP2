@@ -70,23 +70,6 @@ function renderLanding({ configMissing, registrationEnabled, encodedNext, isLogi
       </div>
     </section>
 
-    <section class="section preview-section" id="podglad" aria-labelledby="preview-title"><div class="container">
-      <div class="preview-layout">
-        <div class="section-heading"><span class="eyebrow">TAK WYGLĄDA PROPERTYAPP</span><h2 id="preview-title">Zajrzyj do środka</h2><p>To zrzut ekranu działającego dashboardu. Dane na obrazie są przykładowe i zostały przygotowane wyłącznie do prezentacji.</p></div>
-        <figure class="dashboard-preview">
-          <button class="preview-trigger" id="preview-open" type="button" aria-haspopup="dialog" aria-controls="dashboard-dialog" aria-label="Powiększ podgląd dashboardu PropertyApp">
-            <img src="${publicAsset('dashboard-preview.png')}" width="2880" height="1800" loading="lazy" alt="Dashboard PropertyApp z przykładowymi danymi: przychód miesiąca, obłożenie lokali, lista płatności i statusy najmu.">
-          </button>
-          <figcaption>Rzeczywisty interfejs · fikcyjne dane · kliknij, aby powiększyć</figcaption>
-        </figure>
-      </div>
-      <dialog class="preview-dialog" id="dashboard-dialog" aria-label="Powiększony podgląd dashboardu PropertyApp">
-        <div class="preview-dialog-head"><strong>Dashboard PropertyApp</strong><button id="preview-close" type="button" aria-label="Zamknij podgląd">Zamknij ×</button></div>
-        <div class="preview-dialog-scroll" tabindex="0" role="region" aria-label="Powiększony obraz dashboardu, przewijany poziomo na telefonie"><img src="${publicAsset('dashboard-preview.png')}" width="2880" height="1800" alt="Dashboard PropertyApp z fikcyjnymi danymi o płatnościach i obłożeniu lokali."></div>
-        <p class="preview-dialog-note">Zrzut z działającej aplikacji · wyłącznie przykładowe dane<span class="preview-swipe-hint"> · Przesuń obraz w bok</span></p>
-      </dialog>
-    </div></section>
-
     <section class="section feature-section" id="funkcje" aria-labelledby="features-title"><div class="container">
       <div class="section-heading"><span class="eyebrow">CO ZROBI PROPERTYAPP</span><h2 id="features-title">Codzienna obsługa najmu bez chaosu</h2><p>Najważniejsze informacje o wynajmie są połączone z właściwą nieruchomością, lokalem i najemcą.</p></div>
       <div class="feature-grid">
@@ -102,6 +85,23 @@ function renderLanding({ configMissing, registrationEnabled, encodedNext, isLogi
     <section class="section steps-section" id="jak-to-dziala" aria-labelledby="steps-title"><div class="container steps-layout">
       <div class="section-heading"><span class="eyebrow">PROSTY POCZĄTEK</span><h2 id="steps-title">Od pierwszego lokalu do pełnego obrazu najmu</h2><p>Wprowadź dane raz, a potem korzystaj z połączonych widoków i raportów.</p></div>
       <ol class="steps"><li><span>01</span><div><h3>Dodaj nieruchomość i lokal</h3><p>Utwórz strukturę swoich mieszkań lub pokoi.</p></div></li><li><span>02</span><div><h3>Powiąż najemcę i umowę</h3><p>Zapisz warunki najmu oraz dokumenty.</p></div></li><li><span>03</span><div><h3>Kontroluj rozliczenia</h3><p>Oznaczaj wpłaty, dodawaj koszty i sprawdzaj raporty.</p></div></li></ol>
+    </div></section>
+
+    <section class="section preview-section" id="podglad" aria-labelledby="preview-title"><div class="container">
+      <div class="preview-layout">
+        <div class="section-heading"><span class="eyebrow">TAK WYGLĄDA PROPERTYAPP</span><h2 id="preview-title">Zajrzyj do środka</h2><p>Na dashboardzie od razu sprawdzisz przychody, koszty, płatności i obłożenie lokali. W pozostałych widokach znajdziesz nieruchomości, najemców, umowy, dokumenty i raporty.</p></div>
+        <figure class="dashboard-preview">
+          <button class="preview-trigger" id="preview-open" type="button" aria-haspopup="dialog" aria-controls="dashboard-dialog" aria-label="Powiększ podgląd dashboardu PropertyApp">
+            <img src="${publicAsset('dashboard-preview.png')}" width="2880" height="1800" loading="lazy" alt="Dashboard PropertyApp z przykładowymi danymi: przychód miesiąca, obłożenie lokali, lista płatności i statusy najmu.">
+          </button>
+          <figcaption>Kliknij miniaturę, aby powiększyć</figcaption>
+        </figure>
+      </div>
+      <dialog class="preview-dialog" id="dashboard-dialog" aria-label="Powiększony podgląd dashboardu PropertyApp">
+        <div class="preview-dialog-head"><strong>Dashboard PropertyApp</strong><button id="preview-close" type="button" aria-label="Zamknij podgląd">Zamknij ×</button></div>
+        <div class="preview-dialog-scroll" tabindex="0" role="region" aria-label="Powiększony obraz dashboardu, przewijany poziomo na telefonie"><img src="${publicAsset('dashboard-preview.png')}" width="2880" height="1800" alt="Dashboard PropertyApp z przykładowymi danymi o płatnościach i obłożeniu lokali."></div>
+        <p class="preview-dialog-note">Podgląd dashboardu PropertyApp<span class="preview-swipe-hint"> · Przesuń obraz w bok</span></p>
+      </dialog>
     </div></section>
 
     <section class="section faq-section" id="pytania" aria-labelledby="faq-title"><div class="container">

@@ -115,8 +115,13 @@ async function main() {
     'landing page SEO metadata missing',
   );
   expect(
-    rootHtml.includes('id="podglad"') && rootHtml.includes('fikcyjne dane'),
+    rootHtml.includes('id="podglad"') && rootHtml.includes('Na dashboardzie od razu sprawdzisz'),
     'dashboard preview section missing',
+  );
+  expect(
+    rootHtml.indexOf('id="jak-to-dziala"') < rootHtml.indexOf('id="podglad"') &&
+      rootHtml.indexOf('id="podglad"') < rootHtml.indexOf('id="pytania"'),
+    'dashboard preview is not before the FAQ',
   );
   const preview = await fetch(base + '/dashboard-preview.png');
   expect(
@@ -134,6 +139,10 @@ async function main() {
     await page.locator('#hero-title').waitFor();
     const previewImage = page.locator('.preview-trigger img');
     await previewImage.scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => {
+      const img = document.querySelector('.preview-trigger img');
+      return img?.complete && img.naturalWidth > 0;
+    });
     expect(
       await previewImage.evaluate((img) => img.complete && img.naturalWidth > 0),
       'dashboard preview image did not load',
